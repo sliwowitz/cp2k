@@ -6,6 +6,7 @@
 !--------------------------------------------------------------------------------------------------!
 MODULE fftsg_lib
    USE fft_kinds,                       ONLY: dp
+   USE fft_plan,                        ONLY: FWFFT
    USE mltfftsg_tools,                  ONLY: mltfftsg
 
    IMPLICIT NONE
@@ -14,7 +15,7 @@ MODULE fftsg_lib
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'fftsg_lib'
 
-   PUBLIC :: fftsg_do_init, fftsg_do_cleanup, fftsg_get_lengths, fftsg3d, fftsg1dm
+   PUBLIC :: fftsg_do_init, fftsg_do_cleanup, fftsg_get_lengths, fftsg_3d, fftsg_2d, fftsg_1d
 
 CONTAINS
 
@@ -75,10 +76,10 @@ CONTAINS
 !> \param zin ...
 !> \param zout ...
 ! **************************************************************************************************
-   SUBROUTINE fftsg3d(fft_in_place, fsign, scale, n, zin, zout)
+   SUBROUTINE fftsg_3d(fft_in_place, fsign, scale, n, zin, zout)
 
       LOGICAL, INTENT(IN)                                :: fft_in_place
-      INTEGER, INTENT(INOUT)                             :: fsign
+      INTEGER, INTENT(IN)                                :: fsign
       REAL(KIND=dp), INTENT(IN)                          :: scale
       INTEGER, DIMENSION(*), INTENT(IN)                  :: n
       COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT)      :: zin, zout
@@ -120,7 +121,42 @@ CONTAINS
 
       END IF
 
-   END SUBROUTINE fftsg3d
+   END SUBROUTINE fftsg_3d
+
+! **************************************************************************************************
+!> \brief ...
+!> \param fsign ...
+!> \param trans ...
+!> \param scale ...
+!> \param n ...
+!> \param zin ...
+!> \param zintermed ...
+!> \param zout ...
+! **************************************************************************************************
+   SUBROUTINE fftsg_2d(fsign, trans, scale, n, zin, zintermed, zout)
+
+      INTEGER, INTENT(IN)                                :: fsign
+      LOGICAL, INTENT(IN)                                :: trans
+      REAL(KIND=dp), INTENT(IN)                          :: scale
+      INTEGER, DIMENSION(3), INTENT(IN)                  :: n
+      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT)      :: zin, zintermed, zout
+
+      ! We implement out-of-place FFTs for now
+
+      IF (trans) THEN
+         IF (fsign == FWFFT) THEN
+            CALL mltfftsg("T", "N", zin, n(2)*n(3), n(1), zintermed, n(1), n(2)*n(3), n(1), n(2)*n(3), fsign, scale)
+            CALL mltfftsg("T", "N", zintermed, n(1)*n(3), n(2), zout, n(2), n(1)*n(3), n(2), n(1)*n(3), fsign, 1.0_dp)
+         ELSE
+            CALL mltfftsg("N", "T", zin, n(1), n(2)*n(3), zintermed, n(2)*n(3), n(1), n(1), n(2)*n(3), fsign, scale)
+            CALL mltfftsg("N", "T", zintermed, n(2), n(1)*n(3), zout, n(1)*n(3), n(2), n(2), n(1)*n(3), fsign, 1.0_dp)
+         END IF
+      ELSE
+         CALL mltfftsg("N", "N", zin, n(1), n(2)*n(3), zintermed, n(1), n(2)*n(3), n(1), n(2)*n(3), fsign, scale)
+         CALL mltfftsg("N", "N", zintermed, n(2), n(1)*n(3), zout, n(2), n(1)*n(3), n(2), n(1)*n(3), fsign, 1.0_dp)
+      END IF
+
+   END SUBROUTINE fftsg_2d
 
 ! **************************************************************************************************
 !> \brief ...
@@ -132,9 +168,9 @@ CONTAINS
 !> \param zout ...
 !> \param scale ...
 ! **************************************************************************************************
-   SUBROUTINE fftsg1dm(fsign, trans, n, m, zin, zout, scale)
+   SUBROUTINE fftsg_1d(fsign, trans, n, m, zin, zout, scale)
 
-      INTEGER, INTENT(INOUT)                             :: fsign
+      INTEGER, INTENT(IN)                                :: fsign
       LOGICAL, INTENT(IN)                                :: trans
       INTEGER, INTENT(IN)                                :: n, m
       COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT)      :: zin
@@ -144,7 +180,7 @@ CONTAINS
 !------------------------------------------------------------------------------
 
       IF (trans) THEN
-         IF (fsign > 0) THEN
+         IF (fsign == FWFFT) THEN
             CALL mltfftsg("T", "N", zin, m, n, zout, n, m, n, m, fsign, scale)
          ELSE
             CALL mltfftsg("N", "T", zin, n, m, zout, m, n, n, m, fsign, scale)
@@ -153,7 +189,7 @@ CONTAINS
          CALL mltfftsg("N", "N", zin, n, m, zout, n, m, n, m, fsign, scale)
       END IF
 
-   END SUBROUTINE fftsg1dm
+   END SUBROUTINE fftsg_1d
 
 END MODULE
 

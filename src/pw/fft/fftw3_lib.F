@@ -24,7 +24,7 @@ MODULE fftw3_lib
 #endif
    USE cp_files, ONLY: get_unit_number
    USE fft_kinds, ONLY: dp
-   USE fft_plan, ONLY: fft_plan_type
+   USE fft_plan, ONLY: fft_plan_type, FWFFT, BWFFT
 
 !$ USE OMP_LIB, ONLY: omp_get_max_threads, omp_get_thread_num, omp_get_num_threads
 
@@ -33,9 +33,11 @@ MODULE fftw3_lib
    IMPLICIT NONE
    PRIVATE
 
-   PUBLIC :: fftw3_do_init, fftw3_do_cleanup, fftw3_get_lengths, fftw33d, fftw31dm
-   PUBLIC :: fftw3_destroy_plan, fftw3_create_plan_1dm, fftw3_create_plan_3d
+   PUBLIC :: fftw3_do_init, fftw3_do_cleanup, fftw3_get_lengths, fftw3_3d, fftw3_1d
+   PUBLIC :: fftw3_destroy_plan, fftw3_create_plan_1d, fftw3_create_plan_3d
    PUBLIC :: fftw_alloc, fftw_dealloc
+
+   INTEGER(C_INT), SAVE :: fftw_plan_type = -1_C_INT
 
 #if defined ( __FFTW3 )
 #if defined ( __FFTW3_MKL )
@@ -183,9 +185,10 @@ CONTAINS
 !> \brief ...
 !> \param wisdom_file ...
 ! **************************************************************************************************
-   SUBROUTINE fftw3_do_init(wisdom_file)
+   SUBROUTINE fftw3_do_init(wisdom_file, plan_style)
 
       CHARACTER(LEN=*), INTENT(IN)             :: wisdom_file
+      INTEGER, INTENT(IN) :: plan_style
 
 #if defined ( __FFTW3 )
       CHARACTER(LEN=1, KIND=C_CHAR), DIMENSION(:), ALLOCATABLE :: wisdom_file_name_c
@@ -247,6 +250,19 @@ CONTAINS
          END IF
       END IF
 
+      SELECT CASE (plan_style)
+      CASE (1)
+         fftw_plan_type = FFTW_ESTIMATE
+      CASE (2)
+         fftw_plan_type = FFTW_MEASURE
+      CASE (3)
+         fftw_plan_type = FFTW_PATIENT
+      CASE (4)
+         fftw_plan_type = FFTW_EXHAUSTIVE
+      CASE DEFAULT
+         CPABORT("fftw3_do_init: set plan type")
+      END SELECT
+
 #if defined (__MKL)
       ! Now check if we have a real FFTW3 library, or are using MKL wrappers
 
@@ -277,6 +293,11 @@ CONTAINS
 !$       END IF
 !$    END IF
 #endif
+
+#if defined (__FFTW3_UNALIGNED)
+      fftw_plan_type = fftw_plan_type + FFTW_UNALIGNED
+#endif
+
 #else
       MARK_USED(wisdom_file)
 #endif
@@ -298,9 +319,8 @@ CONTAINS
 !> \author JGH
 ! **************************************************************************************************
    SUBROUTINE fftw3_get_lengths(DATA, max_length)
-
-      INTEGER, DIMENSION(*)                              :: DATA
       INTEGER, INTENT(INOUT)                             :: max_length
+      INTEGER, DIMENSION(max_length)                              :: DATA
 
       INTEGER                                            :: h, i, j, k, m, maxn, maxn_elevens, &
                                                             maxn_fives, maxn_sevens, &
@@ -515,21 +535,24 @@ CONTAINS
    SUBROUTINE fftw3_create_guru_plan(plan, fft_rank, dim_n, &
                                      dim_istride, dim_ostride, hm_rank, &
                                      hm_n, hm_istride, hm_ostride, &
-                                     zin, zout, fft_direction, fftw_plan_type, &
+                                     zin, zout, fft_direction, &
                                      valid)
 
-      IMPLICIT NONE
-
       TYPE(C_PTR), INTENT(INOUT)                         :: plan
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT)      :: zin, zout
+      COMPLEX(KIND=dp), DIMENSION(:), CONTIGUOUS, INTENT(INOUT)      :: zin, zout
       INTEGER, INTENT(IN) :: dim_n(2), dim_istride(2), dim_ostride(2), &
                              hm_n(2), hm_istride(2), hm_ostride(2), fft_rank, &
-                             fft_direction, fftw_plan_type, hm_rank
+                             fft_direction, hm_rank
       LOGICAL, INTENT(OUT)                               :: valid
 
 #if defined (__FFTW3)
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fftw3_create_guru_plan'
+
+      INTEGER :: handle
       TYPE(fftw_iodim) :: dim(2), hm(2)
       INTEGER :: i
+
+      CALL timeset(routineN, handle)
 
       DO i = 1, 2
          DIM(i) = fftw_iodim(dim_n(i), dim_istride(i), dim_ostride(i))
@@ -543,6 +566,8 @@ CONTAINS
 
       valid = C_ASSOCIATED(plan)
 
+      CALL timestop(handle)
+
 #else
       MARK_USED(plan)
       MARK_USED(fft_rank)
@@ -555,8 +580,8 @@ CONTAINS
       MARK_USED(hm_ostride)
       MARK_USED(fft_direction)
       MARK_USED(fftw_plan_type)
-      !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
+      MARK_USED(zin)
+      MARK_USED(zout)
       valid = .FALSE.
 
 #endif
@@ -571,15 +596,13 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION fftw3_is_mkl_wrapper() RESULT(is_mkl)
 
-      IMPLICIT NONE
-
       LOGICAL :: is_mkl
 #if defined ( __FFTW3 )
       LOGICAL :: guru_supported
       INTEGER :: dim_n(2), dim_istride(2), dim_ostride(2), &
                  howmany_n(2), howmany_istride(2), howmany_ostride(2)
       TYPE(C_PTR)                          :: test_plan
-      COMPLEX(KIND=dp), DIMENSION(1, 1, 1) :: zin
+      COMPLEX(KIND=dp), DIMENSION(1) :: zin
 
       ! Attempt to create a plan with the guru interface for a 2d sub-space
       ! If this fails (e.g. for MKL's FFTW3 interface), fall back to the
@@ -600,8 +623,7 @@ CONTAINS
       CALL fftw3_create_guru_plan(test_plan, 1, &
                                   dim_n, dim_istride, dim_ostride, &
                                   2, howmany_n, howmany_istride, howmany_ostride, &
-                                  zin, zin, &
-                                  FFTW_FORWARD, FFTW_ESTIMATE, guru_supported)
+                                  zin, zin, FFTW_FORWARD, guru_supported)
       IF (guru_supported) THEN
          CALL fftw_destroy_plan(test_plan)
          is_mkl = .FALSE.
@@ -667,20 +689,23 @@ CONTAINS
 !> \param rows_per_th_r ...
 ! **************************************************************************************************
    SUBROUTINE fftw3_create_3d_plans(plan, plan_r, dim_n, dim_istride, dim_ostride, &
-                                    hm_n, hm_istride, hm_ostride, &
-                                    input, output, &
-                                    fft_direction, fftw_plan_type, rows_per_th, &
-                                    rows_per_th_r)
+                                    hm_n, hm_istride, hm_ostride, input, output, &
+                                    fft_direction, rows_per_th, rows_per_th_r)
 
       TYPE(C_PTR), INTENT(INOUT)                         :: plan, plan_r
       INTEGER, INTENT(INOUT)                             :: dim_n(2), dim_istride(2), &
                                                             dim_ostride(2), hm_n(2), &
                                                             hm_istride(2), hm_ostride(2)
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT)      :: input, output
-      INTEGER, INTENT(INOUT)                             :: fft_direction, fftw_plan_type
+      COMPLEX(KIND=dp), DIMENSION(:), CONTIGUOUS, INTENT(INOUT)      :: input, output
+      INTEGER, INTENT(IN)                                :: fft_direction
       INTEGER, INTENT(IN)                                :: rows_per_th, rows_per_th_r
 
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fftw3_create_3d_plans'
+
+      INTEGER :: handle
       LOGICAL                                            :: valid
+
+      CALL timeset(routineN, handle)
 
 ! First plans will have an additional row
 
@@ -688,8 +713,7 @@ CONTAINS
       CALL fftw3_create_guru_plan(plan, 1, &
                                   dim_n, dim_istride, dim_ostride, &
                                   2, hm_n, hm_istride, hm_ostride, &
-                                  input, output, &
-                                  fft_direction, fftw_plan_type, valid)
+                                  input, output, fft_direction, valid)
 
       IF (.NOT. valid) THEN
          CPABORT("fftw3_create_plan")
@@ -700,11 +724,12 @@ CONTAINS
       CALL fftw3_create_guru_plan(plan_r, 1, &
                                   dim_n, dim_istride, dim_ostride, &
                                   2, hm_n, hm_istride, hm_ostride, &
-                                  input, output, &
-                                  fft_direction, fftw_plan_type, valid)
+                                  input, output, fft_direction, valid)
       IF (.NOT. valid) THEN
          CPABORT("fftw3_create_plan (remaining)")
       END IF
+
+      CALL timestop(handle)
 
    END SUBROUTINE
 
@@ -715,20 +740,19 @@ CONTAINS
 !> \param plan ...
 !> \param zin ...
 !> \param zout ...
-!> \param plan_style ...
 ! **************************************************************************************************
-   SUBROUTINE fftw3_create_plan_3d(plan, zin, zout, plan_style)
+   SUBROUTINE fftw3_create_plan_3d(plan, zin, zout)
 
-      TYPE(fft_plan_type), INTENT(INOUT)              :: plan
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT)      :: zin
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT)      :: zout
-      INTEGER                                            :: plan_style
+      TYPE(fft_plan_type), INTENT(INOUT)                 :: plan
+      COMPLEX(KIND=dp), DIMENSION(PRODUCT(plan%n_3d)), INTENT(INOUT)      :: zin, zout
 #if defined ( __FFTW3 )
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fftw3_create_plan_3d'
+
+      INTEGER :: handle
       INTEGER                                            :: n1, n2, n3
       INTEGER                                            :: nt
       INTEGER                                            :: rows_per_th
       INTEGER                                            :: rows_per_th_r
-      INTEGER                                            :: fft_direction
       INTEGER                                            :: th_planA, th_planB
       COMPLEX(KIND=dp), ALLOCATABLE                      :: tmp(:)
 
@@ -736,29 +760,7 @@ CONTAINS
       INTEGER :: dim_n(2), dim_istride(2), dim_ostride(2), &
                  howmany_n(2), howmany_istride(2), howmany_ostride(2)
 
-      INTEGER :: fftw_plan_type
-      SELECT CASE (plan_style)
-      CASE (1)
-         fftw_plan_type = FFTW_ESTIMATE
-      CASE (2)
-         fftw_plan_type = FFTW_MEASURE
-      CASE (3)
-         fftw_plan_type = FFTW_PATIENT
-      CASE (4)
-         fftw_plan_type = FFTW_EXHAUSTIVE
-      CASE DEFAULT
-         CPABORT("fftw3_create_plan_3d")
-      END SELECT
-
-#if defined (__FFTW3_UNALIGNED)
-      fftw_plan_type = fftw_plan_type + FFTW_UNALIGNED
-#endif
-
-      IF (plan%fsign == +1) THEN
-         fft_direction = FFTW_FORWARD
-      ELSE
-         fft_direction = FFTW_BACKWARD
-      END IF
+      CALL timeset(routineN, handle)
 
       n1 = plan%n_3d(1)
       n2 = plan%n_3d(2)
@@ -772,7 +774,11 @@ CONTAINS
 !$OMP END PARALLEL
 
       IF ((fftw3_is_mkl_wrapper()) .OR. &
-          (.NOT. plan_style == 1) .OR. &
+#if defined (__FFTW3_UNALIGNED)
+          (.NOT. fftw_plan_type == 1_C_INT + FFTW_UNALIGNED) .OR. &
+#else
+          (.NOT. fftw_plan_type == 1_C_INT) .OR. &
+#endif
           (n1 < 256 .AND. n2 < 256 .AND. n3 < 256 .AND. nt == 1)) THEN
          ! If the plan type is MEASURE, PATIENT and EXHAUSTIVE or
          ! the grid size is small (and we are single-threaded) then
@@ -783,9 +789,11 @@ CONTAINS
 !$       CALL fftw_plan_with_nthreads(nt)
 
          IF (plan%fft_in_place) THEN
-            plan%fftw_plan = fftw_plan_dft_3d(n3, n2, n1, zin, zin, fft_direction, fftw_plan_type)
+            plan%fftw_plan_fw = fftw_plan_dft_3d(n3, n2, n1, zin, zin, FFTW_FORWARD, fftw_plan_type)
+            plan%fftw_plan_bw = fftw_plan_dft_3d(n3, n2, n1, zin, zin, FFTW_BACKWARD, fftw_plan_type)
          ELSE
-            plan%fftw_plan = fftw_plan_dft_3d(n3, n2, n1, zin, zout, fft_direction, fftw_plan_type)
+            plan%fftw_plan_fw = fftw_plan_dft_3d(n3, n2, n1, zin, zout, FFTW_FORWARD, fftw_plan_type)
+            plan%fftw_plan_bw = fftw_plan_dft_3d(n3, n2, n1, zin, zout, FFTW_BACKWARD, fftw_plan_type)
          END IF
       ELSE
          ALLOCATE (tmp(n1*n2*n3))
@@ -825,11 +833,15 @@ CONTAINS
          howmany_istride(2) = n1*n2
          howmany_ostride(1) = 1
          howmany_ostride(2) = n1*n2
-         CALL fftw3_create_3d_plans(plan%fftw_plan_nx, plan%fftw_plan_nx_r, &
+         CALL fftw3_create_3d_plans(plan%fftw_plan_nx_fw, plan%fftw_plan_nx_r_fw, &
                                     dim_n, dim_istride, dim_ostride, howmany_n, &
                                     howmany_istride, howmany_ostride, &
-                                    zin, tmp, &
-                                    fft_direction, fftw_plan_type, rows_per_th, &
+                                    zin, tmp, FFTW_FORWARD, rows_per_th, &
+                                    rows_per_th_r)
+         CALL fftw3_create_3d_plans(plan%fftw_plan_nx_bw, plan%fftw_plan_nx_r_bw, &
+                                    dim_n, dim_istride, dim_ostride, howmany_n, &
+                                    howmany_istride, howmany_ostride, &
+                                    zin, tmp, FFTW_BACKWARD, rows_per_th, &
                                     rows_per_th_r)
 
          !!!! Plan for Y : M(n3,n1,n2) -> fftw(y) -> M(n1,n2,n3)
@@ -846,11 +858,15 @@ CONTAINS
          howmany_ostride(1) = n2*n3
          howmany_ostride(2) = 1
 
-         CALL fftw3_create_3d_plans(plan%fftw_plan_ny, plan%fftw_plan_ny_r, &
+         CALL fftw3_create_3d_plans(plan%fftw_plan_ny_fw, plan%fftw_plan_ny_r_fw, &
                                     dim_n, dim_istride, dim_ostride, &
                                     howmany_n, howmany_istride, howmany_ostride, &
-                                    tmp, zin, &
-                                    fft_direction, fftw_plan_type, rows_per_th, &
+                                    tmp, zin, FFTW_FORWARD, rows_per_th, &
+                                    rows_per_th_r)
+         CALL fftw3_create_3d_plans(plan%fftw_plan_ny_bw, plan%fftw_plan_ny_r_bw, &
+                                    dim_n, dim_istride, dim_ostride, &
+                                    howmany_n, howmany_istride, howmany_ostride, &
+                                    tmp, zin, FFTW_BACKWARD, rows_per_th, &
                                     rows_per_th_r)
 
          !!!! Plan for Z : M(n1,n2,n3) -> fftw(z) -> M(n1,n2,n3)
@@ -866,11 +882,15 @@ CONTAINS
          howmany_ostride(1) = n3     ! To transpose: n1
          howmany_ostride(2) = n2*n3  ! To transpose: 1
 
-         CALL fftw3_create_3d_plans(plan%fftw_plan_nz, plan%fftw_plan_nz_r, &
+         CALL fftw3_create_3d_plans(plan%fftw_plan_nz_fw, plan%fftw_plan_nz_r_fw, &
                                     dim_n, dim_istride, dim_ostride, &
                                     howmany_n, howmany_istride, howmany_ostride, &
-                                    zin, tmp, &
-                                    fft_direction, fftw_plan_type, rows_per_th, &
+                                    zin, tmp, FFTW_FORWARD, rows_per_th, &
+                                    rows_per_th_r)
+         CALL fftw3_create_3d_plans(plan%fftw_plan_nz_bw, plan%fftw_plan_nz_r_bw, &
+                                    dim_n, dim_istride, dim_ostride, &
+                                    howmany_n, howmany_istride, howmany_ostride, &
+                                    zin, tmp, FFTW_BACKWARD, rows_per_th, &
                                     rows_per_th_r)
 
          plan%separated_plans = .TRUE.
@@ -878,11 +898,11 @@ CONTAINS
          DEALLOCATE (tmp)
       END IF
 
+      CALL timestop(handle)
 #else
       MARK_USED(plan)
-      MARK_USED(plan_style)
-      !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
+      MARK_USED(zin)
+      MARK_USED(zout)
 #endif
 
    END SUBROUTINE fftw3_create_plan_3d
@@ -904,14 +924,19 @@ CONTAINS
    SUBROUTINE fftw3_workshare_execute_dft(plan, plan_r, split_dim, nt, tid, &
                                           input, istride, output, ostride)
 
-      INTEGER, INTENT(IN)                           :: split_dim, nt, tid
-      INTEGER, INTENT(IN)                           :: istride, ostride
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT) :: input, output
+      INTEGER, INTENT(IN)                           :: split_dim, nt, tid, istride, ostride
+      COMPLEX(KIND=dp), DIMENSION(split_dim*istride), INTENT(INOUT) :: input
+      COMPLEX(KIND=dp), DIMENSION(split_dim*ostride), INTENT(INOUT) :: output
       TYPE(C_PTR)                                   :: plan, plan_r
 #if defined (__FFTW3)
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fftw3_workshare_execute_dft'
+
+      INTEGER :: handle
       INTEGER                                     :: i_off, o_off
       INTEGER                                     :: th_planA, th_planB
       INTEGER :: rows_per_thread, rows_per_thread_r
+
+      CALL timeset(routineN, handle)
 
       CALL fftw3_compute_rows_per_th(split_dim, nt, rows_per_thread, &
                                      rows_per_thread_r, &
@@ -944,6 +969,8 @@ CONTAINS
                                output(o_off))
 
       END IF
+
+      CALL timestop(handle)
 #else
       MARK_USED(plan)
       MARK_USED(plan_r)
@@ -952,8 +979,8 @@ CONTAINS
       MARK_USED(tid)
       MARK_USED(istride)
       MARK_USED(ostride)
-      !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(input(1)) > ABS(output(1))) EXIT; END DO; END IF
+      MARK_USED(input)
+      MARK_USED(output)
 #endif
 
    END SUBROUTINE
@@ -968,19 +995,24 @@ CONTAINS
 !> \param zout ...
 !> \param stat ...
 ! **************************************************************************************************
-   SUBROUTINE fftw33d(plan, scale, zin, zout, stat)
+   SUBROUTINE fftw3_3d(plan, fsign, scale, zin, zout, stat)
 
       TYPE(fft_plan_type), INTENT(IN)                      :: plan
+      INTEGER, INTENT(IN)                                  :: fsign
       REAL(KIND=dp), INTENT(IN)                            :: scale
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT), TARGET:: zin
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT), TARGET:: zout
+      COMPLEX(KIND=dp), DIMENSION(PRODUCT(plan%n_3d)), INTENT(INOUT), TARGET :: zin, zout
       INTEGER, INTENT(OUT)                                 :: stat
 #if defined ( __FFTW3 )
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fftw3_3d'
+
+      INTEGER :: handle
       COMPLEX(KIND=dp), POINTER                            :: xout(:)
       COMPLEX(KIND=dp), ALLOCATABLE                        :: tmp1(:)
       INTEGER                                              :: n1, n2, n3
       INTEGER                                              :: tid, nt
       INTEGER                                              :: i, j, k
+
+      CALL timeset(routineN, handle)
 
       n1 = plan%n_3d(1)
       n2 = plan%n_3d(2)
@@ -997,58 +1029,78 @@ CONTAINS
 
       ! Either compute the full 3D FFT using a multithreaded plan
       IF (.NOT. plan%separated_plans) THEN
-         CALL fftw_execute_dft(plan%fftw_plan, zin, xout)
+      IF (fsign == FWFFT) THEN
+         CALL fftw_execute_dft(plan%fftw_plan_fw, zin, xout)
       ELSE
-         ! Or use the 3 stage FFT scheme described in fftw3_create_plan_3d
-         ALLOCATE (tmp1(n1*n2*n3))   ! Temporary vector used for transpositions
-         !$OMP PARALLEL DEFAULT(NONE) PRIVATE(tid,nt,i,j,k) SHARED(zin,tmp1,n1,n2,n3,plan,xout)
-         tid = 0
-         nt = 1
+         CALL fftw_execute_dft(plan%fftw_plan_bw, zin, xout)
+      END IF
+      ELSE
+      ! Or use the 3 stage FFT scheme described in fftw3_create_plan_3d
+      ALLOCATE (tmp1(n1*n2*n3))   ! Temporary vector used for transpositions
+      !$OMP PARALLEL DEFAULT(NONE) PRIVATE(tid,nt,i,j,k) SHARED(zin,tmp1,n1,n2,n3,plan,xout,fsign)
+      tid = 0
+      nt = 1
 
-!$       tid = omp_get_thread_num()
-!$       nt = omp_get_num_threads()
-         CALL fftw3_workshare_execute_dft(plan%fftw_plan_nx, plan%fftw_plan_nx_r, &
+!$    tid = omp_get_thread_num()
+!$    nt = omp_get_num_threads()
+      IF (fsign == FWFFT) THEN
+         CALL fftw3_workshare_execute_dft(plan%fftw_plan_nx_fw, plan%fftw_plan_nx_r_fw, &
                                           n3, nt, tid, &
                                           zin, n1*n2, tmp1, n1*n2)
 
          !$OMP BARRIER
-         CALL fftw3_workshare_execute_dft(plan%fftw_plan_ny, plan%fftw_plan_ny_r, &
+         CALL fftw3_workshare_execute_dft(plan%fftw_plan_ny_fw, plan%fftw_plan_ny_r_fw, &
                                           n3, nt, tid, &
                                           tmp1, n1*n2, xout, 1)
          !$OMP BARRIER
-         CALL fftw3_workshare_execute_dft(plan%fftw_plan_nz, plan%fftw_plan_nz_r, &
+         CALL fftw3_workshare_execute_dft(plan%fftw_plan_nz_fw, plan%fftw_plan_nz_r_fw, &
                                           n1, nt, tid, &
                                           xout, n2*n3, tmp1, n2*n3)
-         !$OMP BARRIER
+      ELSE
+         CALL fftw3_workshare_execute_dft(plan%fftw_plan_nx_bw, plan%fftw_plan_nx_r_bw, &
+                                          n3, nt, tid, &
+                                          zin, n1*n2, tmp1, n1*n2)
 
-         !$OMP DO COLLAPSE(3)
-         DO i = 1, n1
-            DO j = 1, n2
-               DO k = 1, n3
-                  xout((i - 1) + (j - 1)*n1 + (k - 1)*n1*n2 + 1) = &
-                     tmp1((k - 1) + (j - 1)*n3 + (i - 1)*n3*n2 + 1)
-               END DO
+         !$OMP BARRIER
+         CALL fftw3_workshare_execute_dft(plan%fftw_plan_ny_bw, plan%fftw_plan_ny_r_bw, &
+                                          n3, nt, tid, &
+                                          tmp1, n1*n2, xout, 1)
+         !$OMP BARRIER
+         CALL fftw3_workshare_execute_dft(plan%fftw_plan_nz_bw, plan%fftw_plan_nz_r_bw, &
+                                          n1, nt, tid, &
+                                          xout, n2*n3, tmp1, n2*n3)
+      END IF
+      !$OMP BARRIER
+
+      !$OMP DO COLLAPSE(3)
+      DO i = 1, n1
+         DO j = 1, n2
+            DO k = 1, n3
+               xout((i - 1) + (j - 1)*n1 + (k - 1)*n1*n2 + 1) = &
+                  tmp1((k - 1) + (j - 1)*n3 + (i - 1)*n3*n2 + 1)
             END DO
          END DO
-         !$OMP END DO
+      END DO
+      !$OMP END DO
 
-         !$OMP END PARALLEL
+      !$OMP END PARALLEL
       END IF
 
       IF (scale /= 1.0_dp) THEN
          CALL zdscal(n1*n2*n3, scale, xout, 1)
       END IF
 
+      CALL timestop(handle)
 #else
       MARK_USED(plan)
       MARK_USED(scale)
-      !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
+      MARK_USED(zin)
+      MARK_USED(zout)
       stat = 0
 
 #endif
 
-   END SUBROUTINE fftw33d
+   END SUBROUTINE fftw3_3d
 
 ! **************************************************************************************************
 
@@ -1057,36 +1109,19 @@ CONTAINS
 !> \param plan ...
 !> \param zin ...
 !> \param zout ...
-!> \param plan_style ...
 ! **************************************************************************************************
-   SUBROUTINE fftw3_create_plan_1dm(plan, zin, zout, plan_style)
+   SUBROUTINE fftw3_create_plan_1d(plan, zin, zout)
 
-      IMPLICIT NONE
-
-      TYPE(fft_plan_type), INTENT(INOUT)              :: plan
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(IN)         :: zin
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(IN)         :: zout
-      INTEGER, INTENT(IN)                                :: plan_style
+      TYPE(fft_plan_type), INTENT(INOUT)                 :: plan
+      COMPLEX(KIND=dp), DIMENSION(plan%n*plan%m), INTENT(INOUT)      :: zin, zout
 #if defined ( __FFTW3 )
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fftw3_create_plan_1d'
+
+      INTEGER :: handle
       INTEGER                                            :: ii, di, io, DO, num_threads, num_rows
 
-      INTEGER :: fftw_plan_type
-      SELECT CASE (plan_style)
-      CASE (1)
-         fftw_plan_type = FFTW_ESTIMATE
-      CASE (2)
-         fftw_plan_type = FFTW_MEASURE
-      CASE (3)
-         fftw_plan_type = FFTW_PATIENT
-      CASE (4)
-         fftw_plan_type = FFTW_EXHAUSTIVE
-      CASE DEFAULT
-         CPABORT("fftw3_create_plan_1dm")
-      END SELECT
+      CALL timeset(routineN, handle)
 
-#if defined (__FFTW3_UNALIGNED)
-      fftw_plan_type = fftw_plan_type + FFTW_UNALIGNED
-#endif
       num_threads = 1
       plan%separated_plans = .FALSE.
 !$OMP PARALLEL DEFAULT(NONE), &
@@ -1108,6 +1143,7 @@ CONTAINS
 ! Check for total number of rows not divisible by num_threads
 !$    IF (num_rows*plan%num_threads_needed .NE. plan%m) THEN
 !$       plan%need_alt_plan = .TRUE.
+!$       plan%alt_num_rows = plan%m - (plan%num_threads_needed - 1)*num_rows
 !$    END IF
 
 !$    plan%num_rows = num_rows
@@ -1115,41 +1151,44 @@ CONTAINS
       di = plan%n
       io = 1
       DO = plan%n
-      IF (plan%fsign == +1 .AND. plan%trans) THEN
+      IF (plan%trans) THEN
          ii = plan%m
          di = 1
-      ELSEIF (plan%fsign == -1 .AND. plan%trans) THEN
+      END IF
+
+      plan%fftw_plan_fw = fftw_plan_many_dft(1, [plan%n], num_rows, zin, [0], ii, di, &
+                                             zout, [0], io, DO, FFTW_FORWARD, fftw_plan_type)
+
+!$    IF (plan%need_alt_plan) THEN
+!$       plan%alt_fftw_plan_fw = fftw_plan_many_dft(1, [plan%n], plan%alt_num_rows, zin, [0], ii, di, &
+!$                                                  zout, [0], io, DO, FFTW_FORWARD, fftw_plan_type)
+!$    END IF
+
+      ii = 1
+      di = plan%n
+      io = 1
+      DO = plan%n
+      IF (plan%trans) THEN
          io = plan%m
          DO = 1
       END IF
 
-      IF (plan%fsign == +1) THEN
-         CALL dfftw_plan_many_dft(plan%fftw_plan, 1, plan%n, num_rows, zin, 0, ii, di, &
-                                  zout, 0, io, DO, FFTW_FORWARD, fftw_plan_type)
-      ELSE
-         CALL dfftw_plan_many_dft(plan%fftw_plan, 1, plan%n, num_rows, zin, 0, ii, di, &
-                                  zout, 0, io, DO, FFTW_BACKWARD, fftw_plan_type)
-      END IF
+      plan%fftw_plan_bw = fftw_plan_many_dft(1, [plan%n], num_rows, zin, [0], ii, di, &
+                                             zout, [0], io, DO, FFTW_BACKWARD, fftw_plan_type)
 
 !$    IF (plan%need_alt_plan) THEN
-!$       plan%alt_num_rows = plan%m - (plan%num_threads_needed - 1)*num_rows
-!$       IF (plan%fsign == +1) THEN
-!$          CALL dfftw_plan_many_dft(plan%alt_fftw_plan, 1, plan%n, plan%alt_num_rows, zin, 0, ii, di, &
-!$                                   zout, 0, io, DO, FFTW_FORWARD, fftw_plan_type)
-!$       ELSE
-!$          CALL dfftw_plan_many_dft(plan%alt_fftw_plan, 1, plan%n, plan%alt_num_rows, zin, 0, ii, di, &
-!$                                   zout, 0, io, DO, FFTW_BACKWARD, fftw_plan_type)
-!$       END IF
+!$       plan%alt_fftw_plan_bw = fftw_plan_many_dft(1, [plan%n], plan%alt_num_rows, zin, [0], ii, di, &
+!$                                                  zout, [0], io, DO, FFTW_BACKWARD, fftw_plan_type)
 !$    END IF
 
+      CALL timestop(handle)
 #else
       MARK_USED(plan)
-      MARK_USED(plan_style)
-      !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
+      MARK_USED(zin)
+      MARK_USED(zout)
 #endif
 
-   END SUBROUTINE fftw3_create_plan_1dm
+   END SUBROUTINE fftw3_create_plan_1d
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1161,20 +1200,28 @@ CONTAINS
 
 #if defined ( __FFTW3 )
 !$    IF (plan%need_alt_plan) THEN
-!$       CALL fftw_destroy_plan(plan%alt_fftw_plan)
+!$       CALL fftw_destroy_plan(plan%alt_fftw_plan_fw)
+!$       CALL fftw_destroy_plan(plan%alt_fftw_plan_bw)
 !$    END IF
 
       IF (.NOT. plan%separated_plans) THEN
-         CALL fftw_destroy_plan(plan%fftw_plan)
+         CALL fftw_destroy_plan(plan%fftw_plan_fw)
+         CALL fftw_destroy_plan(plan%fftw_plan_bw)
       ELSE
          ! If it is a separated plan then we have to destroy
          ! each dim plan individually
-         CALL fftw_destroy_plan(plan%fftw_plan_nx)
-         CALL fftw_destroy_plan(plan%fftw_plan_ny)
-         CALL fftw_destroy_plan(plan%fftw_plan_nz)
-         CALL fftw_destroy_plan(plan%fftw_plan_nx_r)
-         CALL fftw_destroy_plan(plan%fftw_plan_ny_r)
-         CALL fftw_destroy_plan(plan%fftw_plan_nz_r)
+         CALL fftw_destroy_plan(plan%fftw_plan_nx_fw)
+         CALL fftw_destroy_plan(plan%fftw_plan_ny_fw)
+         CALL fftw_destroy_plan(plan%fftw_plan_nz_fw)
+         CALL fftw_destroy_plan(plan%fftw_plan_nx_r_fw)
+         CALL fftw_destroy_plan(plan%fftw_plan_ny_r_fw)
+         CALL fftw_destroy_plan(plan%fftw_plan_nz_r_fw)
+         CALL fftw_destroy_plan(plan%fftw_plan_nx_bw)
+         CALL fftw_destroy_plan(plan%fftw_plan_ny_bw)
+         CALL fftw_destroy_plan(plan%fftw_plan_nz_bw)
+         CALL fftw_destroy_plan(plan%fftw_plan_nx_r_bw)
+         CALL fftw_destroy_plan(plan%fftw_plan_ny_r_bw)
+         CALL fftw_destroy_plan(plan%fftw_plan_nz_r_bw)
       END IF
 
 #else
@@ -1191,32 +1238,37 @@ CONTAINS
 !> \param scale ...
 !> \param stat ...
 ! **************************************************************************************************
-   SUBROUTINE fftw31dm(plan, zin, zout, scale, stat)
+   SUBROUTINE fftw3_1d(plan, fsign, zin, zout, scale, stat)
       TYPE(fft_plan_type), INTENT(IN)                    :: plan
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(IN), TARGET :: zin
-      COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT), &
-         TARGET                                          :: zout
+      INTEGER, INTENT(IN)                                :: fsign
+      COMPLEX(KIND=dp), DIMENSION(plan%n*plan%m), INTENT(INOUT), TARGET :: zin, zout
       REAL(KIND=dp), INTENT(IN)                          :: scale
       INTEGER, INTENT(OUT)                               :: stat
 
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fftw3_1d'
+
+      INTEGER :: handle
       INTEGER                                            :: in_offset, my_id, num_rows, out_offset, &
                                                             scal_offset
       TYPE(C_PTR)                                        :: fftw_plan
 
-!------------------------------------------------------------------------------
+      CALL timeset(routineN, handle)
 
       my_id = 0
       num_rows = plan%m
 
 !$OMP PARALLEL DEFAULT(NONE), &
 !$OMP          PRIVATE(my_id,num_rows,in_offset,out_offset,scal_offset,fftw_plan), &
-!$OMP          SHARED(zin,zout), &
-!$OMP          SHARED(plan,scale,stat)
+!$OMP          SHARED(zin,zout,plan,scale,stat,fsign)
 !$    my_id = omp_get_thread_num()
 
 !$    if (my_id < plan%num_threads_needed) then
 
-         fftw_plan = plan%fftw_plan
+         IF (fsign == FWFFT) THEN
+            fftw_plan = plan%fftw_plan_fw
+         ELSE
+            fftw_plan = plan%fftw_plan_bw
+         END IF
 
          in_offset = 1
          out_offset = 1
@@ -1224,15 +1276,19 @@ CONTAINS
 
 !$       in_offset = 1 + plan%num_rows*my_id*plan%n
 !$       out_offset = 1 + plan%num_rows*my_id*plan%n
-!$       IF (plan%fsign == +1 .AND. plan%trans) THEN
+!$       IF (fsign == FWFFT .AND. plan%trans) THEN
 !$          in_offset = 1 + plan%num_rows*my_id
-!$       ELSEIF (plan%fsign == -1 .AND. plan%trans) THEN
+!$       ELSEIF (fsign == BWFFT .AND. plan%trans) THEN
 !$          out_offset = 1 + plan%num_rows*my_id
 !$       END IF
 !$       scal_offset = 1 + plan%n*plan%num_rows*my_id
 !$       IF (plan%need_alt_plan .AND. my_id .EQ. plan%num_threads_needed - 1) THEN
 !$          num_rows = plan%alt_num_rows
-!$          fftw_plan = plan%alt_fftw_plan
+!$          IF (fsign == FWFFT) THEN
+!$             fftw_plan = plan%alt_fftw_plan_fw
+!$          ELSE
+!$             fftw_plan = plan%alt_fftw_plan_bw
+!$          END IF
 !$       ELSE
 !$          num_rows = plan%num_rows
 !$       END IF
@@ -1241,7 +1297,7 @@ CONTAINS
 !$OMP MASTER
          stat = 1
 !$OMP END MASTER
-         CALL dfftw_execute_dft(fftw_plan, zin(in_offset:in_offset), zout(out_offset:out_offset))
+         CALL fftw_execute_dft(fftw_plan, zin(in_offset:in_offset), zout(out_offset:out_offset))
 !$    end if
 ! all theads need to meet at this barrier
 !$OMP BARRIER
@@ -1252,8 +1308,8 @@ CONTAINS
 #else
       MARK_USED(plan)
       MARK_USED(scale)
-      !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
+      MARK_USED(zin)
+      MARK_USED(zout)
       stat = 0
 
 !$    else
@@ -1263,6 +1319,8 @@ CONTAINS
 
 !$OMP END PARALLEL
 
-      END SUBROUTINE fftw31dm
+      CALL timestop(handle)
+
+      END SUBROUTINE fftw3_1d
 
    END MODULE

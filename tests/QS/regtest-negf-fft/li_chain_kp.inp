@@ -18,6 +18,8 @@
 @SET ly             5.0
 &GLOBAL
   EXTENDED_FFT_LENGTHS .true.
+  # FFTSG does not work for these kind of calculations in most cases
+  PREFERRED_FFT_LIBRARY FFTW3
   PRINT_LEVEL low
   PROJECT ${project}
   RUN_TYPE negf

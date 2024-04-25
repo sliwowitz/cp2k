@@ -31,10 +31,12 @@ MODULE fft_tools
                                               C_LOC,&
                                               C_PTR,&
                                               C_SIZE_T
+   USE cp_array_utils,                  ONLY: cp_1d_i_a_type
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit
    USE fft_lib,                         ONLY: &
-        fft_1dm, fft_3d, fft_alloc, fft_create_plan_1dm, fft_create_plan_3d, fft_dealloc, &
-        fft_destroy_plan, fft_do_cleanup, fft_do_init, fft_get_lengths, fft_library
+        BWFFT, FWFFT, fft_1d, fft_2d, fft_3d, fft_alloc, fft_arbitrary_lengths_available, &
+        fft_create_plan_1d, fft_create_plan_2d, fft_create_plan_3d, fft_dealloc, fft_destroy_plan, &
+        fft_do_cleanup, fft_do_init, fft_gather, fft_get_lengths, fft_scatter
    USE fft_plan,                        ONLY: fft_plan_type
    USE kinds,                           ONLY: dp,&
                                               dp_size,&
@@ -47,6 +49,19 @@ MODULE fft_tools
                                               mp_waitall
    USE offload_api,                     ONLY: offload_free_pinned_mem,&
                                               offload_malloc_pinned_mem
+   USE pw_fpga,                         ONLY: pw_fpga_c1dr3d_3d_dp,&
+                                              pw_fpga_c1dr3d_3d_sp,&
+                                              pw_fpga_finalize,&
+                                              pw_fpga_init,&
+                                              pw_fpga_init_bitstream,&
+                                              pw_fpga_r3dc1d_3d_dp,&
+                                              pw_fpga_r3dc1d_3d_sp
+   USE pw_gpu,                          ONLY: &
+        pw_gpu_cf, pw_gpu_cff, pw_gpu_cfffg, pw_gpu_f, pw_gpu_fc, pw_gpu_ffc, pw_gpu_fg, &
+        pw_gpu_finalize, pw_gpu_init, pw_gpu_sf, pw_gpu_sfffc
+   USE pw_grid_types,                   ONLY: FULLSPACE,&
+                                              PW_MODE_LOCAL,&
+                                              pw_grid_type
 
 !$ USE OMP_LIB, ONLY: omp_get_max_threads, omp_get_thread_num, omp_in_parallel
 
@@ -70,8 +85,6 @@ MODULE fft_tools
       INTEGER                              :: nbx = 0, nbz = 0
       INTEGER                              :: nmray = 0, nyzray = 0
       TYPE(mp_cart_type)                   :: rs_group = mp_cart_type()
-      INTEGER, DIMENSION(2)                :: g_pos = 0, r_pos = 0, r_dim = 0
-      INTEGER                              :: numtask = 0
    END TYPE fft_scratch_sizes
 
    TYPE fft_scratch_type
@@ -83,22 +96,21 @@ MODULE fft_tools
       ! to be used in cube_transpose_* routines
       TYPE(mp_cart_type), DIMENSION(2)     :: cart_sub_comm = mp_cart_type()
       INTEGER, DIMENSION(2)                :: dim = -1, pos = -1
-      ! to be used in fft3d_s
-      COMPLEX(KIND=dp), DIMENSION(:, :, :), POINTER, CONTIGUOUS &
-         :: ziptr => NULL(), zoptr => NULL()
+      ! to be used on GPU
+      INTEGER, DIMENSION(:, :), POINTER, CONTIGUOUS :: g_hatmap => NULL() ! mapped grid point indices (Miller) [CUDA]
       ! to be used in fft3d_ps : block distribution
       COMPLEX(KIND=dp), DIMENSION(:, :), CONTIGUOUS, POINTER &
          :: p1buf => NULL(), p2buf => NULL(), p3buf => NULL(), p4buf => NULL(), &
-            p5buf => NULL(), p6buf => NULL(), p7buf => NULL()
+            p5buf => NULL(), p7buf => NULL()
       ! to be used in fft3d_ps : plane distribution
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER, CONTIGUOUS &
-         :: r1buf => NULL(), r2buf => NULL()
+         :: r1buf => NULL()
       COMPLEX(KIND=dp), DIMENSION(:, :, :), POINTER, CONTIGUOUS &
          :: tbuf => NULL()
       ! to be used in fft3d_pb
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER, CONTIGUOUS &
-         :: a1buf => NULL(), a2buf => NULL(), a3buf => NULL(), &
-            a4buf => NULL(), a5buf => NULL(), a6buf => NULL()
+         :: a2buf => NULL(), a3buf => NULL(), &
+            a4buf => NULL(), a5buf => NULL()
       ! to be used in communication routines
       INTEGER, DIMENSION(:), CONTIGUOUS, POINTER    :: scount => NULL(), rcount => NULL(), sdispl => NULL(), rdispl => NULL()
       INTEGER, DIMENSION(:, :), CONTIGUOUS, POINTER :: pgcube => NULL()
@@ -111,7 +123,7 @@ MODULE fft_tools
          :: xzbuf_sgl => NULL(), yzbuf_sgl => NULL()
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER, CONTIGUOUS &
          :: rbuf1 => NULL(), rbuf2 => NULL(), rbuf3 => NULL(), rbuf4 => NULL(), &
-            rbuf5 => NULL(), rbuf6 => NULL(), rr => NULL()
+            rbuf5 => NULL(), rr => NULL()
       COMPLEX(KIND=sp), DIMENSION(:, :), POINTER, CONTIGUOUS &
          :: ss => NULL(), tt => NULL()
       INTEGER, DIMENSION(:, :), POINTER, CONTIGUOUS :: pgrid => NULL()
@@ -139,11 +151,11 @@ MODULE fft_tools
    PUBLIC :: fft_alloc, fft_dealloc
    PUBLIC :: init_fft_scratch_pool
    PUBLIC :: fft_radix_operations, fft_fw1d
-   PUBLIC :: FWFFT, BWFFT
    PUBLIC :: FFT_RADIX_CLOSEST, FFT_RADIX_NEXT
    PUBLIC :: FFT_RADIX_NEXT_ODD
+   PUBLIC :: FWFFT, BWFFT
+   PUBLIC :: pw_gpu_init, pw_gpu_finalize, pw_fpga_init, pw_fpga_finalize
 
-   INTEGER, PARAMETER :: FWFFT = +1, BWFFT = -1
    INTEGER, PARAMETER :: FFT_RADIX_CLOSEST = 493, FFT_RADIX_NEXT = 494
    INTEGER, PARAMETER :: FFT_RADIX_ALLOWED = 495, FFT_RADIX_DISALLOWED = 496
    INTEGER, PARAMETER :: FFT_RADIX_NEXT_ODD = 497
@@ -151,20 +163,11 @@ MODULE fft_tools
    REAL(KIND=dp), PARAMETER :: ratio_sparse_alltoall = 0.5_dp
 
    ! these saved variables are FFT globals
-   INTEGER, SAVE :: fft_type = 0
    LOGICAL, SAVE :: alltoall_sgl = .FALSE.
-   LOGICAL, SAVE :: use_fftsg_sizes = .TRUE.
-   INTEGER, SAVE :: fft_plan_style = 1
-
-   ! these are only needed for pw_gpu (-D__OFFLOAD)
-   PUBLIC :: get_fft_scratch, release_fft_scratch
-   PUBLIC :: cube_transpose_1, cube_transpose_2
-   PUBLIC :: yz_to_x, x_to_yz, xz_to_yz, yz_to_xz
-   PUBLIC :: fft_scratch_sizes, fft_scratch_type
-   PUBLIC :: fft_type, fft_plan_style
 
    INTERFACE fft3d
-      MODULE PROCEDURE fft3d_s, fft3d_ps, fft3d_pb
+      MODULE PROCEDURE fft3d_s, fft3d_s_r3_c3, fft3d_s_c3_r3, fft3d_r3_c1, fft3d_s_c3_c1, fft3d_c1_r3, fft3d_s_c1_c3
+      MODULE PROCEDURE fft3d_ps, fft3d_pb
    END INTERFACE
 
 ! **************************************************************************************************
@@ -190,18 +193,16 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: wisdom_file
       INTEGER, INTENT(IN)                                :: plan_style
 
-      use_fftsg_sizes = fftsg_sizes
       alltoall_sgl = alltoall
       fft_pool_scratch_limit = pool_limit
-      fft_type = fft_library(fftlib)
-      fft_plan_style = plan_style
 
-      IF (fft_type <= 0) CPABORT("Unknown FFT library: "//TRIM(fftlib))
+      ! setup the FFT scratch pool, if one is associated, clear it first (may happen if several libraries have to be tried)
+      ! release it first to prevent memory leaks
+      CALL release_fft_scratch_pool()
 
-      CALL fft_do_init(fft_type, wisdom_file)
+      CALL fft_do_init(wisdom_file, plan_style, fftsg_sizes, fftlib)
 
-      ! setup the FFT scratch pool, if one is associated, clear first
-      CALL init_fft_scratch_pool() ! CALLs release_fft_scratch_pool()
+      CALL init_fft_scratch_pool()
 
    END SUBROUTINE init_fft
 
@@ -222,7 +223,7 @@ CONTAINS
 
       ! finalize fft libs
 
-      CALL fft_do_cleanup(fft_type, wisdom_file, para_env%is_source())
+      CALL fft_do_cleanup(wisdom_file, para_env%is_source())
 
    END SUBROUTINE finalize_fft
 
@@ -241,8 +242,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: radix_out
       INTEGER, INTENT(IN)                                :: operation
 
-      INTEGER, PARAMETER                                 :: fft_type_sg = 1
-
       INTEGER                                            :: i, iloc, ldata
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: DATA
 
@@ -251,11 +250,7 @@ CONTAINS
       DATA = -1
 
       ! if the user wants to use fftsg sizes go for it
-      IF (use_fftsg_sizes) THEN
-         CALL fft_get_lengths(fft_type_sg, DATA, ldata)
-      ELSE
-         CALL fft_get_lengths(fft_type, DATA, ldata)
-      END IF
+      CALL fft_get_lengths(DATA, ldata)
 
       iloc = 0
       DO i = 1, ldata
@@ -330,7 +325,7 @@ CONTAINS
    SUBROUTINE fft_fw1d(n, m, trans, zin, zout, scale, stat)
       INTEGER, INTENT(in)                                :: n, m
       LOGICAL, INTENT(in)                                :: trans
-      COMPLEX(kind=dp), DIMENSION(*), INTENT(inout)      :: zin, zout
+      COMPLEX(kind=dp), DIMENSION(n*m), INTENT(inout)    :: zin, zout
       REAL(kind=dp), INTENT(in)                          :: scale
       INTEGER, INTENT(out)                               :: stat
 
@@ -341,9 +336,9 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      IF (fft_type == 3) THEN
-         CALL fft_create_plan_1dm(fft_plan, fft_type, FWFFT, trans, n, m, zin, zout, fft_plan_style)
-         CALL fft_1dm(fft_plan, zin, zout, scale, stat)
+      IF (fft_arbitrary_lengths_available()) THEN
+         CALL fft_create_plan_1d(fft_plan, trans, n, m, zin, zout)
+         CALL fft_1d(fft_plan, FWFFT, zin, zout, scale, stat)
          CALL fft_destroy_plan(fft_plan)
       ELSE
          CALL cp_warn(__LOCATION__, &
@@ -353,6 +348,739 @@ CONTAINS
 
       CALL timestop(handle)
    END SUBROUTINE fft_fw1d
+
+! **************************************************************************************************
+!> \brief Calls the 3D-FFT function from the initialized library
+!> \param fsign ...
+!> \param n ...
+!> \param zin ...
+!> \param zout ...
+!> \param pw_grid ...
+!> \param status ...
+!> \param debug ...
+!> \par History
+!>      none
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE fft3d_r3_c1(fsign, n, zin, zout, pw_grid, status, debug)
+
+      INTEGER, INTENT(IN)                                :: fsign
+      INTEGER, DIMENSION(:), INTENT(INOUT)               :: n
+      REAL(KIND=dp), DIMENSION(:, :, :), TARGET, &
+         INTENT(INOUT)                                   :: zin
+      COMPLEX(KIND=dp), DIMENSION(:), TARGET, INTENT(INOUT)      :: zout
+      TYPE(pw_grid_type), TARGET, INTENT(IN) :: pw_grid
+      INTEGER, INTENT(OUT), OPTIONAL                     :: status
+      LOGICAL, INTENT(IN), OPTIONAL                      :: debug
+
+#if !defined(__OFFLOAD) || defined(__NO_OFFLOAD_PW)
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), ALLOCATABLE, TARGET :: c_out
+#else
+      TYPE(fft_scratch_type), POINTER                    :: fft_scratch
+#endif
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), ALLOCATABLE, TARGET :: c_in
+      COMPLEX(KIND=dp), DIMENSION(:, :), CONTIGUOUS, POINTER         :: grays
+      INTEGER :: out_unit, nloc(3)
+      LOGICAL :: test
+
+      test = .FALSE.
+      IF (PRESENT(debug)) test = debug
+
+      out_unit = cp_logger_get_default_io_unit()
+
+      IF (pw_grid%para%mode == PW_MODE_LOCAL) THEN
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+         CALL get_fft_scratch(fft_scratch, tf_type=400, n=n, ng_local=SIZE(zout), g_hat=pw_grid%g_hat, &
+                              map=pw_grid%map, yzq=pw_grid%para%yzq)
+         CALL pw_gpu_cfffg(zin, zout, fft_scratch%g_hatmap)
+#else
+         ALLOCATE (c_out(n(1), n(2), n(3)))
+         ! check if bitstream for the fft size is present
+         ! if not, perform fft3d in CPU
+         c_out(:, :, :) = CMPLX(zin, 0.0_dp, KIND=dp)
+#if defined (__PW_FPGA)
+         IF (pw_fpga_init_bitstream(n) == 1) THEN
+#if (__PW_FPGA_SP && __PW_FPGA)
+            CALL pw_fpga_r3dc1d_3d_sp(n, c_out)
+#else
+            CALL pw_fpga_r3dc1d_3d_dp(n, c_out)
+#endif
+            CALL zdscal(n(1)*n(2)*n(3), 1.0_dp/pw_grid%ngpts, c_out, 1)
+         ELSE
+#endif
+            CALL fft3d_s(fsign, n, c_out, status=status, debug=test)
+#if defined (__PW_FPGA)
+         END IF
+#endif
+         CALL fft_gather(zout, c_out, pw_grid%map, pw_grid%g_hat)
+         DEALLOCATE (c_out)
+#endif
+      ELSE
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+         ! (no ray dist. is not efficient in CUDA)
+         use_pw_gpu = pw_grid%para%ray_distribution
+         IF (use_pw_gpu) THEN
+            CALL pw_gpu_r3dc1d_3d_ps(zin, zout, pw_grid)
+         ELSE
+#endif
+!..   prepare input
+            nloc = pw_grid%npts_local
+            ALLOCATE (c_in(nloc(1), nloc(2), nloc(3)))
+            c_in(:, :, :) = CMPLX(zin, KIND=dp)
+            grays => pw_grid%grays
+            grays = z_zero
+            !..transform
+            IF (pw_grid%para%ray_distribution) THEN
+               CALL fft3d_ps(fsign, n, c_in, grays, rs_group=pw_grid%para%group, &
+                             yzp=pw_grid%para%yzp, nyzray=pw_grid%para%nyzray, &
+                             bo=pw_grid%para%bo, debug=test)
+            ELSE
+               CALL fft3d_pb(fsign, n, c_in, grays, pw_grid%para%group, &
+                             pw_grid%para%bo, debug=test)
+            END IF
+            !..prepare output
+            IF (test .AND. out_unit > 0) &
+               WRITE (out_unit, '(A)') "  PW_GATHER : 2d -> 1d "
+            CALL fft_gather(zout, grays, pw_grid%map, pw_grid%g_hat, pw_grid%para%yzq)
+            DEALLOCATE (c_in)
+
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+         END IF
+#endif
+      END IF
+
+   END SUBROUTINE fft3d_r3_c1
+
+! **************************************************************************************************
+!> \brief Calls the 3D-FFT function from the initialized library
+!> \param fsign ...
+!> \param n ...
+!> \param zin ...
+!> \param zout ...
+!> \param pw_grid ...
+!> \param status ...
+!> \param debug ...
+!> \par History
+!>      none
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE fft3d_s_c3_c1(fsign, n, zin, zout, pw_grid, status, debug)
+
+      INTEGER, INTENT(IN)                                :: fsign
+      INTEGER, DIMENSION(:), INTENT(INOUT)               :: n
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), &
+         INTENT(INOUT)                                   :: zin
+      COMPLEX(KIND=dp), DIMENSION(:), INTENT(INOUT)      :: zout
+      TYPE(pw_grid_type), INTENT(IN)                     :: pw_grid
+      INTEGER, INTENT(OUT), OPTIONAL                     :: status
+      LOGICAL, INTENT(IN), OPTIONAL                      :: debug
+
+      COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)  :: c_out
+      COMPLEX(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: grays
+      INTEGER                                            :: out_unit
+      LOGICAL                                            :: test
+
+      test = .FALSE.
+      IF (PRESENT(debug)) test = debug
+
+      out_unit = cp_logger_get_default_io_unit()
+
+      IF (pw_grid%para%mode == PW_MODE_LOCAL) THEN
+         ALLOCATE (c_out(n(1), n(2), n(3)))
+         ! transform
+         CALL fft3d_s(fsign, n, zin, c_out, status=status, debug=test)
+         ! gather results
+         IF (test .AND. out_unit > 0) WRITE (out_unit, '(A)') "  PW_GATHER : 3d -> 1d "
+         CALL fft_gather(zout, c_out, pw_grid%map, pw_grid%g_hat)
+         DEALLOCATE (c_out)
+      ELSE
+         !..prepare input
+         grays => pw_grid%grays
+         grays = z_zero
+         !..transform
+         IF (pw_grid%para%ray_distribution) THEN
+            CALL fft3d_ps(fsign, n, zin, grays, pw_grid%para%group, &
+                          pw_grid%para%yzp, pw_grid%para%nyzray, &
+                          pw_grid%para%bo, status, debug=test)
+         ELSE
+            CALL fft3d_pb(fsign, n, zin, grays, pw_grid%para%group, &
+                          pw_grid%para%bo, status, test)
+         END IF
+         !..prepare output
+         IF (test .AND. out_unit > 0) &
+            WRITE (out_unit, '(A)') "  PW_GATHER : 2d -> 1d "
+         CALL fft_gather(zout, grays, pw_grid%map, pw_grid%g_hat, pw_grid%para%yzq)
+      END IF
+
+   END SUBROUTINE fft3d_s_c3_c1
+
+! **************************************************************************************************
+!> \brief Calls the 3D-FFT function from the initialized library
+!> \param fsign ...
+!> \param n ...
+!> \param zin ...
+!> \param zout ...
+!> \param pw_grid ...
+!> \param status ...
+!> \param debug ...
+!> \par History
+!>      none
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE fft3d_c1_r3(fsign, n, zin, zout, pw_grid, status, debug)
+
+      INTEGER, INTENT(IN)                                :: fsign
+      INTEGER, DIMENSION(:), INTENT(INOUT)               :: n
+      COMPLEX(KIND=dp), DIMENSION(:), TARGET, &
+         INTENT(IN)                                   :: zin
+      REAL(KIND=dp), DIMENSION(:, :, :), TARGET, INTENT(INOUT)      :: zout
+      TYPE(pw_grid_type), TARGET, INTENT(IN) :: pw_grid
+      INTEGER, INTENT(OUT), OPTIONAL                     :: status
+      LOGICAL, INTENT(IN), OPTIONAL                      :: debug
+
+#if !defined(__OFFLOAD) || defined(__NO_OFFLOAD_PW)
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), ALLOCATABLE, TARGET :: c_out
+#else
+      TYPE(fft_scratch_type), POINTER                    :: fft_scratch
+#endif
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), ALLOCATABLE, TARGET :: c_in
+      COMPLEX(KIND=dp), DIMENSION(:, :), CONTIGUOUS, POINTER         :: grays
+      INTEGER :: out_unit, nloc(3)
+      LOGICAL :: test
+
+      test = .FALSE.
+      IF (PRESENT(debug)) test = debug
+
+      out_unit = cp_logger_get_default_io_unit()
+
+      IF (pw_grid%para%mode == PW_MODE_LOCAL) THEN
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+         CALL get_fft_scratch(fft_scratch, tf_type=400, n=n, ng_local=SIZE(zin), g_hat=pw_grid%g_hat, &
+                              map=pw_grid%map, yzq=pw_grid%para%yzq)
+         CALL pw_gpu_sfffc(zin, zout, fft_scratch%g_hatmap)
+#else
+         ALLOCATE (c_out(n(1), n(2), n(3)))
+         ! check if bitstream for the fft size is present
+         ! if not, perform fft3d in CPU
+         IF (test .AND. out_unit > 0) WRITE (out_unit, '(A)') "  PW_SCATTER : 3d -> 1d "
+         CALL fft_scatter(zin, c_out, pw_grid%map, pw_grid%g_hat)
+#if defined (__PW_FPGA)
+         IF (pw_fpga_init_bitstream(n) == 1) THEN
+            ! transform using FPGA
+#if (__PW_FPGA_SP && __PW_FPGA)
+            CALL pw_fpga_c1dr3d_3d_sp(n, c_out)
+#else
+            CALL pw_fpga_c1dr3d_3d_dp(n, c_out)
+#endif
+            CALL zdscal(n(1)*n(2)*n(3), 1.0_dp, c_out, 1)
+         ELSE
+#endif
+            ! transform
+            CALL fft3d_s(fsign, n, c_out, status=status, debug=test)
+#if defined (__PW_FPGA)
+         END IF
+#endif
+         ! use real part only
+         IF (test .AND. out_unit > 0) WRITE (out_unit, '(A)') "  REAL part "
+         zout(:, :, :) = REAL(c_out, KIND=dp)
+         DEALLOCATE (c_out)
+#endif
+      ELSE
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+         ! (no ray dist. is not efficient in CUDA)
+         use_pw_gpu = pw_grid%para%ray_distribution
+         IF (use_pw_gpu) THEN
+            CALL pw_gpu_c1dr3d_3d_ps(zin, zout, pw_grid)
+         ELSE
+#endif
+!..   prepare input
+            IF (test .AND. out_unit > 0) &
+               WRITE (out_unit, '(A)') "  PW_SCATTER : 2d -> 1d "
+            grays => pw_grid%grays
+            grays = z_zero
+            CALL fft_scatter(zin, grays, pw_grid%map, pw_grid%g_hat, pw_grid%para%yzq)
+            nloc = pw_grid%npts_local
+            ALLOCATE (c_in(nloc(1), nloc(2), nloc(3)))
+            !..transform
+            IF (pw_grid%para%ray_distribution) THEN
+               CALL fft3d_ps(fsign, n, c_in, grays, rs_group=pw_grid%para%group, &
+                             yzp=pw_grid%para%yzp, nyzray=pw_grid%para%nyzray, &
+                             bo=pw_grid%para%bo, debug=test)
+            ELSE
+               CALL fft3d_pb(fsign, n, c_in, grays, pw_grid%para%group, &
+                             pw_grid%para%bo, debug=test)
+            END IF
+            !..prepare output
+            IF (test .AND. out_unit > 0) &
+               WRITE (out_unit, '(A)') "  Real part "
+            zout(:, :, :) = REAL(c_in, KIND=dp)
+            DEALLOCATE (c_in)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+         END IF
+#endif
+      END IF
+
+   END SUBROUTINE fft3d_c1_r3
+
+! **************************************************************************************************
+!> \brief Calls the 3D-FFT function from the initialized library
+!> \param fsign ...
+!> \param n ...
+!> \param zin ...
+!> \param zout ...
+!> \param pw_grid ...
+!> \param status ...
+!> \param debug ...
+!> \par History
+!>      none
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE fft3d_s_c1_c3(fsign, n, zin, zout, pw_grid, status, debug)
+
+      INTEGER, INTENT(IN)                                :: fsign
+      INTEGER, DIMENSION(:), INTENT(INOUT)               :: n
+      COMPLEX(KIND=dp), DIMENSION(:), INTENT(IN)         :: zin
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), &
+         INTENT(INOUT)                                   :: zout
+      TYPE(pw_grid_type), INTENT(IN)                     :: pw_grid
+      INTEGER, INTENT(OUT), OPTIONAL                     :: status
+      LOGICAL, INTENT(IN), OPTIONAL                      :: debug
+
+      COMPLEX(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: grays
+      INTEGER                                            :: out_unit
+      LOGICAL                                            :: test
+
+      test = .FALSE.
+      IF (PRESENT(debug)) test = debug
+
+      out_unit = cp_logger_get_default_io_unit()
+
+      IF (pw_grid%para%mode == PW_MODE_LOCAL) THEN
+         IF (test .AND. out_unit > 0) WRITE (out_unit, '(A)') "  PW_SCATTER : 3d -> 1d "
+         CALL fft_scatter(zin, zout, pw_grid%map, pw_grid%g_hat)
+         CALL fft3d_s(fsign, n, zout, status=status, debug=test)
+      ELSE
+         grays => pw_grid%grays
+         !..prepare input
+         IF (test .AND. out_unit > 0) &
+            WRITE (out_unit, '(A)') "  PW_SCATTER : 2d -> 1d "
+         grays = z_zero
+         CALL fft_scatter(zin, grays, pw_grid%map, pw_grid%g_hat, pw_grid%para%yzq)
+         !..transform
+         IF (pw_grid%para%ray_distribution) THEN
+            CALL fft3d_ps(fsign, n, zout, grays, pw_grid%para%group, &
+                          pw_grid%para%yzp, pw_grid%para%nyzray, &
+                          pw_grid%para%bo, status, test)
+         ELSE
+            CALL fft3d_pb(fsign, n, zout, grays, pw_grid%para%group, &
+                          pw_grid%para%bo, status, debug=test)
+         END IF
+         !..prepare output (nothing to do)
+      END IF
+
+   END SUBROUTINE fft3d_s_c1_c3
+
+! **************************************************************************************************
+!> \brief Calls the 3D-FFT function from the initialized library
+!> \param fsign ...
+!> \param n ...
+!> \param zin ...
+!> \param zout ...
+!> \param status ...
+!> \param debug ...
+!> \par History
+!>      none
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE fft3d_s_c3_r3(fsign, n, zin, zout, status, debug)
+
+      INTEGER, INTENT(IN)                                :: fsign
+      INTEGER, DIMENSION(:), INTENT(INOUT)               :: n
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), &
+         INTENT(INOUT)                                   :: zin
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT), &
+         TARGET                                          :: zout
+      INTEGER, INTENT(OUT), OPTIONAL                     :: status
+      LOGICAL, INTENT(IN), OPTIONAL                      :: debug
+
+      COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)  :: zout_complex
+
+      ALLOCATE (zout_complex(n(1), n(2), n(3)))
+
+      CALL fft3d_s(fsign, n, zin, zout_complex, status, debug)
+
+      zout(:, :, :) = REAL(zout_complex, KIND=dp)
+
+      DEALLOCATE (zout_complex)
+
+   END SUBROUTINE fft3d_s_c3_r3
+
+! **************************************************************************************************
+!> \brief Calls the 3D-FFT function from the initialized library
+!> \param fsign ...
+!> \param n ...
+!> \param zin ...
+!> \param zout ...
+!> \param status ...
+!> \param debug ...
+!> \par History
+!>      none
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE fft3d_s_r3_c3(fsign, n, zin, zout, status, debug)
+
+      INTEGER, INTENT(IN)                                :: fsign
+      INTEGER, DIMENSION(:), INTENT(INOUT)               :: n
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT)   :: zin
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), &
+         INTENT(INOUT), TARGET                           :: zout
+      INTEGER, INTENT(OUT), OPTIONAL                     :: status
+      LOGICAL, INTENT(IN), OPTIONAL                      :: debug
+
+      COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)  :: zin_complex
+
+      ALLOCATE (zin_complex(n(1), n(2), n(3)))
+
+      zin_complex(:, :, :) = CMPLX(zin, KIND=dp)
+
+      CALL fft3d_s(fsign, n, zin_complex, zout, status, debug)
+
+      DEALLOCATE (zin_complex)
+
+   END SUBROUTINE fft3d_s_r3_c3
+
+! **************************************************************************************************
+!> \brief perform an parallel fft followed by a gather on the gpu
+!> \param zin ...
+!> \param zout ...
+!> \param pw_grid ...
+!> \author Andreas Gloess
+! **************************************************************************************************
+   SUBROUTINE pw_gpu_r3dc1d_3d_ps(zin, zout, pw_grid)
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
+         TARGET                                          :: zin
+      COMPLEX(KIND=dp), DIMENSION(:), INTENT(INOUT), &
+         TARGET                                          :: zout
+      TYPE(pw_grid_type), INTENT(IN), TARGET             :: pw_grid
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_gpu_r3dc1d_3d_ps'
+
+      COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: grays, pbuf, qbuf, rbuf, sbuf
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), POINTER      :: tbuf
+      INTEGER                                            :: g_pos, handle, lg, lmax, mg, mmax, mx2, &
+                                                            mz2, n1, n2, ngpts, nmax, numtask, rp
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: p2p
+      INTEGER, DIMENSION(2)                              :: r_dim, r_pos
+      INTEGER, DIMENSION(:), POINTER                     :: n, nloc, nyzray
+      INTEGER, DIMENSION(:, :, :, :), POINTER            :: bo
+      REAL(KIND=dp)                                      :: scale
+      TYPE(fft_scratch_sizes)                            :: fft_scratch_size
+      TYPE(fft_scratch_type), POINTER                    :: fft_scratch
+      TYPE(mp_cart_type)                                 :: rs_group
+
+      CALL timeset(routineN, handle)
+
+      scale = 1.0_dp/REAL(pw_grid%ngpts, KIND=dp)
+
+      ! dimensions
+      n => pw_grid%npts
+      nloc => pw_grid%npts_local
+      grays => pw_grid%grays
+      ngpts = nloc(1)*nloc(2)*nloc(3)
+
+      !..transform
+      IF (pw_grid%para%ray_distribution) THEN
+         rs_group = pw_grid%para%group
+         nyzray => pw_grid%para%nyzray
+         bo => pw_grid%para%bo
+
+         g_pos = rs_group%mepos
+         numtask = rs_group%num_pe
+         r_dim = rs_group%num_pe_cart
+         r_pos = rs_group%mepos_cart
+
+         lg = SIZE(grays, 1)
+         mg = SIZE(grays, 2)
+         mmax = MAX(mg, 1)
+         lmax = MAX(lg, (ngpts/mmax + 1))
+
+         ALLOCATE (p2p(0:numtask - 1))
+
+         CALL rs_group%rank_compare(rs_group, p2p)
+
+         rp = p2p(g_pos)
+         mx2 = bo(2, 1, rp, 2) - bo(1, 1, rp, 2) + 1
+         mz2 = bo(2, 3, rp, 2) - bo(1, 3, rp, 2) + 1
+         n1 = MAXVAL(bo(2, 1, :, 1) - bo(1, 1, :, 1) + 1)
+         n2 = MAXVAL(bo(2, 2, :, 1) - bo(1, 2, :, 1) + 1)
+         nmax = MAX((2*n2)/numtask, 2)*mx2*mz2
+         nmax = MAX(nmax, n1*MAXVAL(nyzray))
+
+         fft_scratch_size%nx = nloc(1)
+         fft_scratch_size%ny = nloc(2)
+         fft_scratch_size%nz = nloc(3)
+         fft_scratch_size%lmax = lmax
+         fft_scratch_size%mmax = mmax
+         fft_scratch_size%mx1 = bo(2, 1, rp, 1) - bo(1, 1, rp, 1) + 1
+         fft_scratch_size%mx2 = mx2
+         fft_scratch_size%my1 = bo(2, 2, rp, 1) - bo(1, 2, rp, 1) + 1
+         fft_scratch_size%mz2 = mz2
+         fft_scratch_size%lg = lg
+         fft_scratch_size%mg = mg
+         fft_scratch_size%nbx = MAXVAL(bo(2, 1, :, 2))
+         fft_scratch_size%nbz = MAXVAL(bo(2, 3, :, 2))
+         fft_scratch_size%mcz1 = MAXVAL(bo(2, 3, :, 1) - bo(1, 3, :, 1) + 1)
+         fft_scratch_size%mcx2 = MAXVAL(bo(2, 1, :, 2) - bo(1, 1, :, 2) + 1)
+         fft_scratch_size%mcz2 = MAXVAL(bo(2, 3, :, 2) - bo(1, 3, :, 2) + 1)
+         fft_scratch_size%nmax = nmax
+         fft_scratch_size%nmray = MAXVAL(nyzray)
+         fft_scratch_size%nyzray = nyzray(g_pos)
+         fft_scratch_size%rs_group = rs_group
+
+         IF (r_dim(2) > 1) THEN
+            !
+            ! real space is distributed over x and y coordinate
+            ! we have two stages of communication
+            !
+            IF (r_dim(1) == 1) &
+               CPABORT("This processor distribution is not supported.")
+
+            CALL get_fft_scratch(fft_scratch, tf_type=300, n=n, ng_local=SIZE(zout), g_hat=pw_grid%g_hat, &
+                                 map=pw_grid%map, fft_sizes=fft_scratch_size)
+
+            ! assign buffers
+            qbuf => fft_scratch%p2buf
+            rbuf => fft_scratch%p3buf
+            pbuf => fft_scratch%p4buf
+            sbuf => fft_scratch%p5buf
+
+            ! FFT along z
+            CALL pw_gpu_cf(zin, qbuf)
+
+            ! Exchange data ( transpose of matrix )
+            CALL cube_transpose_2(qbuf, bo(:, :, :, 1), bo(:, :, :, 2), rbuf, fft_scratch)
+
+            ! FFT along y
+            ! use the inbuild fft-lib
+            ! CALL fft_1d(fft_scratch%fft_plan(2), rbuf, pbuf, 1.0_dp, stat)
+            ! or cufft (works faster, but is only faster if plans are stored)
+            CALL pw_gpu_f(rbuf, pbuf, +1, n(2), mx2*mz2)
+
+            ! Exchange data ( transpose of matrix ) and sort
+            CALL xz_to_yz(pbuf, rs_group, r_dim, g_pos, p2p, pw_grid%para%yzp, nyzray, &
+                          bo(:, :, :, 2), sbuf, fft_scratch)
+
+            ! FFT along x
+            CALL pw_gpu_fg(sbuf, zout, scale, n, fft_scratch%g_hatmap, pw_grid%grays)
+
+            CALL release_fft_scratch(fft_scratch)
+
+         ELSE
+            !
+            ! real space is only distributed over x coordinate
+            ! we have one stage of communication, after the transform of
+            ! direction x
+            !
+
+            CALL get_fft_scratch(fft_scratch, tf_type=200, n=n, ng_local=SIZE(zout), g_hat=pw_grid%g_hat, &
+                                 map=pw_grid%map, fft_sizes=fft_scratch_size)
+
+            ! assign buffers
+            tbuf => fft_scratch%tbuf
+            sbuf => fft_scratch%r1buf
+
+            ! FFT along y and z
+            CALL pw_gpu_cff(zin, tbuf)
+
+            ! Exchange data ( transpose of matrix ) and sort
+            CALL yz_to_x(tbuf, rs_group, g_pos, p2p, pw_grid%para%yzp, nyzray, &
+                         bo(:, :, :, 2), sbuf, fft_scratch)
+
+            ! FFT along x
+            CALL pw_gpu_fg(sbuf, zout, scale, n, fft_scratch%g_hatmap, pw_grid%grays)
+
+            CALL release_fft_scratch(fft_scratch)
+
+         END IF
+
+         DEALLOCATE (p2p)
+
+!--------------------------------------------------------------------------
+      ELSE
+         CPABORT("Not implemented (no ray_distr.) in: pw_gpu_r3dc1d_3d_ps.")
+      END IF
+
+      CALL timestop(handle)
+   END SUBROUTINE pw_gpu_r3dc1d_3d_ps
+
+! **************************************************************************************************
+!> \brief perform an parallel scatter followed by a fft on the gpu
+!> \param zin ...
+!> \param zout ...
+!> \param pw_grid ...
+!> \author Andreas Gloess
+! **************************************************************************************************
+   SUBROUTINE pw_gpu_c1dr3d_3d_ps(zin, zout, pw_grid)
+      COMPLEX(KIND=dp), DIMENSION(:), INTENT(IN), TARGET :: zin
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT), &
+         TARGET                                          :: zout
+      TYPE(pw_grid_type), INTENT(IN), TARGET             :: pw_grid
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_gpu_c1dr3d_3d_ps'
+
+      COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: grays, pbuf, qbuf, rbuf, sbuf
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), POINTER      :: tbuf
+      INTEGER                                            :: g_pos, handle, lg, lmax, mg, mmax, mx2, &
+                                                            mz2, n1, n2, ngpts, nmax, numtask, rp
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: p2p
+      INTEGER, DIMENSION(2)                              :: r_dim, r_pos
+      INTEGER, DIMENSION(:), POINTER                     :: n, nloc, nyzray
+      INTEGER, DIMENSION(:, :, :, :), POINTER            :: bo
+      REAL(KIND=dp)                                      :: scale
+      TYPE(fft_scratch_sizes)                            :: fft_scratch_size
+      TYPE(fft_scratch_type), POINTER                    :: fft_scratch
+      TYPE(mp_cart_type)                                 :: rs_group
+
+      CALL timeset(routineN, handle)
+
+      scale = 1.0_dp
+
+      ! dimensions
+      n => pw_grid%npts
+      nloc => pw_grid%npts_local
+      grays => pw_grid%grays
+      ngpts = nloc(1)*nloc(2)*nloc(3)
+
+      !..transform
+      IF (pw_grid%para%ray_distribution) THEN
+         rs_group = pw_grid%para%group
+         nyzray => pw_grid%para%nyzray
+         bo => pw_grid%para%bo
+
+         g_pos = rs_group%mepos
+         numtask = rs_group%num_pe
+         r_dim = rs_group%num_pe_cart
+         r_pos = rs_group%mepos_cart
+
+         lg = SIZE(grays, 1)
+         mg = SIZE(grays, 2)
+         mmax = MAX(mg, 1)
+         lmax = MAX(lg, (ngpts/mmax + 1))
+
+         ALLOCATE (p2p(0:numtask - 1))
+
+         CALL rs_group%rank_compare(rs_group, p2p)
+
+         rp = p2p(g_pos)
+         mx2 = bo(2, 1, rp, 2) - bo(1, 1, rp, 2) + 1
+         mz2 = bo(2, 3, rp, 2) - bo(1, 3, rp, 2) + 1
+         n1 = MAXVAL(bo(2, 1, :, 1) - bo(1, 1, :, 1) + 1)
+         n2 = MAXVAL(bo(2, 2, :, 1) - bo(1, 2, :, 1) + 1)
+         nmax = MAX((2*n2)/numtask, 2)*mx2*mz2
+         nmax = MAX(nmax, n1*MAXVAL(nyzray))
+
+         fft_scratch_size%nx = nloc(1)
+         fft_scratch_size%ny = nloc(2)
+         fft_scratch_size%nz = nloc(3)
+         fft_scratch_size%lmax = lmax
+         fft_scratch_size%mmax = mmax
+         fft_scratch_size%mx1 = bo(2, 1, rp, 1) - bo(1, 1, rp, 1) + 1
+         fft_scratch_size%mx2 = mx2
+         fft_scratch_size%my1 = bo(2, 2, rp, 1) - bo(1, 2, rp, 1) + 1
+         fft_scratch_size%mz2 = mz2
+         fft_scratch_size%lg = lg
+         fft_scratch_size%mg = mg
+         fft_scratch_size%nbx = MAXVAL(bo(2, 1, :, 2))
+         fft_scratch_size%nbz = MAXVAL(bo(2, 3, :, 2))
+         fft_scratch_size%mcz1 = MAXVAL(bo(2, 3, :, 1) - bo(1, 3, :, 1) + 1)
+         fft_scratch_size%mcx2 = MAXVAL(bo(2, 1, :, 2) - bo(1, 1, :, 2) + 1)
+         fft_scratch_size%mcz2 = MAXVAL(bo(2, 3, :, 2) - bo(1, 3, :, 2) + 1)
+         fft_scratch_size%nmax = nmax
+         fft_scratch_size%nmray = MAXVAL(nyzray)
+         fft_scratch_size%nyzray = nyzray(g_pos)
+         fft_scratch_size%rs_group = rs_group
+
+         IF (r_dim(2) > 1) THEN
+            !
+            ! real space is distributed over x and y coordinate
+            ! we have two stages of communication
+            !
+            IF (r_dim(1) == 1) &
+               CPABORT("This processor distribution is not supported.")
+
+            CALL get_fft_scratch(fft_scratch, tf_type=300, n=n, ng_local=SIZE(zin), g_hat=pw_grid%g_hat, &
+                                 map=pw_grid%map, fft_sizes=fft_scratch_size)
+
+            ! assign buffers
+            pbuf => fft_scratch%p7buf
+            qbuf => fft_scratch%p4buf
+            rbuf => fft_scratch%p3buf
+            sbuf => fft_scratch%p2buf
+
+            ! FFT along x
+            CALL pw_gpu_sf(zin, pbuf, scale, n, fft_scratch%g_hatmap, pw_grid%grays)
+
+            ! Exchange data ( transpose of matrix ) and sort
+            IF (pw_grid%grid_span /= FULLSPACE) qbuf = z_zero
+            CALL yz_to_xz(pbuf, rs_group, r_dim, g_pos, p2p, pw_grid%para%yzp, nyzray, &
+                          bo(:, :, :, 2), qbuf, fft_scratch)
+
+            ! FFT along y
+            ! use the inbuild fft-lib
+            ! CALL fft_1d(fft_scratch%fft_plan(5), qbuf, rbuf, 1.0_dp, stat)
+            ! or cufft (works faster, but is only faster if plans are stored)
+            CALL pw_gpu_f(qbuf, rbuf, -1, n(2), mx2*mz2)
+
+            ! Exchange data ( transpose of matrix )
+            IF (pw_grid%grid_span /= FULLSPACE) sbuf = z_zero
+
+            CALL cube_transpose_1(rbuf, bo(:, :, :, 2), bo(:, :, :, 1), sbuf, fft_scratch)
+
+            ! FFT along z
+            CALL pw_gpu_fc(sbuf, zout)
+
+            CALL release_fft_scratch(fft_scratch)
+
+         ELSE
+            !
+            ! real space is only distributed over x coordinate
+            ! we have one stage of communication, after the transform of
+            ! direction x
+            !
+
+            CALL get_fft_scratch(fft_scratch, tf_type=200, n=n, ng_local=SIZE(zin), g_hat=pw_grid%g_hat, &
+                                 map=pw_grid%map, fft_sizes=fft_scratch_size)
+
+            ! assign buffers
+            sbuf => fft_scratch%r1buf
+            tbuf => fft_scratch%tbuf
+
+            ! FFT along x
+            CALL pw_gpu_sf(zin, sbuf, scale, n, fft_scratch%g_hatmap, pw_grid%grays)
+
+            ! Exchange data ( transpose of matrix ) and sort
+            IF (pw_grid%grid_span /= FULLSPACE) tbuf = z_zero
+            CALL x_to_yz(sbuf, rs_group, g_pos, p2p, pw_grid%para%yzp, nyzray, &
+                         bo(:, :, :, 2), tbuf, fft_scratch)
+
+            ! FFT along y and z
+            CALL pw_gpu_ffc(tbuf, zout)
+
+            CALL release_fft_scratch(fft_scratch)
+
+         END IF
+
+         DEALLOCATE (p2p)
+
+!--------------------------------------------------------------------------
+      ELSE
+         CPABORT("Not implemented (no ray_distr.) in: pw_gpu_c1dr3d_3d_ps.")
+      END IF
+
+      CALL timestop(handle)
+   END SUBROUTINE pw_gpu_c1dr3d_3d_ps
 
 ! **************************************************************************************************
 !> \brief Calls the 3D-FFT function from the initialized library
@@ -370,9 +1098,9 @@ CONTAINS
 
       INTEGER, INTENT(IN)                                :: fsign
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: n
-      COMPLEX(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+      COMPLEX(KIND=dp), DIMENSION(n(1), n(2), n(3)), &
          INTENT(INOUT)                                   :: zin
-      COMPLEX(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+      COMPLEX(KIND=dp), DIMENSION(n(1), n(2), n(3)), &
          INTENT(INOUT), OPTIONAL, TARGET                 :: zout
       INTEGER, INTENT(OUT), OPTIONAL                     :: status
       LOGICAL, INTENT(IN), OPTIONAL                      :: debug
@@ -428,17 +1156,9 @@ CONTAINS
 
       IF (fft_in_place) THEN
          zoptr => zdum
-         IF (fsign == FWFFT) THEN
-            CALL fft_3d(fft_scratch%fft_plan(1), norm, zin, zoptr, stat)
-         ELSE
-            CALL fft_3d(fft_scratch%fft_plan(2), norm, zin, zoptr, stat)
-         END IF
+         CALL fft_3d(fft_scratch%fft_plan(1), fsign, norm, zin, zoptr, stat)
       ELSE
-         IF (fsign == FWFFT) THEN
-            CALL fft_3d(fft_scratch%fft_plan(3), norm, zin, zout, stat)
-         ELSE
-            CALL fft_3d(fft_scratch%fft_plan(4), norm, zin, zout, stat)
-         END IF
+         CALL fft_3d(fft_scratch%fft_plan(2), fsign, norm, zin, zout, stat)
       END IF
 
       CALL release_fft_scratch(fft_scratch)
@@ -602,10 +1322,6 @@ CONTAINS
       fft_scratch_size%nmray = MAXVAL(nyzray)
       fft_scratch_size%nyzray = nyzray(g_pos)
       fft_scratch_size%rs_group = rs_group
-      fft_scratch_size%g_pos = g_pos
-      fft_scratch_size%r_pos = r_pos
-      fft_scratch_size%r_dim = r_dim
-      fft_scratch_size%numtask = numtask
 
       IF (test) THEN
          IF (g_pos == 0 .AND. output_unit > 0) THEN
@@ -647,7 +1363,7 @@ CONTAINS
             qbuf => fft_scratch%p2buf
 
             ! FFT along z
-            CALL fft_1dm(fft_scratch%fft_plan(1), cin, qbuf, norm, stat)
+            CALL fft_1d(fft_scratch%fft_plan(1), fsign, cin, qbuf, norm, stat)
 
             rbuf => fft_scratch%p3buf
 
@@ -673,7 +1389,7 @@ CONTAINS
             pbuf => fft_scratch%p4buf
 
             ! FFT along y
-            CALL fft_1dm(fft_scratch%fft_plan(2), rbuf, pbuf, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(2), fsign, rbuf, pbuf, 1.0_dp, stat)
 
             qbuf => fft_scratch%p5buf
 
@@ -698,7 +1414,7 @@ CONTAINS
             END IF
 
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(3), qbuf, gin, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, qbuf, gin, 1.0_dp, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(gin))
@@ -726,7 +1442,7 @@ CONTAINS
             pbuf => fft_scratch%p7buf
 
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(4), gin, pbuf, norm, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, gin, pbuf, norm, stat)
 
             qbuf => fft_scratch%p4buf
 
@@ -753,7 +1469,7 @@ CONTAINS
             rbuf => fft_scratch%p3buf
 
             ! FFT along y
-            CALL fft_1dm(fft_scratch%fft_plan(5), qbuf, rbuf, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(2), fsign, qbuf, rbuf, 1.0_dp, stat)
 
             pbuf => fft_scratch%p2buf
 
@@ -779,7 +1495,7 @@ CONTAINS
             qbuf => fft_scratch%p1buf
 
             ! FFT along z
-            CALL fft_1dm(fft_scratch%fft_plan(6), pbuf, cin, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(1), fsign, pbuf, cin, 1.0_dp, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(cin))
@@ -828,8 +1544,7 @@ CONTAINS
             END IF
 
             ! FFT along y and z
-            CALL fft_1dm(fft_scratch%fft_plan(1), cin, sbuf, 1._dp, stat)
-            CALL fft_1dm(fft_scratch%fft_plan(2), sbuf, tbuf, 1._dp, stat)
+            CALL fft_2d(fft_scratch%fft_plan(1:2), fsign, cin, sbuf, tbuf, 1._dp, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(tbuf))
@@ -851,7 +1566,7 @@ CONTAINS
                END IF
             END IF
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(3), sbuf, gin, norm, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, sbuf, gin, norm, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(gin))
@@ -876,7 +1591,7 @@ CONTAINS
             END IF
 
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(4), gin, sbuf, norm, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, gin, sbuf, norm, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(sbuf))
@@ -899,8 +1614,7 @@ CONTAINS
             END IF
 
             ! FFT along y and z
-            CALL fft_1dm(fft_scratch%fft_plan(5), tbuf, sbuf, 1._dp, stat)
-            CALL fft_1dm(fft_scratch%fft_plan(6), sbuf, cin, 1._dp, stat)
+            CALL fft_2d(fft_scratch%fft_plan(1:2), fsign, tbuf, sbuf, cin, 1._dp, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(cin))
@@ -1048,8 +1762,6 @@ CONTAINS
       fft_scratch_size%mcz2 = mcz2
       fft_scratch_size%mcy3 = mcy3
       fft_scratch_size%rs_group = group
-      fft_scratch_size%g_pos = my_pos
-      fft_scratch_size%numtask = DIM(1)*DIM(2)
 
       IF (DIM(1) > 1 .AND. DIM(2) > 1) THEN
 
@@ -1075,7 +1787,7 @@ CONTAINS
             END IF
 
             ! FFT along z
-            CALL fft_1dm(fft_scratch%fft_plan(1), zin, bbuf, norm, stat)
+            CALL fft_1d(fft_scratch%fft_plan(1), fsign, zin, bbuf, norm, stat)
 
             abuf => fft_scratch%a3buf
 
@@ -1101,7 +1813,7 @@ CONTAINS
             END IF
 
             ! FFT along y
-            CALL fft_1dm(fft_scratch%fft_plan(2), abuf, bbuf, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(2), fsign, abuf, bbuf, 1.0_dp, stat)
 
             abuf => fft_scratch%a5buf
 
@@ -1125,7 +1837,7 @@ CONTAINS
             END IF
 
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(3), abuf, gin, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, abuf, gin, 1.0_dp, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(gin))
@@ -1151,7 +1863,7 @@ CONTAINS
             END IF
 
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(4), gin, bbuf, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, gin, bbuf, 1.0_dp, stat)
 
             abuf => fft_scratch%a4buf
 
@@ -1177,7 +1889,7 @@ CONTAINS
             END IF
 
             ! FFT along y
-            CALL fft_1dm(fft_scratch%fft_plan(5), abuf, bbuf, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(2), fsign, abuf, bbuf, 1.0_dp, stat)
 
             abuf => fft_scratch%a2buf
 
@@ -1201,7 +1913,7 @@ CONTAINS
             END IF
 
             ! FFT along z
-            CALL fft_1dm(fft_scratch%fft_plan(6), abuf, zin, norm, stat)
+            CALL fft_1d(fft_scratch%fft_plan(1), fsign, abuf, zin, norm, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(zin))
@@ -1242,8 +1954,7 @@ CONTAINS
             abuf => fft_scratch%a3buf
             bbuf => fft_scratch%a4buf
             ! FFT along z and y
-            CALL fft_1dm(fft_scratch%fft_plan(1), zin, abuf, norm, stat)
-            CALL fft_1dm(fft_scratch%fft_plan(2), abuf, bbuf, 1.0_dp, stat)
+            CALL fft_2d(fft_scratch%fft_plan(1:2), fsign, zin, abuf, bbuf, norm, stat)
 
             abuf => fft_scratch%a5buf
 
@@ -1267,7 +1978,7 @@ CONTAINS
             END IF
 
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(3), abuf, gin, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, abuf, gin, 1.0_dp, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(gin))
@@ -1293,7 +2004,7 @@ CONTAINS
             bbuf => fft_scratch%a5buf
 
             ! FFT along x
-            CALL fft_1dm(fft_scratch%fft_plan(4), gin, bbuf, 1.0_dp, stat)
+            CALL fft_1d(fft_scratch%fft_plan(3), fsign, gin, bbuf, 1.0_dp, stat)
 
             abuf => fft_scratch%a4buf
 
@@ -1319,11 +2030,8 @@ CONTAINS
                END IF
             END IF
 
-            ! FFT along y
-            CALL fft_1dm(fft_scratch%fft_plan(5), abuf, bbuf, 1.0_dp, stat)
-
-            ! FFT along z
-            CALL fft_1dm(fft_scratch%fft_plan(6), bbuf, zin, norm, stat)
+            ! FFT along y and z
+            CALL fft_2d(fft_scratch%fft_plan(1:2), fsign, abuf, bbuf, zin, norm, stat)
 
             IF (test) THEN
                sum_data = ABS(SUM(zin))
@@ -1442,28 +2150,37 @@ CONTAINS
       END IF
 
       nx = bo(2, 1, mpr) - bo(1, 1, mpr) + 1
+      IF (alltoall_sgl) THEN
 !$OMP PARALLEL DO DEFAULT(NONE) COLLAPSE(2) &
 !$OMP             PRIVATE(ixx,ir,iy,iz,ix) &
 !$OMP             SHARED(np,nray,nx,alltoall_sgl,yzp,tt,rr,tb)
-      DO ip = 0, np - 1
-         DO ix = 1, nx
-            ixx = nray(ip)*(ix - 1)
-            IF (alltoall_sgl) THEN
+         DO ip = 0, np - 1
+            DO ix = 1, nx
+               ixx = nray(ip)*(ix - 1)
                DO ir = 1, nray(ip)
                   iy = yzp(1, ir, ip)
                   iz = yzp(2, ir, ip)
                   tb(iy, iz, ix) = tt(ir + ixx, ip)
                END DO
-            ELSE
+            END DO
+         END DO
+!$OMP END PARALLEL DO
+      ELSE
+!$OMP PARALLEL DO DEFAULT(NONE) COLLAPSE(2) &
+!$OMP             PRIVATE(ixx,ir,iy,iz,ix) &
+!$OMP             SHARED(np,nray,nx,alltoall_sgl,yzp,tt,rr,tb)
+         DO ip = 0, np - 1
+            DO ix = 1, nx
+               ixx = nray(ip)*(ix - 1)
                DO ir = 1, nray(ip)
                   iy = yzp(1, ir, ip)
                   iz = yzp(2, ir, ip)
                   tb(iy, iz, ix) = rr(ir + ixx, ip)
                END DO
-            END IF
+            END DO
          END DO
-      END DO
 !$OMP END PARALLEL DO
+      END IF
 
       CALL timestop(handle)
 
@@ -1529,28 +2246,37 @@ CONTAINS
       END IF
 
       nx = bo(2, 1, mpr) - bo(1, 1, mpr) + 1
+      IF (alltoall_sgl) THEN
 !$OMP PARALLEL DO DEFAULT(NONE) COLLAPSE(2) &
 !$OMP             PRIVATE(ip, ixx, ir, iy, iz, ix) &
 !$OMP             SHARED(np,nray,nx,alltoall_sgl,yzp,tb,tt,rr)
-      DO ip = 0, np - 1
-         DO ix = 1, nx
-            ixx = nray(ip)*(ix - 1)
-            IF (alltoall_sgl) THEN
+         DO ip = 0, np - 1
+            DO ix = 1, nx
+               ixx = nray(ip)*(ix - 1)
                DO ir = 1, nray(ip)
                   iy = yzp(1, ir, ip)
                   iz = yzp(2, ir, ip)
                   tt(ir + ixx, ip) = CMPLX(tb(iy, iz, ix), KIND=sp)
                END DO
-            ELSE
+            END DO
+         END DO
+!$OMP END PARALLEL DO
+      ELSE
+!$OMP PARALLEL DO DEFAULT(NONE) COLLAPSE(2) &
+!$OMP             PRIVATE(ip, ixx, ir, iy, iz, ix) &
+!$OMP             SHARED(np,nray,nx,alltoall_sgl,yzp,tb,tt,rr)
+         DO ip = 0, np - 1
+            DO ix = 1, nx
+               ixx = nray(ip)*(ix - 1)
                DO ir = 1, nray(ip)
                   iy = yzp(1, ir, ip)
                   iz = yzp(2, ir, ip)
                   rr(ir + ixx, ip) = tb(iy, iz, ix)
                END DO
-            END IF
+            END DO
          END DO
-      END DO
 !$OMP END PARALLEL DO
+      END IF
       nm = MAXVAL(nray(0:np - 1))
       nr = nray(my_pos)
 !$OMP PARALLEL DO DEFAULT(NONE), &
@@ -1717,38 +2443,53 @@ CONTAINS
       END IF
 
 ! Do the actual packing
+      IF (alltoall_sgl) THEN
 !$OMP PARALLEL DO DEFAULT(NONE), &
 !$OMP             PRIVATE(ipl,jj,nx,ir,jx,jy,jz),&
 !$OMP             SHARED(np,p2p,pzcoord,bo,nray,yzp,zcor),&
-!$OMP             SHARED(yzbuf,sb,scount,sdispl,my_pos),&
-!$OMP             SHARED(yzbuf_sgl,alltoall_sgl)
-      DO ip = 0, np - 1
-         IF (scount(ip) == 0) CYCLE
-         ipl = p2p(ip)
-         jj = 0
-         nx = bo(2, 1, ipl) - bo(1, 1, ipl) + 1
-         DO ir = 1, nray(my_pos)
-            jz = yzp(2, ir, my_pos)
-            IF (zcor(jz) == pzcoord(ipl)) THEN
-               jj = jj + 1
-               jy = yzp(1, ir, my_pos)
-               IF (alltoall_sgl) THEN
+!$OMP             SHARED(yzbuf_sgl,sb,scount,sdispl,my_pos)
+         DO ip = 0, np - 1
+            IF (scount(ip) == 0) CYCLE
+            ipl = p2p(ip)
+            jj = 0
+            nx = bo(2, 1, ipl) - bo(1, 1, ipl) + 1
+            DO ir = 1, nray(my_pos)
+               jz = yzp(2, ir, my_pos)
+               IF (zcor(jz) == pzcoord(ipl)) THEN
+                  jj = jj + 1
+                  jy = yzp(1, ir, my_pos)
                   DO jx = 0, nx - 1
                      yzbuf_sgl(sdispl(ip) + jj + jx*scount(ip)/nx) = CMPLX(sb(ir, jx + bo(1, 1, ipl)), KIND=sp)
                   END DO
-               ELSE
+               END IF
+            END DO
+         END DO
+!$OMP END PARALLEL DO
+
+         CALL group%alltoall(yzbuf_sgl, scount, sdispl, xzbuf_sgl, rcount, rdispl)
+      ELSE
+!$OMP PARALLEL DO DEFAULT(NONE), &
+!$OMP             PRIVATE(ipl,jj,nx,ir,jx,jy,jz),&
+!$OMP             SHARED(np,p2p,pzcoord,bo,nray,yzp,zcor),&
+!$OMP             SHARED(yzbuf,sb,scount,sdispl,my_pos)
+         DO ip = 0, np - 1
+            IF (scount(ip) == 0) CYCLE
+            ipl = p2p(ip)
+            jj = 0
+            nx = bo(2, 1, ipl) - bo(1, 1, ipl) + 1
+            DO ir = 1, nray(my_pos)
+               jz = yzp(2, ir, my_pos)
+               IF (zcor(jz) == pzcoord(ipl)) THEN
+                  jj = jj + 1
+                  jy = yzp(1, ir, my_pos)
                   DO jx = 0, nx - 1
                      yzbuf(sdispl(ip) + jj + jx*scount(ip)/nx) = sb(ir, jx + bo(1, 1, ipl))
                   END DO
                END IF
-            END IF
+            END DO
          END DO
-      END DO
 !$OMP END PARALLEL DO
 
-      IF (alltoall_sgl) THEN
-         CALL group%alltoall(yzbuf_sgl, scount, sdispl, xzbuf_sgl, rcount, rdispl)
-      ELSE
          IF (fft_scratch%rsratio < ratio_sparse_alltoall) THEN
             CALL sparse_alltoall(yzbuf, scount, sdispl, xzbuf, rcount, rdispl, group)
          ELSE
@@ -1756,40 +2497,55 @@ CONTAINS
          END IF
       END IF
 
-      myx = fft_scratch%sizes%r_pos(1)
-      myz = fft_scratch%sizes%r_pos(2)
+      myx = fft_scratch%sizes%rs_group%mepos_cart(1)
+      myz = fft_scratch%sizes%rs_group%mepos_cart(2)
       nz = bo(2, 3, rs_pos) - bo(1, 3, rs_pos) + 1
 
+      IF (alltoall_sgl) THEN
 !$OMP PARALLEL DO DEFAULT(NONE), &
 !$OMP             PRIVATE(ipr,jj,ir,jx,jy,jz),&
 !$OMP             SHARED(tb,np,p2p,bo,rs_pos,nray),&
-!$OMP             SHARED(yzp,alltoall_sgl,zcor,myz),&
-!$OMP             SHARED(xzbuf,xzbuf_sgl,nz,rdispl)
-      DO ip = 0, np - 1
-         ipr = p2p(ip)
-         jj = 0
-         DO jx = 0, bo(2, 1, rs_pos) - bo(1, 1, rs_pos)
-            DO ir = 1, nray(ip)
-               jz = yzp(2, ir, ip)
-               IF (alltoall_sgl) THEN
+!$OMP             SHARED(yzp,zcor,myz),&
+!$OMP             SHARED(xzbuf_sgl,nz,rdispl)
+         DO ip = 0, np - 1
+            ipr = p2p(ip)
+            jj = 0
+            DO jx = 0, bo(2, 1, rs_pos) - bo(1, 1, rs_pos)
+               DO ir = 1, nray(ip)
+                  jz = yzp(2, ir, ip)
                   IF (zcor(jz) == myz) THEN
                      jj = jj + 1
                      jy = yzp(1, ir, ip)
                      jz = jz - bo(1, 3, rs_pos) + 1
                      tb(jy, jz + jx*nz) = xzbuf_sgl(jj + rdispl(ipr))
                   END IF
-               ELSE
+               END DO
+            END DO
+         END DO
+!$OMP END PARALLEL DO
+      ELSE
+!$OMP PARALLEL DO DEFAULT(NONE), &
+!$OMP             PRIVATE(ipr,jj,ir,jx,jy,jz),&
+!$OMP             SHARED(tb,np,p2p,bo,rs_pos,nray),&
+!$OMP             SHARED(yzp,zcor,myz),&
+!$OMP             SHARED(xzbuf,nz,rdispl)
+         DO ip = 0, np - 1
+            ipr = p2p(ip)
+            jj = 0
+            DO jx = 0, bo(2, 1, rs_pos) - bo(1, 1, rs_pos)
+               DO ir = 1, nray(ip)
+                  jz = yzp(2, ir, ip)
                   IF (zcor(jz) == myz) THEN
                      jj = jj + 1
                      jy = yzp(1, ir, ip)
                      jz = jz - bo(1, 3, rs_pos) + 1
                      tb(jy, jz + jx*nz) = xzbuf(jj + rdispl(ipr))
                   END IF
-               END IF
+               END DO
             END DO
          END DO
-      END DO
 !$OMP END PARALLEL DO
+      END IF
 
       CALL timestop(handle)
 
@@ -1915,80 +2671,105 @@ CONTAINS
       END IF
 
 ! Now do the actual packing
-      myx = fft_scratch%sizes%r_pos(1)
-      myz = fft_scratch%sizes%r_pos(2)
+      myx = fft_scratch%sizes%rs_group%mepos_cart(1)
+      myz = fft_scratch%sizes%rs_group%mepos_cart(2)
       mp = p2p(my_pos)
       nz = bo(2, 3, mp) - bo(1, 3, mp) + 1
       nx = bo(2, 1, mp) - bo(1, 1, mp) + 1
 
+      IF (alltoall_sgl) THEN
 !$OMP PARALLEL DO DEFAULT(NONE), &
 !$OMP             PRIVATE(jj,ipl,ir,jx,jy,jz,ixx),&
 !$OMP             SHARED(np,p2p,nray,yzp,zcor,myz,bo,mp),&
-!$OMP             SHARED(alltoall_sgl,nx,scount,sdispl),&
-!$OMP             SHARED(xzbuf,xzbuf_sgl,sb,nz)
-      DO ip = 0, np - 1
-         jj = 0
-         ipl = p2p(ip)
-         DO ir = 1, nray(ip)
-            jz = yzp(2, ir, ip)
-            IF (zcor(jz) == myz) THEN
-               jj = jj + 1
-               jy = yzp(1, ir, ip)
-               jz = yzp(2, ir, ip) - bo(1, 3, mp) + 1
-               IF (alltoall_sgl) THEN
+!$OMP             SHARED(nx,scount,sdispl,xzbuf_sgl,sb,nz)
+         DO ip = 0, np - 1
+            jj = 0
+            ipl = p2p(ip)
+            DO ir = 1, nray(ip)
+               jz = yzp(2, ir, ip)
+               IF (zcor(jz) == myz) THEN
+                  jj = jj + 1
+                  jy = yzp(1, ir, ip)
+                  jz = yzp(2, ir, ip) - bo(1, 3, mp) + 1
                   DO jx = 0, nx - 1
                      ixx = jj + jx*scount(ipl)/nx
                      xzbuf_sgl(ixx + sdispl(ipl)) = CMPLX(sb(jy, jz + jx*nz), KIND=sp)
                   END DO
-               ELSE
+               END IF
+            END DO
+         END DO
+!$OMP END PARALLEL DO
+         CALL group%alltoall(xzbuf_sgl, scount, sdispl, yzbuf_sgl, rcount, rdispl)
+!$OMP PARALLEL DO DEFAULT(NONE), &
+!$OMP             PRIVATE(ipl,jj,nx,ir,jx,jy,jz),&
+!$OMP             SHARED(p2p,pzcoord,bo,nray,my_pos,yzp),&
+!$OMP             SHARED(rcount,rdispl,tb,zcor,yzbuf_sgl,np)
+         DO ip = 0, np - 1
+            IF (rcount(ip) == 0) CYCLE
+            ipl = p2p(ip)
+            jj = 0
+            nx = bo(2, 1, ipl) - bo(1, 1, ipl) + 1
+            DO ir = 1, nray(my_pos)
+               jz = yzp(2, ir, my_pos)
+               IF (zcor(jz) == pzcoord(ipl)) THEN
+                  jj = jj + 1
+                  jy = yzp(1, ir, my_pos)
+                  DO jx = 0, nx - 1
+                     tb(ir, jx + bo(1, 1, ipl)) = yzbuf_sgl(rdispl(ip) + jj + jx*rcount(ip)/nx)
+                  END DO
+               END IF
+            END DO
+         END DO
+!$OMP END PARALLEL DO
+      ELSE
+!$OMP PARALLEL DO DEFAULT(NONE), &
+!$OMP             PRIVATE(jj,ipl,ir,jx,jy,jz,ixx),&
+!$OMP             SHARED(np,p2p,nray,yzp,zcor,myz,bo,mp),&
+!$OMP             SHARED(nx,scount,sdispl,xzbuf,sb,nz)
+         DO ip = 0, np - 1
+            jj = 0
+            ipl = p2p(ip)
+            DO ir = 1, nray(ip)
+               jz = yzp(2, ir, ip)
+               IF (zcor(jz) == myz) THEN
+                  jj = jj + 1
+                  jy = yzp(1, ir, ip)
+                  jz = yzp(2, ir, ip) - bo(1, 3, mp) + 1
                   DO jx = 0, nx - 1
                      ixx = jj + jx*scount(ipl)/nx
                      xzbuf(ixx + sdispl(ipl)) = sb(jy, jz + jx*nz)
                   END DO
                END IF
-            END IF
+            END DO
          END DO
-      END DO
 !$OMP END PARALLEL DO
-
-      IF (alltoall_sgl) THEN
-         CALL group%alltoall(xzbuf_sgl, scount, sdispl, yzbuf_sgl, rcount, rdispl)
-      ELSE
          IF (fft_scratch%rsratio < ratio_sparse_alltoall) THEN
             CALL sparse_alltoall(xzbuf, scount, sdispl, yzbuf, rcount, rdispl, group)
          ELSE
             CALL group%alltoall(xzbuf, scount, sdispl, yzbuf, rcount, rdispl)
          END IF
-      END IF
-
 !$OMP PARALLEL DO DEFAULT(NONE), &
 !$OMP             PRIVATE(ipl,jj,nx,ir,jx,jy,jz),&
 !$OMP             SHARED(p2p,pzcoord,bo,nray,my_pos,yzp),&
-!$OMP             SHARED(rcount,rdispl,tb,yzbuf,zcor),&
-!$OMP             SHARED(yzbuf_sgl,alltoall_sgl,np)
-      DO ip = 0, np - 1
-         IF (rcount(ip) == 0) CYCLE
-         ipl = p2p(ip)
-         jj = 0
-         nx = bo(2, 1, ipl) - bo(1, 1, ipl) + 1
-         DO ir = 1, nray(my_pos)
-            jz = yzp(2, ir, my_pos)
-            IF (zcor(jz) == pzcoord(ipl)) THEN
-               jj = jj + 1
-               jy = yzp(1, ir, my_pos)
-               IF (alltoall_sgl) THEN
-                  DO jx = 0, nx - 1
-                     tb(ir, jx + bo(1, 1, ipl)) = yzbuf_sgl(rdispl(ip) + jj + jx*rcount(ip)/nx)
-                  END DO
-               ELSE
+!$OMP             SHARED(rcount,rdispl,tb,yzbuf,zcor,np)
+         DO ip = 0, np - 1
+            IF (rcount(ip) == 0) CYCLE
+            ipl = p2p(ip)
+            jj = 0
+            nx = bo(2, 1, ipl) - bo(1, 1, ipl) + 1
+            DO ir = 1, nray(my_pos)
+               jz = yzp(2, ir, my_pos)
+               IF (zcor(jz) == pzcoord(ipl)) THEN
+                  jj = jj + 1
+                  jy = yzp(1, ir, my_pos)
                   DO jx = 0, nx - 1
                      tb(ir, jx + bo(1, 1, ipl)) = yzbuf(rdispl(ip) + jj + jx*rcount(ip)/nx)
                   END DO
                END IF
-            END IF
+            END DO
          END DO
-      END DO
 !$OMP END PARALLEL DO
+      END IF
 
       CALL timestop(handle)
 
@@ -2412,7 +3193,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      np = fft_scratch%sizes%numtask
+      np = fft_scratch%sizes%rs_group%num_pe
       mip = fft_scratch%mip
       scount => fft_scratch%scount
       rcount => fft_scratch%rcount
@@ -2506,7 +3287,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      np = fft_scratch%sizes%numtask
+      np = fft_scratch%sizes%rs_group%num_pe
       mip = fft_scratch%mip
       scount => fft_scratch%scount
       rcount => fft_scratch%rcount
@@ -2598,11 +3379,14 @@ CONTAINS
 #endif
 
       ! deallocate structures
-      IF (ASSOCIATED(fft_scratch%ziptr)) THEN
-         CALL fft_dealloc(fft_scratch%ziptr)
-      END IF
-      IF (ASSOCIATED(fft_scratch%zoptr)) THEN
-         CALL fft_dealloc(fft_scratch%zoptr)
+      IF (ASSOCIATED(fft_scratch%g_hatmap)) THEN
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+         dummy_ptr => fft_scratch%g_hatmap(1, 1)
+         stat = offload_free_pinned_mem(c_loc(dummy_ptr))
+         CPASSERT(stat == 0)
+#else
+         DEALLOCATE (fft_scratch%g_hatmap)
+#endif
       END IF
       IF (ASSOCIATED(fft_scratch%p1buf)) THEN
          CALL fft_dealloc(fft_scratch%p1buf)
@@ -2639,9 +3423,6 @@ CONTAINS
          CALL fft_dealloc(fft_scratch%p5buf)
 #endif
       END IF
-      IF (ASSOCIATED(fft_scratch%p6buf)) THEN
-         CALL fft_dealloc(fft_scratch%p6buf)
-      END IF
       IF (ASSOCIATED(fft_scratch%p7buf)) THEN
 #if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%p7buf(1, 1)
@@ -2658,9 +3439,6 @@ CONTAINS
          CALL fft_dealloc(fft_scratch%r1buf)
 #endif
       END IF
-      IF (ASSOCIATED(fft_scratch%r2buf)) THEN
-         CALL fft_dealloc(fft_scratch%r2buf)
-      END IF
       IF (ASSOCIATED(fft_scratch%tbuf)) THEN
 #if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%tbuf(1, 1, 1)
@@ -2668,9 +3446,6 @@ CONTAINS
 #else
          CALL fft_dealloc(fft_scratch%tbuf)
 #endif
-      END IF
-      IF (ASSOCIATED(fft_scratch%a1buf)) THEN
-         CALL fft_dealloc(fft_scratch%a1buf)
       END IF
       IF (ASSOCIATED(fft_scratch%a2buf)) THEN
          CALL fft_dealloc(fft_scratch%a2buf)
@@ -2683,9 +3458,6 @@ CONTAINS
       END IF
       IF (ASSOCIATED(fft_scratch%a5buf)) THEN
          CALL fft_dealloc(fft_scratch%a5buf)
-      END IF
-      IF (ASSOCIATED(fft_scratch%a6buf)) THEN
-         CALL fft_dealloc(fft_scratch%a6buf)
       END IF
       IF (ASSOCIATED(fft_scratch%scount)) THEN
          DEALLOCATE (fft_scratch%scount, fft_scratch%rcount, &
@@ -2745,10 +3517,6 @@ CONTAINS
       IF (ASSOCIATED(fft_scratch%rbuf5)) THEN
          DEALLOCATE (fft_scratch%rbuf5)
       END IF
-      IF (ASSOCIATED(fft_scratch%rbuf6)) THEN
-         DEALLOCATE (fft_scratch%rbuf6)
-      END IF
-
       IF (fft_scratch%cart_sub_comm(1) /= mp_comm_null) THEN
          CALL fft_scratch%cart_sub_comm(1)%free()
       END IF
@@ -2863,17 +3631,29 @@ CONTAINS
 !> \param fft_scratch ...
 !> \param tf_type ...
 !> \param n ...
+!> \param ng_local ...
+!> \param g_hat ...
+!> \param map ...
+!> \param yzq ...
 !> \param fft_sizes ...
 ! **************************************************************************************************
-   SUBROUTINE get_fft_scratch(fft_scratch, tf_type, n, fft_sizes)
+   SUBROUTINE get_fft_scratch(fft_scratch, tf_type, n, ng_local, g_hat, map, yzq, fft_sizes)
       TYPE(fft_scratch_type), POINTER          :: fft_scratch
       INTEGER, INTENT(IN)                      :: tf_type
-      INTEGER, DIMENSION(:), INTENT(IN)        :: n
+      INTEGER, DIMENSION(3), INTENT(IN)        :: n
+      INTEGER, INTENT(IN), OPTIONAL :: ng_local
+      INTEGER, DIMENSION(:, :), CONTIGUOUS, INTENT(IN), OPTIONAL :: g_hat
+      TYPE(cp_1d_i_a_type), DIMENSION(3, 2), INTENT(IN), OPTIONAL :: map
+      INTEGER, DIMENSION(:, :), CONTIGUOUS, INTENT(IN), OPTIONAL :: yzq
       TYPE(fft_scratch_sizes), INTENT(IN), &
          OPTIONAL                              :: fft_sizes
 
       CHARACTER(len=*), PARAMETER :: routineN = 'get_fft_scratch'
 
+      COMPLEX(KIND=dp), DIMENSION(:, :, :), POINTER, CONTIGUOUS &
+         :: complex_array_3d_1, complex_array_3d_2
+      COMPLEX(KIND=dp), DIMENSION(:, :), POINTER, CONTIGUOUS &
+         :: complex_array_2d
       INTEGER :: coord(2), DIM(2), handle, i, ix, iz, lg, lmax, m1, m2, &
                  mcx2, mcy3, mcz1, mcz2, mg, mmax, mx1, mx2, my1, my3, mz1, mz2, mz3, &
                  nbx, nbz, nm, nmax, nmray, np, nx, ny, nyzray, nz, pos(2)
@@ -2884,12 +3664,18 @@ CONTAINS
                                                   fft_scratch_last, &
                                                   fft_scratch_new
 #if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
-      INTEGER                   :: ierr
+      INTEGER                   :: ierr, nmaps, stat
       INTEGER(KIND=C_SIZE_T)    :: length
       TYPE(C_PTR)               :: cptr_r1buf, cptr_tbuf, &
-                                   cptr_p2buf, cptr_p3buf, cptr_p4buf, cptr_p5buf, cptr_p7buf
+                                   cptr_p2buf, cptr_p3buf, cptr_p4buf, cptr_p5buf, cptr_p7buf, cptr_g_hatmap
 #endif
       CALL timeset(routineN, handle)
+
+      ! Prevent compiler warnings on CPU
+      MARK_USED(ng_local)
+      MARK_USED(map)
+      MARK_USED(yzq)
+      MARK_USED(g_hat)
 
       ! this is the place to check that the scratch_pool does not grow without limits
       ! before we add a new scratch check the size of the pool and release some of the list if needed
@@ -2941,7 +3727,7 @@ CONTAINS
 
             IF (tf_type .NE. 400) THEN
                fft_scratch_new%fft_scratch%sizes = fft_sizes
-               np = fft_sizes%numtask
+               np = fft_sizes%rs_group%num_pe
                ALLOCATE (fft_scratch_new%fft_scratch%scount(0:np - 1), fft_scratch_new%fft_scratch%rcount(0:np - 1), &
                          fft_scratch_new%fft_scratch%sdispl(0:np - 1), fft_scratch_new%fft_scratch%rdispl(0:np - 1), &
                          fft_scratch_new%fft_scratch%pgcube(0:np - 1, 2))
@@ -2958,12 +3744,10 @@ CONTAINS
                mz2 = fft_sizes%mz2
                my3 = fft_sizes%my3
                mz3 = fft_sizes%mz3
-               CALL fft_alloc(fft_scratch_new%fft_scratch%a1buf, [mx1*my1, n(3)])
                CALL fft_alloc(fft_scratch_new%fft_scratch%a2buf, [n(3), mx1*my1])
                CALL fft_alloc(fft_scratch_new%fft_scratch%a3buf, [mx2*mz2, n(2)])
                CALL fft_alloc(fft_scratch_new%fft_scratch%a4buf, [n(2), mx2*mz2])
                CALL fft_alloc(fft_scratch_new%fft_scratch%a5buf, [my3*mz3, n(1)])
-               CALL fft_alloc(fft_scratch_new%fft_scratch%a6buf, [n(1), my3*mz3])
                fft_scratch_new%fft_scratch%group = fft_sizes%rs_group
 
                dim = fft_sizes%rs_group%num_pe_cart
@@ -2996,18 +3780,16 @@ CONTAINS
                END DO
 
                !set up fft plans
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(1), fft_type, FWFFT, .TRUE., n(3), mx1*my1, &
-                                        fft_scratch_new%fft_scratch%a1buf, fft_scratch_new%fft_scratch%a2buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(2), fft_type, FWFFT, .TRUE., n(2), mx2*mz2, &
-                                        fft_scratch_new%fft_scratch%a3buf, fft_scratch_new%fft_scratch%a4buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(3), fft_type, FWFFT, .TRUE., n(1), my3*mz3, &
-                                        fft_scratch_new%fft_scratch%a5buf, fft_scratch_new%fft_scratch%a6buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(4), fft_type, BWFFT, .TRUE., n(1), my3*mz3, &
-                                        fft_scratch_new%fft_scratch%a6buf, fft_scratch_new%fft_scratch%a5buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(5), fft_type, BWFFT, .TRUE., n(2), mx2*mz2, &
-                                        fft_scratch_new%fft_scratch%a4buf, fft_scratch_new%fft_scratch%a3buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(6), fft_type, BWFFT, .TRUE., n(3), mx1*my1, &
-                                        fft_scratch_new%fft_scratch%a2buf, fft_scratch_new%fft_scratch%a1buf, fft_plan_style)
+               CALL fft_alloc(complex_array_2d, [mx1*my1, n(3)])
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(1), .TRUE., n(3), mx1*my1, &
+                                       complex_array_2d, fft_scratch_new%fft_scratch%a2buf)
+               CALL fft_dealloc(complex_array_2d)
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(2), .TRUE., n(2), mx2*mz2, &
+                                       fft_scratch_new%fft_scratch%a3buf, fft_scratch_new%fft_scratch%a4buf)
+               CALL fft_alloc(complex_array_2d, [n(1), my3*mz3])
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(3), .TRUE., n(1), my3*mz3, &
+                                       fft_scratch_new%fft_scratch%a5buf, complex_array_2d)
+               CALL fft_dealloc(complex_array_2d)
 
             CASE (101) ! fft3d_pb: full cube distribution (dim 1)
                CPASSERT(PRESENT(fft_sizes))
@@ -3016,13 +3798,11 @@ CONTAINS
                mz1 = fft_sizes%mz1
                my3 = fft_sizes%my3
                mz3 = fft_sizes%mz3
-               CALL fft_alloc(fft_scratch_new%fft_scratch%a1buf, [mx1*my1, n(3)])
                CALL fft_alloc(fft_scratch_new%fft_scratch%a2buf, [n(3), mx1*my1])
                fft_scratch_new%fft_scratch%group = fft_sizes%rs_group
                CALL fft_alloc(fft_scratch_new%fft_scratch%a3buf, [mx1*mz1, n(2)])
                CALL fft_alloc(fft_scratch_new%fft_scratch%a4buf, [n(2), mx1*mz1])
                CALL fft_alloc(fft_scratch_new%fft_scratch%a5buf, [my3*mz3, n(1)])
-               CALL fft_alloc(fft_scratch_new%fft_scratch%a6buf, [n(1), my3*mz3])
 
                dim = fft_sizes%rs_group%num_pe_cart
                pos = fft_sizes%rs_group%mepos_cart
@@ -3031,21 +3811,16 @@ CONTAINS
                fft_scratch_new%fft_scratch%pos = pos
                mcy3 = fft_sizes%mcy3
                ALLOCATE (fft_scratch_new%fft_scratch%rbuf5(mx1*mz3*mcy3, 0:DIM(1) - 1))
-               ALLOCATE (fft_scratch_new%fft_scratch%rbuf6(mx1*mz1*mcy3, 0:DIM(1) - 1))
 
                !set up fft plans
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(1), fft_type, FWFFT, .TRUE., n(3), mx1*my1, &
-                                        fft_scratch_new%fft_scratch%a1buf, fft_scratch_new%fft_scratch%a3buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(2), fft_type, FWFFT, .TRUE., n(2), mx1*mz1, &
-                                        fft_scratch_new%fft_scratch%a3buf, fft_scratch_new%fft_scratch%a4buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(3), fft_type, FWFFT, .TRUE., n(1), my3*mz3, &
-                                        fft_scratch_new%fft_scratch%a5buf, fft_scratch_new%fft_scratch%a6buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(4), fft_type, BWFFT, .TRUE., n(1), my3*mz3, &
-                                        fft_scratch_new%fft_scratch%a6buf, fft_scratch_new%fft_scratch%a5buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(5), fft_type, BWFFT, .TRUE., n(2), mx1*mz1, &
-                                        fft_scratch_new%fft_scratch%a4buf, fft_scratch_new%fft_scratch%a3buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(6), fft_type, BWFFT, .TRUE., n(3), mx1*my1, &
-                                        fft_scratch_new%fft_scratch%a3buf, fft_scratch_new%fft_scratch%a1buf, fft_plan_style)
+               CALL fft_alloc(complex_array_2d, [mx1*my1, n(3)])
+               CALL fft_create_plan_2d(fft_scratch_new%fft_scratch%fft_plan(1:2), .TRUE., mz1, my1, mx1, &
+                                       fft_scratch_new%fft_scratch%a3buf, fft_scratch_new%fft_scratch%a4buf)
+               CALL fft_dealloc(complex_array_2d)
+               CALL fft_alloc(complex_array_2d, [n(1), my3*mz3])
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(3), .TRUE., n(1), my3*mz3, &
+                                       fft_scratch_new%fft_scratch%a5buf, complex_array_2d)
+               CALL fft_dealloc(complex_array_2d)
 
             CASE (200) ! fft3d_ps: plane distribution
                CPASSERT(PRESENT(fft_sizes))
@@ -3057,7 +3832,7 @@ CONTAINS
                mmax = fft_sizes%mmax
                lg = fft_sizes%lg
                mg = fft_sizes%mg
-               np = fft_sizes%numtask
+               np = fft_sizes%rs_group%num_pe
                nmray = fft_sizes%nmray
                nyzray = fft_sizes%nyzray
 #if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
@@ -3073,8 +3848,20 @@ CONTAINS
                CALL fft_alloc(fft_scratch_new%fft_scratch%r1buf, [mmax, lmax])
                CALL fft_alloc(fft_scratch_new%fft_scratch%tbuf, [ny, nz, nx])
 #endif
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+               IF (.NOT. PRESENT(map) .OR. .NOT. PRESENT(yzq), .OR. .NOT. PRESENT(g_hat) .OR. .NOT. (ng_local)) &
+                  CPABORT("Some input data is missing!")
+               nmaps = 1
+               IF (ALLOCATED(map(1, 2)) .AND. ALLOCATED(map(2, 2)) .AND. ALLOCATED(map(3, 2))) nmaps = 2
+               CALL offload_activate_chosen_device()
+
+               length = INT(int_size*MAX(ng_local, 1)*MAX(nmaps, 1), KIND=C_SIZE_T)
+               stat = offload_malloc_pinned_mem(cptr_g_hatmap, length)
+               CPASSERT(stat == 0)
+               CALL c_f_pointer(cptr_g_hatmap, fft_scratch_new%fft_scratch%g_hatmap, (/MAX(ng_local, 1), MAX(nmaps, 1)/))
+               CALL create_ghatmap(g_hatmap, g_hat, map, n, yzq, .TRUE.)
+#endif
                fft_scratch_new%fft_scratch%group = fft_sizes%rs_group
-               CALL fft_alloc(fft_scratch_new%fft_scratch%r2buf, [lg, mg])
                nm = nmray*mx2
                IF (alltoall_sgl) THEN
                   ALLOCATE (fft_scratch_new%fft_scratch%ss(mmax, lmax))
@@ -3084,18 +3871,12 @@ CONTAINS
                END IF
 
                !set up fft plans
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(1), fft_type, FWFFT, .TRUE., nz, nx*ny, &
-                                        fft_scratch_new%fft_scratch%tbuf, fft_scratch_new%fft_scratch%r1buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(2), fft_type, FWFFT, .TRUE., ny, nx*nz, &
-                                        fft_scratch_new%fft_scratch%r1buf, fft_scratch_new%fft_scratch%tbuf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(3), fft_type, FWFFT, .TRUE., n(1), nyzray, &
-                                        fft_scratch_new%fft_scratch%r1buf, fft_scratch_new%fft_scratch%r2buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(4), fft_type, BWFFT, .TRUE., n(1), nyzray, &
-                                        fft_scratch_new%fft_scratch%r2buf, fft_scratch_new%fft_scratch%r1buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(5), fft_type, BWFFT, .TRUE., ny, nx*nz, &
-                                        fft_scratch_new%fft_scratch%tbuf, fft_scratch_new%fft_scratch%r1buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(6), fft_type, BWFFT, .TRUE., nz, nx*ny, &
-                                        fft_scratch_new%fft_scratch%r1buf, fft_scratch_new%fft_scratch%tbuf, fft_plan_style)
+               CALL fft_create_plan_2d(fft_scratch_new%fft_scratch%fft_plan(1:2), .TRUE., nz, ny, nx, &
+                                       fft_scratch_new%fft_scratch%r1buf, fft_scratch_new%fft_scratch%tbuf)
+               CALL fft_alloc(complex_array_2d, [lg, mg])
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(3), .TRUE., n(1), nyzray, &
+                                       fft_scratch_new%fft_scratch%r1buf, complex_array_2d)
+               CALL fft_dealloc(complex_array_2d)
 
             CASE (300) ! fft3d_ps: block distribution
                CPASSERT(PRESENT(fft_sizes))
@@ -3109,12 +3890,11 @@ CONTAINS
                nmax = fft_sizes%nmax
                nmray = fft_sizes%nmray
                nyzray = fft_sizes%nyzray
-               m1 = fft_sizes%r_dim(1)
-               m2 = fft_sizes%r_dim(2)
+               m1 = fft_sizes%rs_group%num_pe_cart(1)
+               m2 = fft_sizes%rs_group%num_pe_cart(2)
                nbx = fft_sizes%nbx
                nbz = fft_sizes%nbz
                CALL fft_alloc(fft_scratch_new%fft_scratch%p1buf, [mx1*my1, n(3)])
-               CALL fft_alloc(fft_scratch_new%fft_scratch%p6buf, [lg, mg])
 #if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
                length = INT(2*dp_size*MAX(n(3), 1)*MAX(mx1*my1, 1), KIND=C_SIZE_T)
                ierr = offload_malloc_pinned_mem(cptr_p2buf, length)
@@ -3142,6 +3922,19 @@ CONTAINS
                CALL fft_alloc(fft_scratch_new%fft_scratch%p4buf, [n(2), mx2*mz2])
                CALL fft_alloc(fft_scratch_new%fft_scratch%p5buf, [nyzray, n(1)])
                CALL fft_alloc(fft_scratch_new%fft_scratch%p7buf, [mg, lg])
+#endif
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+               IF (.NOT. PRESENT(map) .OR. .NOT. PRESENT(yzq), .OR. .NOT. PRESENT(g_hat) .OR. .NOT. (ng_local)) &
+                  CPABORT("Some input data is missing!")
+               nmaps = 1
+               IF (ALLOCATED(map(1, 2)) .AND. ALLOCATED(map(2, 2)) .AND. ALLOCATED(map(3, 2))) nmaps = 2
+               CALL offload_activate_chosen_device()
+
+               length = INT(int_size*MAX(ng_local, 1)*MAX(nmaps, 1), KIND=C_SIZE_T)
+               stat = offload_malloc_pinned_mem(cptr_g_hatmap, length)
+               CPASSERT(stat == 0)
+               CALL c_f_pointer(cptr_g_hatmap, fft_scratch_new%fft_scratch%g_hatmap, (/MAX(ng_local, 1), MAX(nmaps, 1)/))
+               CALL create_ghatmap(g_hatmap, g_hat, map, n, yzq, .TRUE.)
 #endif
                IF (alltoall_sgl) THEN
                   ALLOCATE (fft_scratch_new%fft_scratch%yzbuf_sgl(mg*lg))
@@ -3194,34 +3987,38 @@ CONTAINS
                END DO
 
                !set up fft plans
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(1), fft_type, FWFFT, .TRUE., n(3), mx1*my1, &
-                                        fft_scratch_new%fft_scratch%p1buf, fft_scratch_new%fft_scratch%p2buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(2), fft_type, FWFFT, .TRUE., n(2), mx2*mz2, &
-                                        fft_scratch_new%fft_scratch%p3buf, fft_scratch_new%fft_scratch%p4buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(3), fft_type, FWFFT, .TRUE., n(1), nyzray, &
-                                        fft_scratch_new%fft_scratch%p5buf, fft_scratch_new%fft_scratch%p6buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(4), fft_type, BWFFT, .TRUE., n(1), nyzray, &
-                                        fft_scratch_new%fft_scratch%p6buf, fft_scratch_new%fft_scratch%p7buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(5), fft_type, BWFFT, .TRUE., n(2), mx2*mz2, &
-                                        fft_scratch_new%fft_scratch%p4buf, fft_scratch_new%fft_scratch%p3buf, fft_plan_style)
-               CALL fft_create_plan_1dm(fft_scratch_new%fft_scratch%fft_plan(6), fft_type, BWFFT, .TRUE., n(3), mx1*my1, &
-                                        fft_scratch_new%fft_scratch%p3buf, fft_scratch_new%fft_scratch%p1buf, fft_plan_style)
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(1), .TRUE., n(3), mx1*my1, &
+                                       fft_scratch_new%fft_scratch%p1buf, fft_scratch_new%fft_scratch%p2buf)
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(2), .TRUE., n(2), mx2*mz2, &
+                                       fft_scratch_new%fft_scratch%p3buf, fft_scratch_new%fft_scratch%p4buf)
+               CALL fft_alloc(complex_array_2d, [lg, mg])
+               CALL fft_create_plan_1d(fft_scratch_new%fft_scratch%fft_plan(3), .TRUE., n(1), nyzray, &
+                                       fft_scratch_new%fft_scratch%p5buf, complex_array_2d)
+               CALL fft_dealloc(complex_array_2d)
 
             CASE (400) ! serial FFT
-               np = 0
-               CALL fft_alloc(fft_scratch_new%fft_scratch%ziptr, n)
-               CALL fft_alloc(fft_scratch_new%fft_scratch%zoptr, n)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+               IF (.NOT. PRESENT(map) .OR. .NOT. PRESENT(yzq), .OR. .NOT. PRESENT(g_hat) .OR. .NOT. (ng_local)) &
+                  CPABORT("Some input data is missing!")
+               nmaps = 1
+               IF (ALLOCATED(map(1, 2)) .AND. ALLOCATED(map(2, 2)) .AND. ALLOCATED(map(3, 2))) nmaps = 2
+               CALL offload_activate_chosen_device()
+
+               length = INT(int_size*MAX(ng_local, 1)*MAX(nmaps, 1), KIND=C_SIZE_T)
+               stat = offload_malloc_pinned_mem(cptr_g_hatmap, length)
+               CPASSERT(stat == 0)
+               CALL c_f_pointer(cptr_g_hatmap, fft_scratch_new%fft_scratch%g_hatmap, (/MAX(ng_local, 1), MAX(nmaps, 1)/))
+               CALL create_ghatmap(g_hatmap, g_hat, map, n, yzq, .FALSE.)
+#endif
+               CALL fft_alloc(complex_array_3d_1, n)
+               CALL fft_alloc(complex_array_3d_2, n)
 
                !in place plans
-               CALL fft_create_plan_3d(fft_scratch_new%fft_scratch%fft_plan(1), fft_type, .TRUE., FWFFT, n, &
-                                       fft_scratch_new%fft_scratch%ziptr, fft_scratch_new%fft_scratch%ziptr, fft_plan_style)
-               CALL fft_create_plan_3d(fft_scratch_new%fft_scratch%fft_plan(2), fft_type, .TRUE., BWFFT, n, &
-                                       fft_scratch_new%fft_scratch%ziptr, fft_scratch_new%fft_scratch%ziptr, fft_plan_style)
+               CALL fft_create_plan_3d(fft_scratch_new%fft_scratch%fft_plan(1), .TRUE., n, complex_array_3d_1, complex_array_3d_1)
                ! out of place plans
-               CALL fft_create_plan_3d(fft_scratch_new%fft_scratch%fft_plan(3), fft_type, .FALSE., FWFFT, n, &
-                                       fft_scratch_new%fft_scratch%ziptr, fft_scratch_new%fft_scratch%zoptr, fft_plan_style)
-               CALL fft_create_plan_3d(fft_scratch_new%fft_scratch%fft_plan(4), fft_type, .FALSE., BWFFT, n, &
-                                       fft_scratch_new%fft_scratch%ziptr, fft_scratch_new%fft_scratch%zoptr, fft_plan_style)
+               CALL fft_create_plan_3d(fft_scratch_new%fft_scratch%fft_plan(2), .FALSE., n, complex_array_3d_1, complex_array_3d_2)
+               CALL fft_dealloc(complex_array_3d_1)
+               CALL fft_dealloc(complex_array_3d_2)
 
             END SELECT
 
@@ -3275,6 +4072,89 @@ CONTAINS
       END DO
 
    END SUBROUTINE release_fft_scratch
+
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+! **************************************************************************************************
+!> \brief sets up a combined index for CUDA gather and scatter
+!> \param g_hatmap ...
+!> \param g_hat ...
+!> \param map ...
+!> \param npts ...
+!> \param yzq ...
+!> \param is_distributed ...
+!> \author Gloess Andreas (xx-Dec-2012)
+! **************************************************************************************************
+   SUBROUTINE create_ghatmap(g_hatmap, g_hat, map, npts, yzq, is_distributed)
+
+      INTEGER, CONTIGUOUS, DIMENSION(:, :), &
+         INTENT(INOUT)                                   :: g_hatmap
+      INTEGER, CONTIGUOUS, DIMENSION(:, :), INTENT(IN)   :: g_hat
+      TYPE(cp_1d_i_a_type), DIMENSION(3, 2), INTENT(IN)  :: map
+      INTEGER, DIMENSION(3), INTENT(IN)                  :: npts
+      INTEGER, DIMENSION(npts(2), npts(3)), INTENT(IN)   :: yzq
+      LOGICAL, INTENT(IN)                                :: is_distributed
+
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'create_ghatmap'
+
+      INTEGER                                            :: gpt, handle, l, m, mn, n
+
+      CALL timeset(routineN, handle)
+
+      ! mapping of map_x( g_hat(i,j)) to g_hatmap
+      ! the second index is for switching from gather(1) to scatter(2)
+      ASSOCIATE (pmapl => map(1, 1)%array, pmapm => map(2, 1)%array, pmapn => map(3, 1)%array, &
+                 nmapl => map(1, 2)%array, nmapm => map(2, 2)%array, nmapn => map(3, 2)%array, &
+                 ngpts => SIZE(g_hat, 2))
+         ! initialize map array to minus one, to guarantee memory
+         ! range checking errors in CUDA part (just to be sure)
+         g_hatmap(:, :) = -1
+         IF (.NOT. is_distributed) THEN
+            DO gpt = 1, ngpts
+               l = pmapl(g_hat(1, gpt))
+               m = pmapm(g_hat(2, gpt))
+               n = pmapn(g_hat(3, gpt))
+               !ATTENTION: C-mapping [start-index=0] !!!!
+               !ATTENTION: potential integer overflow !!!!
+               g_hatmap(gpt, 1) = l + npts(1)*(m + npts(2)*n)
+            END DO
+            IF (pw_grid%grid_span == HALFSPACE) THEN
+               DO gpt = 1, ngpts
+                  l = nmapl(g_hat(1, gpt))
+                  m = nmapm(g_hat(2, gpt))
+                  n = nmapn(g_hat(3, gpt))
+                  !ATTENTION: C-mapping [start-index=0] !!!!
+                  !ATTENTION: potential integer overflow !!!!
+                  g_hatmap(gpt, 2) = l + npts(1)*(m + npts(2)*n)
+               END DO
+            END IF
+         ELSE
+            DO gpt = 1, ngpts
+               l = pmapl(g_hat(1, gpt))
+               m = pmapm(g_hat(2, gpt)) + 1
+               n = pmapn(g_hat(3, gpt)) + 1
+               !ATTENTION: C-mapping [start-index=0] !!!!
+               !ATTENTION: potential integer overflow !!!!
+               mn = yzq(m, n) - 1
+               g_hatmap(gpt, 1) = l + npts(1)*mn
+            END DO
+            IF (pw_grid%grid_span == HALFSPACE) THEN
+               DO gpt = 1, ngpts
+                  l = nmapl(g_hat(1, gpt))
+                  m = nmapm(g_hat(2, gpt)) + 1
+                  n = nmapn(g_hat(3, gpt)) + 1
+                  !ATTENTION: C-mapping [start-index=0] !!!!
+                  !ATTENTION: potential integer overflow !!!!
+                  mn = yzq(m, n) - 1
+                  g_hatmap(gpt, 2) = l + npts(1)*mn
+               END DO
+            END IF
+         END IF
+      END ASSOCIATE
+
+      CALL timestop(handle)
+
+   END SUBROUTINE create_ghatmap
+#endif
 
 ! **************************************************************************************************
 !> \brief ...
@@ -3375,12 +4255,6 @@ CONTAINS
       equal = equal .AND. fft_size_1%nyzray == fft_size_2%nyzray
 
       equal = equal .AND. fft_size_1%rs_group == fft_size_2%rs_group
-
-      equal = equal .AND. ALL(fft_size_1%g_pos == fft_size_2%g_pos)
-      equal = equal .AND. ALL(fft_size_1%r_pos == fft_size_2%r_pos)
-      equal = equal .AND. ALL(fft_size_1%r_dim == fft_size_2%r_dim)
-
-      equal = equal .AND. fft_size_1%numtask == fft_size_2%numtask
 
    END SUBROUTINE is_equal
 

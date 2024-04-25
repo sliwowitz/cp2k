@@ -34,22 +34,15 @@
 !>      CJM
 ! **************************************************************************************************
 MODULE pw_grids
-   USE ISO_C_BINDING,                   ONLY: C_F_POINTER,&
-                                              C_LOC,&
-                                              C_PTR,&
-                                              C_SIZE_T
+   USE cp_array_utils,                  ONLY: cp_1d_i_a_type
    USE kinds,                           ONLY: dp,&
-                                              int_8,&
-                                              int_size
+                                              int_8
    USE mathconstants,                   ONLY: twopi
    USE mathlib,                         ONLY: det_3x3,&
                                               inv_3x3
    USE message_passing,                 ONLY: mp_comm_self,&
                                               mp_comm_type,&
                                               mp_dims_create
-   USE offload_api,                     ONLY: offload_activate_chosen_device,&
-                                              offload_free_pinned_mem,&
-                                              offload_malloc_pinned_mem
    USE pw_grid_info,                    ONLY: pw_find_cutoff,&
                                               pw_grid_bounds_from_n,&
                                               pw_grid_init_setup
@@ -57,7 +50,6 @@ MODULE pw_grids
                                               HALFSPACE,&
                                               PW_MODE_DISTRIBUTED,&
                                               PW_MODE_LOCAL,&
-                                              map_pn,&
                                               pw_grid_type
    USE util,                            ONLY: get_limit,&
                                               sort
@@ -116,7 +108,6 @@ CONTAINS
       pw_grid%ref_count = 1
       NULLIFY (pw_grid%g)
       NULLIFY (pw_grid%gsq)
-      NULLIFY (pw_grid%g_hatmap)
       NULLIFY (pw_grid%gidx)
       NULLIFY (pw_grid%grays)
 
@@ -321,7 +312,6 @@ CONTAINS
       pw_grid%ref_count = 1
       NULLIFY (pw_grid%g)
       NULLIFY (pw_grid%gsq)
-      NULLIFY (pw_grid%g_hatmap)
       NULLIFY (pw_grid%gidx)
       NULLIFY (pw_grid%grays)
 
@@ -419,89 +409,9 @@ CONTAINS
       CALL pw_grid_setup_internal(cell_hmat, cell_h_inv, cell_deth, pw_grid, mp_comm, bounds_local=bounds_local, &
                                   blocked=blocked, ref_grid=ref_grid, rs_dims=rs_dims, iounit=iounit)
 
-#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
-      CALL pw_grid_create_ghatmap(pw_grid)
-#endif
-
       CALL timestop(handle)
 
    END SUBROUTINE pw_grid_create_extended
-
-#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
-! **************************************************************************************************
-!> \brief sets up a combined index for CUDA gather and scatter
-!> \param pw_grid ...
-!> \author Gloess Andreas (xx-Dec-2012)
-! **************************************************************************************************
-   SUBROUTINE pw_grid_create_ghatmap(pw_grid)
-
-      TYPE(pw_grid_type), INTENT(INOUT)                  :: pw_grid
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_create_ghatmap'
-
-      INTEGER                                            :: gpt, handle, l, m, mn, n
-
-      CALL timeset(routineN, handle)
-
-      ! some checks
-      CPASSERT(pw_grid%ref_count > 0)
-
-      ! mapping of map_x( g_hat(i,j)) to g_hatmap
-      ! the second index is for switching from gather(1) to scatter(2)
-      ASSOCIATE (g_hat => pw_grid%g_hat, g_hatmap => pw_grid%g_hatmap, pmapl => pw_grid%mapl%pos, &
-                 pmapm => pw_grid%mapm%pos, pmapn => pw_grid%mapn%pos, nmapl => pw_grid%mapl%neg, &
-                 nmapm => pw_grid%mapm%neg, nmapn => pw_grid%mapn%neg, ngpts => SIZE(pw_grid%gsq), &
-                 npts => pw_grid%npts, yzq => pw_grid%para%yzq)
-         ! initialize map array to minus one, to guarantee memory
-         ! range checking errors in CUDA part (just to be sure)
-         g_hatmap(:, :) = -1
-         IF (pw_grid%para%mode /= PW_MODE_DISTRIBUTED) THEN
-            DO gpt = 1, ngpts
-               l = pmapl(g_hat(1, gpt))
-               m = pmapm(g_hat(2, gpt))
-               n = pmapn(g_hat(3, gpt))
-               !ATTENTION: C-mapping [start-index=0] !!!!
-               !ATTENTION: potential integer overflow !!!!
-               g_hatmap(gpt, 1) = l + npts(1)*(m + npts(2)*n)
-            END DO
-            IF (pw_grid%grid_span == HALFSPACE) THEN
-               DO gpt = 1, ngpts
-                  l = nmapl(g_hat(1, gpt))
-                  m = nmapm(g_hat(2, gpt))
-                  n = nmapn(g_hat(3, gpt))
-                  !ATTENTION: C-mapping [start-index=0] !!!!
-                  !ATTENTION: potential integer overflow !!!!
-                  g_hatmap(gpt, 2) = l + npts(1)*(m + npts(2)*n)
-               END DO
-            END IF
-         ELSE
-            DO gpt = 1, ngpts
-               l = pmapl(g_hat(1, gpt))
-               m = pmapm(g_hat(2, gpt)) + 1
-               n = pmapn(g_hat(3, gpt)) + 1
-               !ATTENTION: C-mapping [start-index=0] !!!!
-               !ATTENTION: potential integer overflow !!!!
-               mn = yzq(m, n) - 1
-               g_hatmap(gpt, 1) = l + npts(1)*mn
-            END DO
-            IF (pw_grid%grid_span == HALFSPACE) THEN
-               DO gpt = 1, ngpts
-                  l = nmapl(g_hat(1, gpt))
-                  m = nmapm(g_hat(2, gpt)) + 1
-                  n = nmapn(g_hat(3, gpt)) + 1
-                  !ATTENTION: C-mapping [start-index=0] !!!!
-                  !ATTENTION: potential integer overflow !!!!
-                  mn = yzq(m, n) - 1
-                  g_hatmap(gpt, 2) = l + npts(1)*mn
-               END DO
-            END IF
-         END IF
-      END ASSOCIATE
-
-      CALL timestop(handle)
-
-   END SUBROUTINE pw_grid_create_ghatmap
-#endif
 
 ! **************************************************************************************************
 !> \brief sets up a pw_grid, needs valid bounds as input, it is up to you to
@@ -803,7 +713,7 @@ CONTAINS
                                                             lbz, lo(2), m, n, np, ns, nx, ny, nz, &
                                                             rsd(2)
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: pemap
-      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: yz_index
+      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: yz_index, yz_to_proc
       INTEGER, ALLOCATABLE, DIMENSION(:, :, :)           :: axis_dist_all
       INTEGER, DIMENSION(2)                              :: my_rs_dims
       INTEGER, DIMENSION(2, 3)                           :: axis_dist
@@ -995,6 +905,7 @@ CONTAINS
 
          ALLOCATE (pw_grid%para%nyzray(0:np - 1))
 
+         ALLOCATE (yz_to_proc(ny, nz))
          ALLOCATE (pw_grid%para%yzq(ny, nz))
 
          IF (pw_grid%spherical .OR. pw_grid%grid_span == HALFSPACE &
@@ -1002,15 +913,17 @@ CONTAINS
 
             pw_grid%para%ray_distribution = .TRUE.
 
-            pw_grid%para%yzq = -1
+            yz_to_proc = -1
             IF (PRESENT(ref_grid)) THEN
                ! tag all vectors from the reference grid
-               CALL pre_tag(pw_grid, yz_mask, ref_grid)
+               CALL pre_tag(pw_grid, yz_mask, yz_to_proc, ref_grid)
             END IF
 
             ! Round Robin distribution
             ! Processors 0 .. NP-1, NP-1 .. 0  get the largest remaining batch
             ! of g vectors in turn
+
+            ! yzq maps (y,z) to the processor
 
             i1 = SIZE(yz_mask, 1)
             i2 = SIZE(yz_mask, 2)
@@ -1028,11 +941,11 @@ CONTAINS
                IF (ip == pw_grid%para%group%mepos) THEN
                   pw_grid%ngpts_cut_local = pw_grid%ngpts_cut_local + gmax
                END IF
-               pw_grid%para%yzq(lo(1), lo(2)) = ip
+               yz_to_proc(lo(1), lo(2)) = ip
                IF (pw_grid%grid_span == HALFSPACE) THEN
                   m = -lo(1) - 2*lby + 2
                   n = -lo(2) - 2*lbz + 2
-                  pw_grid%para%yzq(m, n) = ip
+                  yz_to_proc(m, n) = ip
                   yz_mask(m, n) = 0
                END IF
             END DO
@@ -1043,7 +956,7 @@ CONTAINS
             pw_grid%para%nyzray = 0
             DO i = 1, nz
                DO j = 1, ny
-                  ip = pw_grid%para%yzq(j, i)
+                  ip = yz_to_proc(j, i)
                   IF (ip >= 0) pw_grid%para%nyzray(ip) = &
                      pw_grid%para%nyzray(ip) + 1
                END DO
@@ -1054,10 +967,11 @@ CONTAINS
             ALLOCATE (pw_grid%para%yzp(2, ns, 0:np - 1))
 
             ! Fill mapping array, recalculate nyzray for convenience
+            ! yzq maps now (y,z) to the ray position
             pw_grid%para%nyzray = 0
             DO i = 1, nz
                DO j = 1, ny
-                  ip = pw_grid%para%yzq(j, i)
+                  ip = yz_to_proc(j, i)
                   IF (ip >= 0) THEN
                      pw_grid%para%nyzray(ip) = &
                         pw_grid%para%nyzray(ip) + 1
@@ -1147,6 +1061,8 @@ CONTAINS
 
          END IF
 
+         DEALLOCATE (yz_to_proc)
+
       END IF
 
       ! pos_of_x(i) tells on which cpu pw%array(i,:,:) is located
@@ -1170,14 +1086,15 @@ CONTAINS
 !> \brief ...
 !> \param pw_grid ...
 !> \param yz_mask ...
+!> \param yz_to_proc ...
 !> \param ref_grid ...
 !> \par History
 !>      - Fix mapping bug for pw_grid eqv to ref_grid (21.11.2019, MK)
 ! **************************************************************************************************
-   SUBROUTINE pre_tag(pw_grid, yz_mask, ref_grid)
+   SUBROUTINE pre_tag(pw_grid, yz_mask, yz_to_proc, ref_grid)
 
       TYPE(pw_grid_type), INTENT(INOUT)                  :: pw_grid
-      INTEGER, DIMENSION(:, :), INTENT(INOUT)            :: yz_mask
+      INTEGER, DIMENSION(:, :), INTENT(INOUT)            :: yz_mask, yz_to_proc
       TYPE(pw_grid_type), INTENT(IN)                     :: ref_grid
 
       INTEGER                                            :: gmax, ig, ip, lby, lbz, my, mz, ny, nz, &
@@ -1217,13 +1134,13 @@ CONTAINS
                IF (gmax == 0) CYCLE
                yz_mask(y, z) = 0
                yz_mask(yp, zp) = 0
-               pw_grid%para%yzq(y, z) = ip
-               pw_grid%para%yzq(yp, zp) = ip
+               yz_to_proc(y, z) = ip
+               yz_to_proc(yp, zp) = ip
             ELSE
                gmax = yz_mask(y, z)
                IF (gmax == 0) CYCLE
                yz_mask(y, z) = 0
-               pw_grid%para%yzq(y, z) = ip
+               yz_to_proc(y, z) = ip
             END IF
             IF (ip == pw_grid%para%group%mepos) THEN
                pw_grid%ngpts_cut_local = pw_grid%ngpts_cut_local + gmax
@@ -1595,7 +1512,7 @@ CONTAINS
       END DO
 
       CALL pw_grid_set_maps(pw_grid%grid_span, pw_grid%g_hat, &
-                            pw_grid%mapl, pw_grid%mapm, pw_grid%mapn, pw_grid%npts)
+                            pw_grid%map, pw_grid%npts)
 
       CALL timestop(handle)
 
@@ -1605,9 +1522,7 @@ CONTAINS
 !> \brief Setup maps from 1d to 3d space
 !> \param grid_span ...
 !> \param g_hat ...
-!> \param mapl ...
-!> \param mapm ...
-!> \param mapn ...
+!> \param map ...
 !> \param npts ...
 !> \par History
 !>      JGH (21-12-2000) : Size of g_hat locally determined
@@ -1616,11 +1531,12 @@ CONTAINS
 !> \note
 !>      Maps are to full 3D space (not distributed)
 ! **************************************************************************************************
-   SUBROUTINE pw_grid_set_maps(grid_span, g_hat, mapl, mapm, mapn, npts)
+   SUBROUTINE pw_grid_set_maps(grid_span, g_hat, map, npts)
 
       INTEGER, INTENT(IN)                                :: grid_span
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: g_hat
-      TYPE(map_pn), INTENT(INOUT)                        :: mapl, mapm, mapn
+      TYPE(cp_1d_i_a_type), DIMENSION(3, 2), &
+         INTENT(INOUT)                                   :: map
       INTEGER, DIMENSION(:), INTENT(IN)                  :: npts
 
       INTEGER                                            :: gpt, l, m, n, ng
@@ -1632,19 +1548,19 @@ CONTAINS
          m = g_hat(2, gpt)
          n = g_hat(3, gpt)
          IF (l < 0) THEN
-            mapl%pos(l) = l + npts(1)
+            map(1, 1)%array(l) = l + npts(1)
          ELSE
-            mapl%pos(l) = l
+            map(1, 1)%array(l) = l
          END IF
          IF (m < 0) THEN
-            mapm%pos(m) = m + npts(2)
+            map(2, 1)%array(m) = m + npts(2)
          ELSE
-            mapm%pos(m) = m
+            map(2, 1)%array(m) = m
          END IF
          IF (n < 0) THEN
-            mapn%pos(n) = n + npts(3)
+            map(3, 1)%array(n) = n + npts(3)
          ELSE
-            mapn%pos(n) = n
+            map(3, 1)%array(n) = n
          END IF
 
          ! Generating the maps to the full 3-d space
@@ -1652,19 +1568,19 @@ CONTAINS
          IF (grid_span == HALFSPACE) THEN
 
             IF (l <= 0) THEN
-               mapl%neg(l) = -l
+               map(1, 2)%array(l) = -l
             ELSE
-               mapl%neg(l) = npts(1) - l
+               map(1, 2)%array(l) = npts(1) - l
             END IF
             IF (m <= 0) THEN
-               mapm%neg(m) = -m
+               map(2, 2)%array(m) = -m
             ELSE
-               mapm%neg(m) = npts(2) - m
+               map(2, 2)%array(m) = npts(2) - m
             END IF
             IF (n <= 0) THEN
-               mapn%neg(n) = -n
+               map(3, 2)%array(n) = -n
             ELSE
-               mapn%neg(n) = npts(3) - n
+               map(3, 2)%array(n) = npts(3) - n
             END IF
 
          END IF
@@ -1688,20 +1604,13 @@ CONTAINS
    SUBROUTINE pw_grid_allocate(pw_grid, ng, bounds)
 
       ! Argument
-      TYPE(pw_grid_type), INTENT(INOUT)        :: pw_grid
-      INTEGER, INTENT(IN)                      :: ng
-      INTEGER, DIMENSION(:, :), INTENT(IN)     :: bounds
+      TYPE(pw_grid_type), INTENT(INOUT)                  :: pw_grid
+      INTEGER, INTENT(IN)                                :: ng
+      INTEGER, DIMENSION(:, :), INTENT(IN)               :: bounds
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_allocate'
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_grid_allocate'
 
-      INTEGER                                    :: nmaps
-#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
-      INTEGER(KIND=C_SIZE_T)                     :: length
-      TYPE(C_PTR)                                :: cptr_g_hatmap
-      INTEGER                                    :: stat
-#endif
-
-      INTEGER                                  :: handle
+      INTEGER                                            :: handle
 
       CALL timeset(routineN, handle)
 
@@ -1709,30 +1618,19 @@ CONTAINS
       ALLOCATE (pw_grid%gsq(ng))
       ALLOCATE (pw_grid%g_hat(3, ng))
 
-      nmaps = 1
-      IF (pw_grid%grid_span == HALFSPACE) nmaps = 2
-#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
-      CALL offload_activate_chosen_device()
-
-      length = INT(int_size*MAX(ng, 1)*MAX(nmaps, 1), KIND=C_SIZE_T)
-      stat = offload_malloc_pinned_mem(cptr_g_hatmap, length)
-      CPASSERT(stat == 0)
-      CALL c_f_pointer(cptr_g_hatmap, pw_grid%g_hatmap, (/MAX(ng, 1), MAX(nmaps, 1)/))
-#else
-      ALLOCATE (pw_grid%g_hatmap(1, 1))
-#endif
-
       IF (pw_grid%para%mode == PW_MODE_DISTRIBUTED) THEN
          ALLOCATE (pw_grid%grays(pw_grid%npts(1), &
                                  pw_grid%para%nyzray(pw_grid%para%group%mepos)))
       END IF
 
-      ALLOCATE (pw_grid%mapl%pos(bounds(1, 1):bounds(2, 1)))
-      ALLOCATE (pw_grid%mapl%neg(bounds(1, 1):bounds(2, 1)))
-      ALLOCATE (pw_grid%mapm%pos(bounds(1, 2):bounds(2, 2)))
-      ALLOCATE (pw_grid%mapm%neg(bounds(1, 2):bounds(2, 2)))
-      ALLOCATE (pw_grid%mapn%pos(bounds(1, 3):bounds(2, 3)))
-      ALLOCATE (pw_grid%mapn%neg(bounds(1, 3):bounds(2, 3)))
+      ALLOCATE (pw_grid%map(1, 1)%array(bounds(1, 1):bounds(2, 1)))
+      ALLOCATE (pw_grid%map(2, 1)%array(bounds(1, 2):bounds(2, 2)))
+      ALLOCATE (pw_grid%map(3, 1)%array(bounds(1, 3):bounds(2, 3)))
+      IF (pw_grid%grid_span == HALFSPACE) THEN
+         ALLOCATE (pw_grid%map(1, 2)%array(bounds(1, 1):bounds(2, 1)))
+         ALLOCATE (pw_grid%map(2, 2)%array(bounds(1, 2):bounds(2, 2)))
+         ALLOCATE (pw_grid%map(3, 2)%array(bounds(1, 3):bounds(2, 3)))
+      END IF
 
       CALL timestop(handle)
 
@@ -2040,8 +1938,8 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      ASSOCIATE (ny => pw_grid%npts(2), nz => pw_grid%npts(3), posm => pw_grid%mapm%pos, posn => pw_grid%mapn%pos, &
-                 negm => pw_grid%mapm%neg, negn => pw_grid%mapn%neg)
+      ASSOCIATE (ny => pw_grid%npts(2), nz => pw_grid%npts(3), posm => pw_grid%map(2, 1)%array, posn => pw_grid%map(3, 1)%array, &
+                 negm => pw_grid%map(2, 2)%array, negn => pw_grid%map(3, 2)%array)
 
          yz = 0
          pw_grid%para%yzp = 0
@@ -2184,49 +2082,38 @@ CONTAINS
             IF (ALLOCATED(pw_grid%g_hat)) THEN
                DEALLOCATE (pw_grid%g_hat)
             END IF
-            IF (ASSOCIATED(pw_grid%g_hatmap)) THEN
-#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
-               dummy_ptr => pw_grid%g_hatmap(1, 1)
-               stat = offload_free_pinned_mem(c_loc(dummy_ptr))
-               CPASSERT(stat == 0)
-#else
-               DEALLOCATE (pw_grid%g_hatmap)
-#endif
-            END IF
             IF (ASSOCIATED(pw_grid%grays)) THEN
                DEALLOCATE (pw_grid%grays)
             END IF
-            IF (ALLOCATED(pw_grid%mapl%pos)) THEN
-               DEALLOCATE (pw_grid%mapl%pos)
+            IF (ALLOCATED(pw_grid%map(1, 1)%array)) THEN
+               DEALLOCATE (pw_grid%map(1, 1)%array)
             END IF
-            IF (ALLOCATED(pw_grid%mapm%pos)) THEN
-               DEALLOCATE (pw_grid%mapm%pos)
+            IF (ALLOCATED(pw_grid%map(2, 1)%array)) THEN
+               DEALLOCATE (pw_grid%map(2, 1)%array)
             END IF
-            IF (ALLOCATED(pw_grid%mapn%pos)) THEN
-               DEALLOCATE (pw_grid%mapn%pos)
+            IF (ALLOCATED(pw_grid%map(3, 1)%array)) THEN
+               DEALLOCATE (pw_grid%map(3, 1)%array)
             END IF
-            IF (ALLOCATED(pw_grid%mapl%neg)) THEN
-               DEALLOCATE (pw_grid%mapl%neg)
+            IF (ALLOCATED(pw_grid%map(1, 2)%array)) THEN
+               DEALLOCATE (pw_grid%map(1, 2)%array)
             END IF
-            IF (ALLOCATED(pw_grid%mapm%neg)) THEN
-               DEALLOCATE (pw_grid%mapm%neg)
+            IF (ALLOCATED(pw_grid%map(2, 2)%array)) THEN
+               DEALLOCATE (pw_grid%map(2, 2)%array)
             END IF
-            IF (ALLOCATED(pw_grid%mapn%neg)) THEN
-               DEALLOCATE (pw_grid%mapn%neg)
+            IF (ALLOCATED(pw_grid%map(3, 2)%array)) THEN
+               DEALLOCATE (pw_grid%map(3, 2)%array)
             END IF
             IF (ALLOCATED(pw_grid%para%bo)) THEN
                DEALLOCATE (pw_grid%para%bo)
             END IF
-            IF (pw_grid%para%mode == PW_MODE_DISTRIBUTED) THEN
-               IF (ALLOCATED(pw_grid%para%yzp)) THEN
-                  DEALLOCATE (pw_grid%para%yzp)
-               END IF
-               IF (ALLOCATED(pw_grid%para%yzq)) THEN
-                  DEALLOCATE (pw_grid%para%yzq)
-               END IF
-               IF (ALLOCATED(pw_grid%para%nyzray)) THEN
-                  DEALLOCATE (pw_grid%para%nyzray)
-               END IF
+            IF (ALLOCATED(pw_grid%para%yzp)) THEN
+               DEALLOCATE (pw_grid%para%yzp)
+            END IF
+            IF (ALLOCATED(pw_grid%para%yzq)) THEN
+               DEALLOCATE (pw_grid%para%yzq)
+            END IF
+            IF (ALLOCATED(pw_grid%para%nyzray)) THEN
+               DEALLOCATE (pw_grid%para%nyzray)
             END IF
             ! also release groups
             CALL pw_grid%para%group%free()
