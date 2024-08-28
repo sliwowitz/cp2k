@@ -34,7 +34,8 @@ MODULE cp_fm_diag
                          set_elpa_kernel, &
                          set_elpa_print, &
                          set_elpa_qr
-   USE cp_fm_cusolver_api, ONLY: cp_fm_diag_cusolver
+   USE cp_fm_cusolver_api, ONLY: cp_fm_diag_cusolver, &
+                                 cp_fm_general_cusolver
 #if defined(__DLAF)
    USE cp_fm_dlaf_api, ONLY: cp_fm_diag_dlaf
 #endif
@@ -1260,7 +1261,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_geeig(amatrix, bmatrix, eigenvectors, eigenvalues, work)
 
-      TYPE(cp_fm_type), INTENT(IN)                       :: amatrix, bmatrix, eigenvectors
+      TYPE(cp_fm_type), INTENT(INOUT)                    :: amatrix, bmatrix, eigenvectors
       REAL(KIND=dp), DIMENSION(:)                        :: eigenvalues
       TYPE(cp_fm_type), INTENT(IN)                       :: work
 
@@ -1272,19 +1273,22 @@ CONTAINS
 
       CALL cp_fm_get_info(amatrix, nrow_global=nao)
       nmo = SIZE(eigenvalues)
-      ! Cholesky decompose S=U(T)U
-      CALL cp_fm_cholesky_decompose(bmatrix)
-      ! Invert to get U^(-1)
-      CALL cp_fm_triangular_invert(bmatrix)
-      ! Reduce to get U^(-T) * H * U^(-1)
-      CALL cp_fm_triangular_multiply(bmatrix, amatrix, side="R")
-      CALL cp_fm_triangular_multiply(bmatrix, amatrix, transpose_tr=.TRUE.)
-      ! Diagonalize
-      CALL choose_eigv_solver(matrix=amatrix, eigenvectors=work, &
-                              eigenvalues=eigenvalues)
-      ! Restore vectors C = U^(-1) * C*
-      CALL cp_fm_triangular_multiply(bmatrix, work)
-      CALL cp_fm_to_fm(work, eigenvectors, nmo)
+
+      CALL cp_fm_general_cusolver(amatrix, bmatrix, eigenvectors, eigenvalues)
+
+!      ! Cholesky decompose S=U(T)U
+!      CALL cp_fm_cholesky_decompose(bmatrix)
+!      ! Invert to get U^(-1)
+!      CALL cp_fm_triangular_invert(bmatrix)
+!      ! Reduce to get U^(-T) * H * U^(-1)
+!      CALL cp_fm_triangular_multiply(bmatrix, amatrix, side="R")
+!      CALL cp_fm_triangular_multiply(bmatrix, amatrix, transpose_tr=.TRUE.)
+!      ! Diagonalize
+!      CALL choose_eigv_solver(matrix=amatrix, eigenvectors=work, &
+!              eigenvalues=eigenvalues)
+!      ! Restore vectors C = U^(-1) * C*
+!      CALL cp_fm_triangular_multiply(bmatrix, work)
+!      CALL cp_fm_to_fm(work, eigenvectors, nmo)
 
       CALL timestop(handle)
 
