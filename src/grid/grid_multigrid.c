@@ -168,6 +168,7 @@ void grid_copy_to_multigrid_replicated(
     double *grid_rs, const double *grid_pw, const int npts_rs[3],
     const int border_width[3], const grid_mpi_comm comm,
     const int proc2local[grid_mpi_comm_size(comm)][3][2]) {
+
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
 
@@ -414,6 +415,7 @@ void grid_copy_from_multigrid_replicated(
     const double *grid_rs, double *grid_pw, const int npts_rs[3],
     const int border_width[3], const grid_mpi_comm comm,
     const int proc2local[grid_mpi_comm_size(comm)][3][2]) {
+
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
 
@@ -424,10 +426,8 @@ void grid_copy_from_multigrid_replicated(
         (proc2local[process][0][1] - proc2local[process][0][0] + 1) *
         (proc2local[process][1][1] - proc2local[process][1][0] + 1) *
         (proc2local[process][2][1] - proc2local[process][2][0] + 1);
-    maximum_number_of_elements =
-        (current_number_of_elements > maximum_number_of_elements
-             ? current_number_of_elements
-             : maximum_number_of_elements);
+    maximum_number_of_elements = imax(current_number_of_elements, maximum_number_of_elements);
+    printf("%i proc2local %i: %i %i %i %i %i %i\n", my_process, process, proc2local[process][0][0], proc2local[process][0][1], proc2local[process][1][0], proc2local[process][1][1], proc2local[process][2][0], proc2local[process][2][1]);
   }
   const int my_number_of_elements =
       (proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1) *
@@ -438,14 +438,21 @@ void grid_copy_from_multigrid_replicated(
   double *send_buffer = calloc(maximum_number_of_elements, sizeof(double));
   double *recv_buffer = calloc(maximum_number_of_elements, sizeof(double));
 
+  // We actually send to the next neighbor
+  const int process_to_send_to = modulo(my_process - 1, number_of_processes);
+  const int process_to_recv_from = modulo(my_process + 1, number_of_processes);
+  printf("%i send to %i and recv from %i\n", my_process, process_to_send_to, process_to_recv_from);
+
   grid_mpi_request recv_request = grid_mpi_request_null;
   grid_mpi_request send_request = grid_mpi_request_null;
 
   // Send the data of the ip-th neighbor
-  for (int process_shift = 1; process_shift < number_of_processes;
+  for (int process_shift = 1; process_shift <= number_of_processes;
        process_shift++) {
+    // Load the send buffer for the next process to which the will be finally sent (not necessarily the process to which we actually send)
     const int send_process =
         modulo(my_process + process_shift, number_of_processes);
+    printf("%i Pack data of process %i\n", my_process, send_process);
     const int send_size_x =
         proc2local[send_process][0][1] - proc2local[send_process][0][0] + 1;
     const int send_size_y =
@@ -453,30 +460,34 @@ void grid_copy_from_multigrid_replicated(
     const int send_size_z =
         proc2local[send_process][2][1] - proc2local[send_process][2][0] + 1;
 
-    // Wait that the sendbuffer (former recvbuffer) has all data
+    // Wait until the sendbuffer (former recvbuffer) was sent (not required in the very first iteration)
     if (process_shift > 1)
       grid_mpi_wait(&recv_request);
 
     // Pack send_buffer
-    for (int iz = proc2local[send_process][2][0];
-         iz <= proc2local[send_process][2][1]; iz++) {
-      for (int iy = proc2local[send_process][1][0];
-           iz <= proc2local[send_process][1][1]; iz++) {
-        for (int ix = proc2local[send_process][0][0];
-             iz <= proc2local[send_process][0][1]; iz++) {
+    for (int iz = 0;
+         iz <= proc2local[send_process][2][1] - proc2local[send_process][2][0]; iz++) {
+      for (int iy = 0;
+           iy <= proc2local[send_process][1][1] - proc2local[send_process][1][0]; iy++) {
+        for (int ix = 0;
+             ix <= proc2local[send_process][0][1] - proc2local[send_process][0][0]; ix++) {
+              assert(iz * send_size_x * send_size_y + iy * send_size_x + ix < maximum_number_of_elements);
+              assert(iz * send_size_x * send_size_y + iy * send_size_x + ix >= 0);
           send_buffer[iz * send_size_x * send_size_y + iy * send_size_x + ix] +=
-              grid_rs[(iz + border_width[2]) * npts_rs[0] * npts_rs[1] +
-                      (iy + border_width[1]) * npts_rs[0] +
-                      (ix + border_width[0])];
+              grid_rs[(iz + proc2local[send_process][2][0] + border_width[2]) * npts_rs[0] * npts_rs[1] +
+                      (iy + proc2local[send_process][1][0] + border_width[1]) * npts_rs[0] +
+                      (ix + proc2local[send_process][0][0] + border_width[0])];
         }
       }
     }
 
-    if (process_shift + 1 == number_of_processes)
+    if (process_shift == number_of_processes)
       break;
 
+    // Load the recv buffer for the process to which the next data is sent
     const int recv_process =
-        modulo(my_process - process_shift, number_of_processes);
+        modulo(my_process + process_shift + 1, number_of_processes);
+    printf("%i Pack data of next process %i\n", my_process, recv_process);
     const int recv_size_x =
         proc2local[recv_process][0][1] - proc2local[recv_process][0][0] + 1;
     const int recv_size_y =
@@ -488,9 +499,9 @@ void grid_copy_from_multigrid_replicated(
     if (process_shift > 1)
       grid_mpi_wait(&send_request);
     grid_mpi_irecv_double(recv_buffer, recv_size_x * recv_size_y * recv_size_z,
-                          recv_process, process_shift, comm, &recv_request);
+                          process_to_recv_from, process_shift, comm, &recv_request);
     grid_mpi_isend_double(send_buffer, send_size_x * send_size_y * send_size_z,
-                          send_process, process_shift, comm, &send_request);
+                          process_to_send_to, process_shift, comm, &send_request);
     double *temp_pointer = send_buffer;
     send_buffer = recv_buffer;
     recv_buffer = temp_pointer;
@@ -500,22 +511,22 @@ void grid_copy_from_multigrid_replicated(
 
   // Copy the final received data for yourself to the result
   memcpy(grid_pw, send_buffer, my_number_of_elements * sizeof(double));
+
+  free(send_buffer);
+  free(recv_buffer);
 }
 
 void grid_copy_from_multigrid_distributed(
     const double *grid_rs, double *grid_pw, const int npts_rs[3],
     const int border_width[3], const grid_mpi_comm comm,
     const int proc2local[grid_mpi_comm_size(comm)][3][2]) {
-  const int number_of_processes = grid_mpi_comm_size(comm);
-  const int my_process = grid_mpi_comm_rank(comm);
 
   (void)grid_rs;
   (void)grid_pw;
   (void)npts_rs;
   (void)border_width;
+  (void)comm;
   (void)proc2local;
-  (void)number_of_processes;
-  (void)my_process;
 
   // Sum data from halos
 
@@ -740,7 +751,7 @@ void grid_create_multigrid(
   memcpy(multigrid->border_width, border_width, num_int * sizeof(int));
   memcpy(multigrid->dh, dh, num_double * sizeof(double));
   memcpy(multigrid->dh_inv, dh_inv, num_double * sizeof(double));
-  memcpy(multigrid->pgrid_dims, npts_global, num_int * sizeof(int));
+  memcpy(multigrid->pgrid_dims, pgrid_dims, num_int * sizeof(int));
   grid_mpi_comm_dup(comm, &multigrid->comm);
 
   for (int level = 0; level < nlevels; level++) {
