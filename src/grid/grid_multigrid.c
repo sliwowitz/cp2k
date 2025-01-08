@@ -172,6 +172,8 @@ void grid_copy_to_multigrid_replicated(
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
 
+  memset(grid_rs, 0, npts_rs[0]*npts_rs[1]*npts_rs[2]*sizeof(double));
+
   // Determine the maximum number of grid points on a single rank
   int maximum_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++) {
@@ -183,6 +185,10 @@ void grid_copy_to_multigrid_replicated(
         (current_number_of_elements > maximum_number_of_elements
              ? current_number_of_elements
              : maximum_number_of_elements);
+    for (int dir = 0; dir < 3; dir++) {
+      assert(proc2local[process][dir][0] >= 0);
+      assert(proc2local[process][dir][1]-proc2local[process][dir][0]+1>=0);
+      }
   }
 
   // Allocate communication buffers
@@ -224,7 +230,7 @@ void grid_copy_to_multigrid_replicated(
     const int recv_size_z =
         proc2local[recv_process][2][1] - proc2local[recv_process][2][0] + 1;
 
-    if (process_shift + 1 < number_of_processes) {
+    if (process_shift < number_of_processes) {
       // TODO: Replace with non-blocking call
       grid_mpi_sendrecv_double(send_buffer,
                                send_size_x * send_size_y * send_size_z,
@@ -233,55 +239,54 @@ void grid_copy_to_multigrid_replicated(
                                recv_process_static, process_shift, comm);
     }
 
-    // Unpack send_buffer
-    for (int iz = proc2local[send_process][2][0];
-         iz <= proc2local[send_process][2][1]; iz++) {
-      for (int iy = proc2local[send_process][1][0];
-           iz <= proc2local[send_process][1][1]; iz++) {
-        for (int ix = proc2local[send_process][0][0];
-             iz <= proc2local[send_process][0][1]; iz++) {
-          grid_rs[(iz + border_width[2]) * npts_rs[0] * npts_rs[1] +
-                  (iy + border_width[1]) * npts_rs[0] +
-                  (ix + border_width[0])] =
-              recv_buffer[iz * send_size_x * send_size_y + iy * send_size_x +
-                          ix];
+    // Unpack recv
+    for (int iz = 0; iz < recv_size_z; iz++) {
+      for (int iy = 0; iy < recv_size_y; iy++) {
+        for (int ix = 0; ix < recv_size_x; ix++) {
+          grid_rs[(iz + border_width[2] + proc2local[recv_process][2][0]) * npts_rs[0] * npts_rs[1] +
+                  (iy + border_width[1] + proc2local[recv_process][1][0]) * npts_rs[0] +
+                  (ix + border_width[0] + proc2local[recv_process][0][0])] =
+              recv_buffer[iz * recv_size_x * recv_size_y + iy * recv_size_x + ix];
         }
       }
     }
 
-    // Communicate buffers
+    // Swap buffers
     double *temp_pointer = send_buffer;
     send_buffer = recv_buffer;
     recv_buffer = temp_pointer;
+  }
 
-    // Deal with bounds
-    if (border_width[0] != 0 || border_width[1] != 0 || border_width[2] != 0) {
-      for (int iz = 0; iz < npts_rs[2]; iz++) {
-        int iz_orig = iz;
-        if (iz < border_width[2])
-          iz_orig += npts_rs[2] - 2 * border_width[2];
-        if (iz >= npts_rs[2] - border_width[2])
-          iz_orig -= npts_rs[2] - 2 * border_width[2];
-        for (int iy = 0; iy < npts_rs[1]; iy++) {
-          int iy_orig = iz;
-          if (iy < border_width[1])
-            iy_orig += npts_rs[1] - 2 * border_width[1];
-          if (iy >= npts_rs[1] - border_width[1])
-            iy_orig -= npts_rs[1] - 2 * border_width[1];
-          for (int ix = 0; ix < npts_rs[0]; ix++) {
-            int ix_orig = ix;
-            if (ix < border_width[0])
-              ix_orig += npts_rs[0] - 2 * border_width[0];
-            if (ix >= npts_rs[0] - border_width[0])
-              ix_orig -= npts_rs[0] - 2 * border_width[0];
-            grid_rs[iz * npts_rs[0] * npts_rs[1] + iy * npts_rs[0] + ix] =
-                grid_rs[iz_orig * npts_rs[0] * npts_rs[1] +
-                        iy_orig * npts_rs[0] + ix_orig];
-          }
+  // Deal with bounds
+  if (border_width[0] != 0 || border_width[1] != 0 || border_width[2] != 0) {
+    int shifts[3];
+    for (int dir = 0; dir < 3; dir++) {shifts[dir] = npts_rs[dir]-2*border_width[dir];};
+    for (int iz = 0; iz < npts_rs[2]; iz++) {
+      int iz_orig = iz;
+      if (iz < border_width[2])
+        iz_orig += shifts[2];
+      if (iz >= npts_rs[2] - border_width[2])
+        iz_orig -= shifts[2];
+      for (int iy = 0; iy < npts_rs[1]; iy++) {
+        int iy_orig = iy;
+        if (iy < border_width[1])
+          iy_orig += shifts[1];
+        if (iy >= npts_rs[1] - border_width[1])
+          iy_orig -= shifts[1];
+        for (int ix = 0; ix < npts_rs[0]; ix++) {
+          int ix_orig = ix;
+          if (ix < border_width[0]) ix_orig += shifts[0];
+          if (ix >= npts_rs[0] - border_width[0])
+            ix_orig -= shifts[0];
+          grid_rs[iz * npts_rs[0] * npts_rs[1] + iy * npts_rs[0] + ix] =
+              grid_rs[iz_orig * npts_rs[0] * npts_rs[1] +
+                      iy_orig * npts_rs[0] + ix_orig];
         }
       }
     }
   }
+  free(send_buffer);
+  free(recv_buffer);
 }
 
 void grid_copy_to_multigrid_distributed(
@@ -427,7 +432,6 @@ void grid_copy_from_multigrid_replicated(
         (proc2local[process][1][1] - proc2local[process][1][0] + 1) *
         (proc2local[process][2][1] - proc2local[process][2][0] + 1);
     maximum_number_of_elements = imax(current_number_of_elements, maximum_number_of_elements);
-    printf("%i proc2local %i: %i %i %i %i %i %i\n", my_process, process, proc2local[process][0][0], proc2local[process][0][1], proc2local[process][1][0], proc2local[process][1][1], proc2local[process][2][0], proc2local[process][2][1]);
   }
   const int my_number_of_elements =
       (proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1) *
@@ -441,7 +445,6 @@ void grid_copy_from_multigrid_replicated(
   // We actually send to the next neighbor
   const int process_to_send_to = modulo(my_process - 1, number_of_processes);
   const int process_to_recv_from = modulo(my_process + 1, number_of_processes);
-  printf("%i send to %i and recv from %i\n", my_process, process_to_send_to, process_to_recv_from);
 
   grid_mpi_request recv_request = grid_mpi_request_null;
   grid_mpi_request send_request = grid_mpi_request_null;
@@ -452,7 +455,6 @@ void grid_copy_from_multigrid_replicated(
     // Load the send buffer for the next process to which the will be finally sent (not necessarily the process to which we actually send)
     const int send_process =
         modulo(my_process + process_shift, number_of_processes);
-    printf("%i Pack data of process %i\n", my_process, send_process);
     const int send_size_x =
         proc2local[send_process][0][1] - proc2local[send_process][0][0] + 1;
     const int send_size_y =
@@ -487,7 +489,6 @@ void grid_copy_from_multigrid_replicated(
     // Load the recv buffer for the process to which the next data is sent
     const int recv_process =
         modulo(my_process + process_shift + 1, number_of_processes);
-    printf("%i Pack data of next process %i\n", my_process, recv_process);
     const int recv_size_x =
         proc2local[recv_process][0][1] - proc2local[recv_process][0][0] + 1;
     const int recv_size_y =
