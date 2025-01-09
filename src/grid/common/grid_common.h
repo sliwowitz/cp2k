@@ -137,6 +137,10 @@ GRID_HOST_DEVICE static inline int modulo(int a, int m) {
   return ((a % m + m) % m);
 }
 
+GRID_HOST_DEVICE static inline int product3(const int array3[3]) {
+  return array3[0]*array3[1]*array3[2];
+}
+
 /*******************************************************************************
  * \brief Orbital angular momentum.
  * \author Ole Schuett
