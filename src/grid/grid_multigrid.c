@@ -291,24 +291,44 @@ void grid_copy_to_multigrid_replicated(
 }
 
 void grid_copy_to_multigrid_distributed(
-    double *grid_rs, const double *grid_pw, const int npts_rs[3],
-    const int border_width[3], const grid_mpi_comm comm,
-    const int proc2local[grid_mpi_comm_size(comm)][3][2]) {
-  const int number_of_processes = grid_mpi_comm_size(comm);
-  const int my_process = grid_mpi_comm_rank(comm);
+    double *grid_rs, const double *grid_pw, const grid_mpi_comm comm_pw,
+    const grid_mpi_comm comm_rs, const int npts_global[3], 
+    const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2], 
+    const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
+    const int border_width[3]) {
+  const int number_of_processes = grid_mpi_comm_size(comm_rs);
+  const int my_process_rs = grid_mpi_comm_rank(comm_rs);
+  const int my_process_pw = grid_mpi_comm_rank(comm_pw);
+  
+  assert(grid_rs != NULL);
+  assert(grid_pw != NULL);
+  assert(!grid_mpi_comm_is_unequal(comm_pw, comm_rs));
+  for (int process = 0; process < number_of_processes; process++) {
+    for (int dir = 0; dir < 3; dir++) {
+      assert(proc2local_rs[process][dir][0] >= -border_width[dir] && "The inner part of the RS grid cannot be lower than zero!");
+      assert(proc2local_rs[process][dir][1] < npts_global[dir]+border_width[dir] && "The inner part of the RS grid contains too many points!");
+      assert(proc2local_rs[process][dir][1] - proc2local_rs[process][dir][0]+1 >= 0 && "The number of points on the RS grid on one processor cannot be negative!");
+      assert(proc2local_pw[process][dir][0] >= 0 && "The PW grid is only allowed to have nonnegative indices!");
+      assert(proc2local_pw[process][dir][1] < npts_global[dir] && "The PW grid cannot have points outside of the inner RS grid!");
+      assert(proc2local_pw[process][dir][1] - proc2local_pw[process][dir][0]+1 >= 0 && "The number of points on the PW grid on one processor cannot be negative!");
+    }
+  }
+  for (int dir = 0; dir < 3; dir++) {
+    assert(border_width[dir] >= 0 && "The number of points on the boundary cannot be negative!");
+    assert(npts_global[dir] >= 0 && "Global number of points cannot be negative!");
+  }
 
   (void)grid_rs;
   (void)grid_pw;
-  (void)npts_rs;
+  (void)comm_rs;
+  (void)comm_pw;
+  (void)proc2local_rs;
+  (void)proc2local_pw;
+  (void)npts_global;
   (void)border_width;
-  (void)comm;
-  (void)proc2local;
   (void)number_of_processes;
-  (void)my_process;
-
-  // Send Data to rs grids without Halo
-
-  // Exchange Halo
+  (void)my_process_pw;
+  (void)my_process_rs;
 }
 
 void grid_copy_to_multigrid_general(
@@ -335,7 +355,11 @@ void grid_copy_to_multigrid_general(
             (const int(*)[3][2]) &
                 proc2local[level * grid_mpi_comm_size(comm[level]) * 6]);
       } else {
-        // TODO
+        grid_copy_to_multigrid_distributed(
+          multigrid->grids[level]->host_buffer, grids[level],
+        multigrid->comm, comm[level], multigrid->npts_global[level],
+        (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
+        (const int (*)[3][2])&proc2local[6*level*grid_mpi_comm_size(comm[0])], multigrid->border_width[level]);
       }
     }
   }
@@ -373,7 +397,11 @@ void grid_copy_to_multigrid_general_single(const grid_multigrid *multigrid,
                                         multigrid->border_width[level], comm,
                                         (const int(*)[3][2])proc2local);
     } else {
-      // TODO
+        grid_copy_to_multigrid_distributed(
+          multigrid->grids[level]->host_buffer, grid,
+        multigrid->comm, comm, multigrid->npts_global[level],
+        (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
+        (const int (*)[3][2])proc2local, multigrid->border_width[level]);
     }
   }
 }
@@ -506,20 +534,44 @@ void grid_copy_from_multigrid_replicated(
 }
 
 void grid_copy_from_multigrid_distributed(
-    const double *grid_rs, double *grid_pw, const int npts_rs[3],
-    const int border_width[3], const grid_mpi_comm comm,
-    const int proc2local[grid_mpi_comm_size(comm)][3][2]) {
+    const double *grid_rs, double *grid_pw, const grid_mpi_comm comm_pw,
+    const grid_mpi_comm comm_rs, const int npts_global[3], 
+    const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2], 
+    const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
+    const int border_width[3]) {
+  const int number_of_processes = grid_mpi_comm_size(comm_rs);
+  const int my_process_rs = grid_mpi_comm_rank(comm_rs);
+  const int my_process_pw = grid_mpi_comm_rank(comm_pw);
+  
+  assert(grid_rs != NULL);
+  assert(grid_pw != NULL);
+  assert(!grid_mpi_comm_is_unequal(comm_pw, comm_rs));
+  for (int process = 0; process < number_of_processes; process++) {
+    for (int dir = 0; dir < 3; dir++) {
+      assert(proc2local_rs[process][dir][0] >= -border_width[dir] && "The inner part of the RS grid cannot be lower than zero!");
+      assert(proc2local_rs[process][dir][1] < npts_global[dir]+border_width[dir] && "The inner part of the RS grid contains too many points!");
+      assert(proc2local_rs[process][dir][1] - proc2local_rs[process][dir][0]+1 >= 0 && "The number of points on the RS grid on one processor cannot be negative!");
+      assert(proc2local_pw[process][dir][0] >= 0 && "The PW grid is only allowed to have nonnegative indices!");
+      assert(proc2local_pw[process][dir][1] < npts_global[dir] && "The PW grid cannot have points outside of the inner RS grid!");
+      assert(proc2local_pw[process][dir][1] - proc2local_pw[process][dir][0]+1 >= 0 && "The number of points on the PW grid on one processor cannot be negative!");
+    }
+  }
+  for (int dir = 0; dir < 3; dir++) {
+    assert(border_width[dir] >= 0 && "The number of points on the boundary cannot be negative!");
+    assert(npts_global[dir] >= 0 && "Global number of points cannot be negative!");
+  }
 
   (void)grid_rs;
   (void)grid_pw;
-  (void)npts_rs;
+  (void)comm_rs;
+  (void)comm_pw;
+  (void)proc2local_rs;
+  (void)proc2local_pw;
+  (void)npts_global;
   (void)border_width;
-  (void)comm;
-  (void)proc2local;
-
-  // Sum data from halos
-
-  // Distribute data to PW grid
+  (void)number_of_processes;
+  (void)my_process_pw;
+  (void)my_process_rs;
 }
 
 void grid_copy_from_multigrid_general(
@@ -544,7 +596,11 @@ void grid_copy_from_multigrid_general(
             (const int(*)[3][2]) &
                 proc2local[level * grid_mpi_comm_size(comm[level]) * 6]);
       } else {
-        // TODO
+        grid_copy_from_multigrid_distributed(
+          multigrid->grids[level]->host_buffer, grids[level],
+        multigrid->comm, comm[level], multigrid->npts_global[level],
+        (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
+        (const int (*)[3][2])&proc2local[6*level*grid_mpi_comm_size(multigrid->comm)], multigrid->border_width[level]);
       }
     }
   }
@@ -582,10 +638,11 @@ void grid_copy_from_multigrid_general_single(const grid_multigrid *multigrid,
                                           multigrid->border_width[level], comm,
                                           (const int(*)[3][2])proc2local);
     } else {
-      grid_copy_from_multigrid_distributed(multigrid->grids[level]->host_buffer,
-                                           grid, multigrid->npts_local[level],
-                                           multigrid->border_width[level], comm,
-                                           (const int(*)[3][2])proc2local);
+        grid_copy_from_multigrid_distributed(
+          multigrid->grids[level]->host_buffer, grid,
+        multigrid->comm, comm, multigrid->npts_global[level],
+        (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
+        (const int (*)[3][2])proc2local, multigrid->border_width[level]);
     }
   }
 }
@@ -696,8 +753,8 @@ void grid_create_multigrid(
     }
     // Always free the old communicator
     grid_mpi_comm_free(&multigrid->comm);
-    multigrid->bounds =
-        realloc(multigrid->bounds,
+    multigrid->proc2local =
+        realloc(multigrid->proc2local,
                 nlevels * grid_mpi_comm_size(comm) * 6 * sizeof(int));
   } else {
     multigrid = calloc(1, sizeof(grid_multigrid));
@@ -709,7 +766,7 @@ void grid_create_multigrid(
     multigrid->dh_inv = calloc(num_double, sizeof(double));
     multigrid->grids = calloc(nlevels, sizeof(offload_buffer *));
     multigrid->pgrid_dims = calloc(num_int, sizeof(int));
-    multigrid->bounds =
+    multigrid->proc2local =
         calloc(nlevels * grid_mpi_comm_size(comm) * 6, sizeof(int));
 
     // Resolve AUTO to a concrete backend.
@@ -752,7 +809,7 @@ void grid_create_multigrid(
     }
     grid_mpi_allgather_int(
         &local_bounds[0][0], 6,
-        &multigrid->bounds[level * 6 * grid_mpi_comm_size(comm)], comm);
+        &multigrid->proc2local[level * 6 * grid_mpi_comm_size(comm)], comm);
   }
 
   grid_ref_create_multigrid(orthorhombic, nlevels, npts_global, npts_local,
@@ -808,8 +865,8 @@ void grid_free_multigrid(grid_multigrid *multigrid) {
     }
     if (multigrid->pgrid_dims != NULL)
       free(multigrid->pgrid_dims);
-    if (multigrid->bounds != NULL)
-      free(multigrid->bounds);
+    if (multigrid->proc2local != NULL)
+      free(multigrid->proc2local);
     grid_mpi_comm_free(&multigrid->comm);
     grid_ref_free_multigrid(multigrid->ref);
     grid_cpu_free_multigrid(multigrid->cpu);
