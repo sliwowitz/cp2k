@@ -142,10 +142,9 @@ void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
                               const int source, const int recvtag,
                               const grid_mpi_comm comm) {
 #if defined(__parallel)
-  MPI_Status status;
   CHECK(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
                      recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
-                     &status));
+                     MPI_STATUS_IGNORE));
 #else
   (void)sendbuffer;
   (void)sendcount;
@@ -156,7 +155,15 @@ void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
   (void)source;
   (void)recvtag;
   (void)comm;
-  assert(false && "Communication not allowed in serial mode");
+  // Check the input for reasonable values in serial case
+  assert(sendbuffer != NULL);
+  assert(recvbuffer != NULL);
+  assert((dest == 0 || dest == grid_mpi_any_source || dest == grid_mpi_proc_null) && "Invalid receive process");
+  assert((source == 0 || source == grid_mpi_proc_null) && "Invalid sent process");
+  assert((recvtag == sendtag || recvtag == grid_mpi_any_tag) && "Invalid send or receive tag");
+  if (dest != grid_mpi_proc_null && source != grid_mpi_proc_null) {
+    memcpy(recvbuffer, sendbuffer, sendcount*sizeof(double));
+  }
 #endif
 }
 
@@ -174,7 +181,7 @@ void grid_mpi_isend_double(const double *sendbuffer, const int sendcount,
   (void)sendtag;
   (void)comm;
   *request = 2;
-  assert(false && "Communication not allowed in serial mode");
+  assert(false && "Non-blocking send not allowed in serial mode");
 #endif
 }
 
@@ -192,16 +199,41 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
   (void)recvtag;
   (void)comm;
   *request = 3;
-  assert(false && "Communication not allowed in serial mode");
+  assert(false && "Non-blocking receive not allowed in serial mode");
 #endif
 }
 
 void grid_mpi_wait(grid_mpi_request *request) {
 #if defined(__parallel)
-  MPI_Status status;
-  CHECK(MPI_Wait(request, &status));
+  CHECK(MPI_Wait(request, MPI_STATUS_IGNORE));
 #else
   *request = grid_mpi_request_null;
+#endif
+}
+
+void grid_mpi_waitany(const int number_of_requests,
+                      grid_mpi_request request[number_of_requests], int *idx) {
+#if defined(__parallel)
+  CHECK(MPI_Waitany(number_of_requests, request, idx, MPI_STATUS_IGNORE));
+#else
+  *idx = -1;
+  for (int request_idx = 0; request_idx < number_of_requests; request_idx++) {
+    if (request[request_idx] != grid_mpi_request_null) {
+      *idx = request_idx;
+      request[request_idx] = grid_mpi_request_null;
+    }
+  }
+#endif
+}
+
+void grid_mpi_waitall(const int number_of_requests,
+                      grid_mpi_request request[number_of_requests]) {
+#if defined(__parallel)
+  CHECK(MPI_Waitall(number_of_requests, request, MPI_STATUSES_IGNORE));
+#else
+  for (int idx = 0; idx < number_of_requests; idx++) {
+    request[idx] = grid_mpi_request_null;
+  }
 #endif
 }
 
@@ -213,6 +245,18 @@ void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
 #else
   (void)comm;
   memcpy(recvbuffer, sendbuffer, sendcount * sizeof(int));
+#endif
+}
+
+void grid_mpi_sum_double(double *buffer, const int count,
+                         const grid_mpi_comm comm) {
+#if defined(__parallel)
+  CHECK(MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, MPI_SUM, comm));
+#else
+  assert(buffer != NULL);
+  (void)comm;
+  (void)buffer;
+  (void)count;
 #endif
 }
 

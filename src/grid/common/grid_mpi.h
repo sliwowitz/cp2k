@@ -19,6 +19,9 @@ typedef MPI_Fint grid_mpi_fint;
 static const grid_mpi_comm grid_mpi_comm_world = MPI_COMM_WORLD;
 static const grid_mpi_comm grid_mpi_comm_null = MPI_COMM_NULL;
 static const grid_mpi_request grid_mpi_request_null = MPI_REQUEST_NULL;
+static const int grid_mpi_any_source = MPI_ANY_SOURCE;
+static const int grid_mpi_proc_null = MPI_PROC_NULL;
+static const int grid_mpi_any_tag = MPI_ANY_TAG;
 #else
 typedef int grid_mpi_comm;
 typedef int grid_mpi_request;
@@ -27,6 +30,9 @@ typedef int grid_mpi_fint;
 static const grid_mpi_comm grid_mpi_comm_world = -2;
 static const grid_mpi_comm grid_mpi_comm_null = -3;
 static const grid_mpi_request grid_mpi_request_null = -5;
+static const int grid_mpi_any_source = -7;
+static const int grid_mpi_proc_null = -11;
+static const int grid_mpi_any_tag = -13;
 #endif
 
 int grid_mpi_comm_size(const grid_mpi_comm comm);
@@ -71,8 +77,17 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
 
 void grid_mpi_wait(grid_mpi_request *request);
 
+void grid_mpi_waitany(const int number_of_requests,
+                      grid_mpi_request request[number_of_requests], int *idx);
+
+void grid_mpi_waitall(const int number_of_requests,
+                      grid_mpi_request request[number_of_requests]);
+
 void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
                             int *recvbuffer, grid_mpi_comm comm);
+
+void grid_mpi_sum_double(double *buffer, const int count,
+                         const grid_mpi_comm comm);
 
 #endif
 
