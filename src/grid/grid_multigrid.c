@@ -207,46 +207,37 @@ void grid_copy_to_multigrid_replicated(
   const int send_process_static = modulo(my_process + 1, number_of_processes);
   const int recv_process_static = modulo(my_process - 1, number_of_processes);
 
+  int send_size[3], recv_size[3];
+
   // Pass local data to each process
   for (int process_shift = 0; process_shift < number_of_processes;
        process_shift++) {
     // Determine the process whose data we send
     const int send_process =
         modulo(my_process - process_shift, number_of_processes);
-    const int send_size_x =
-        proc2local[send_process][0][1] - proc2local[send_process][0][0] + 1;
-    const int send_size_y =
-        proc2local[send_process][1][1] - proc2local[send_process][1][0] + 1;
-    const int send_size_z =
-        proc2local[send_process][2][1] - proc2local[send_process][2][0] + 1;
+    for(int dir = 0; dir < 3; dir++) send_size[dir] = proc2local[send_process][dir][1] - proc2local[send_process][dir][0] + 1;
 
     // Determine the process whose data we receive
     const int recv_process =
         modulo(my_process - process_shift - 1, number_of_processes);
-    const int recv_size_x =
-        proc2local[recv_process][0][1] - proc2local[recv_process][0][0] + 1;
-    const int recv_size_y =
-        proc2local[recv_process][1][1] - proc2local[recv_process][1][0] + 1;
-    const int recv_size_z =
-        proc2local[recv_process][2][1] - proc2local[recv_process][2][0] + 1;
+    for(int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local[recv_process][dir][1] - proc2local[recv_process][dir][0] + 1;
 
     if (process_shift < number_of_processes) {
       // TODO: Replace with non-blocking call
-      grid_mpi_sendrecv_double(send_buffer,
-                               send_size_x * send_size_y * send_size_z,
+      grid_mpi_sendrecv_double(send_buffer, product3(send_size),
                                send_process_static, process_shift, recv_buffer,
-                               recv_size_x * recv_size_y * recv_size_z,
+                               product3(recv_size),
                                recv_process_static, process_shift, comm);
     }
 
     // Unpack recv
-    for (int iz = 0; iz < recv_size_z; iz++) {
-      for (int iy = 0; iy < recv_size_y; iy++) {
-        for (int ix = 0; ix < recv_size_x; ix++) {
+    for (int iz = 0; iz < recv_size[2]; iz++) {
+      for (int iy = 0; iy < recv_size[1]; iy++) {
+        for (int ix = 0; ix < recv_size[0]; ix++) {
           grid_rs[(iz + border_width[2] + proc2local[recv_process][2][0]) * npts_rs[0] * npts_rs[1] +
                   (iy + border_width[1] + proc2local[recv_process][1][0]) * npts_rs[0] +
                   (ix + border_width[0] + proc2local[recv_process][0][0])] =
-              recv_buffer[iz * recv_size_x * recv_size_y + iy * recv_size_x + ix];
+              recv_buffer[iz * recv_size[0] * recv_size[1] + iy * recv_size[0] + ix];
         }
       }
     }
@@ -449,33 +440,25 @@ void grid_copy_from_multigrid_replicated(
   grid_mpi_request recv_request = grid_mpi_request_null;
   grid_mpi_request send_request = grid_mpi_request_null;
 
+  int send_size[3], recv_size[3];
+
   // Send the data of the ip-th neighbor
   for (int process_shift = 1; process_shift <= number_of_processes;
        process_shift++) {
     // Load the send buffer for the next process to which the will be finally sent (not necessarily the process to which we actually send)
     const int send_process =
         modulo(my_process + process_shift, number_of_processes);
-    const int send_size_x =
-        proc2local[send_process][0][1] - proc2local[send_process][0][0] + 1;
-    const int send_size_y =
-        proc2local[send_process][1][1] - proc2local[send_process][1][0] + 1;
-    const int send_size_z =
-        proc2local[send_process][2][1] - proc2local[send_process][2][0] + 1;
+    for(int dir = 0; dir < 3; dir++) send_size[dir] = proc2local[send_process][dir][1] - proc2local[send_process][dir][0] + 1;
 
     // Wait until the sendbuffer (former recvbuffer) was sent (not required in the very first iteration)
     if (process_shift > 1)
       grid_mpi_wait(&recv_request);
 
     // Pack send_buffer
-    for (int iz = 0;
-         iz <= proc2local[send_process][2][1] - proc2local[send_process][2][0]; iz++) {
-      for (int iy = 0;
-           iy <= proc2local[send_process][1][1] - proc2local[send_process][1][0]; iy++) {
-        for (int ix = 0;
-             ix <= proc2local[send_process][0][1] - proc2local[send_process][0][0]; ix++) {
-              assert(iz * send_size_x * send_size_y + iy * send_size_x + ix < maximum_number_of_elements);
-              assert(iz * send_size_x * send_size_y + iy * send_size_x + ix >= 0);
-          send_buffer[iz * send_size_x * send_size_y + iy * send_size_x + ix] +=
+    for (int iz = 0; iz < send_size[2]; iz++) {
+      for (int iy = 0; iy < send_size[1]; iy++) {
+        for (int ix = 0; ix < send_size[0]; ix++) {
+          send_buffer[iz * send_size[0] * send_size[1] + iy * send_size[0] + ix] +=
               grid_rs[(iz + proc2local[send_process][2][0] + border_width[2]) * npts_rs[0] * npts_rs[1] +
                       (iy + proc2local[send_process][1][0] + border_width[1]) * npts_rs[0] +
                       (ix + proc2local[send_process][0][0] + border_width[0])];
@@ -489,19 +472,14 @@ void grid_copy_from_multigrid_replicated(
     // Load the recv buffer for the process to which the next data is sent
     const int recv_process =
         modulo(my_process + process_shift + 1, number_of_processes);
-    const int recv_size_x =
-        proc2local[recv_process][0][1] - proc2local[recv_process][0][0] + 1;
-    const int recv_size_y =
-        proc2local[recv_process][1][1] - proc2local[recv_process][1][0] + 1;
-    const int recv_size_z =
-        proc2local[recv_process][2][1] - proc2local[recv_process][2][0] + 1;
+    for(int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local[recv_process][dir][1] - proc2local[recv_process][dir][0] + 1;
 
     // Communicate buffers
     if (process_shift > 1)
       grid_mpi_wait(&send_request);
-    grid_mpi_irecv_double(recv_buffer, recv_size_x * recv_size_y * recv_size_z,
+    grid_mpi_irecv_double(recv_buffer, product3(recv_size),
                           process_to_recv_from, process_shift, comm, &recv_request);
-    grid_mpi_isend_double(send_buffer, send_size_x * send_size_y * send_size_z,
+    grid_mpi_isend_double(send_buffer, product3(send_size),
                           process_to_send_to, process_shift, comm, &send_request);
     double *temp_pointer = send_buffer;
     send_buffer = recv_buffer;
