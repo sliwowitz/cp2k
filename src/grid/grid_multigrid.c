@@ -1,6 +1,6 @@
 /*----------------------------------------------------------------------------*/
 /*  CP2K: A general program to perform molecular dynamics simulations         */
-/*  Copyright 2000-2024 CP2K developers group <https://cp2k.org>              */
+/*  Copyright 2000-2025 CP2K developers group <https://cp2k.org>              */
 /*                                                                            */
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
@@ -318,17 +318,117 @@ void grid_copy_to_multigrid_distributed(
     assert(npts_global[dir] >= 0 && "Global number of points cannot be negative!");
   }
 
-  (void)grid_rs;
-  (void)grid_pw;
-  (void)comm_rs;
-  (void)comm_pw;
-  (void)proc2local_rs;
-  (void)proc2local_pw;
   (void)npts_global;
-  (void)border_width;
-  (void)number_of_processes;
-  (void)my_process_pw;
-  (void)my_process_rs;
+
+  // Prepare the intermediate buffer
+  int my_bounds_rs_inner[3][2];
+  int my_bounds_rs[3][2];
+  int my_sizes_rs_inner[3];
+  int my_sizes_rs[3];
+  for (int dir = 0; dir < 3; dir++) {
+    my_bounds_rs_inner[dir][0] = proc2local_rs[my_process_rs][dir][0]+border_width[dir];
+    my_bounds_rs_inner[dir][1] = proc2local_rs[my_process_rs][dir][1]-border_width[dir];
+    my_bounds_rs[dir][0] = proc2local_rs[my_process_rs][dir][0];
+    my_bounds_rs[dir][1] = proc2local_rs[my_process_rs][dir][1];
+    my_sizes_rs_inner[dir] = proc2local_rs[my_process_rs][dir][1]-proc2local_rs[my_process_rs][dir][0]+1-2*border_width[dir];
+    my_sizes_rs[dir] = proc2local_rs[my_process_rs][dir][1]-proc2local_rs[my_process_rs][dir][0]+1;
+  }
+  const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
+  const int my_number_of_elements_rs = product3(my_sizes_rs);
+  double * grid_rs_inner = calloc(my_number_of_inner_elements_rs, sizeof(double));
+
+  int received_elements = 0;
+
+  // Step A: Collect the inner local block
+  {
+    // A1) Count number of elements to be received to determine the buffer sizes
+    int max_number_of_elements_pw = 0;
+    for (int process = 0; process < number_of_processes; process++) {
+      max_number_of_elements_pw = imax(max_number_of_elements_pw, (proc2local_pw[process][0][1]-proc2local_pw[process][0][0]+1)*(proc2local_pw[process][1][1]-proc2local_pw[process][1][0]+1)*(proc2local_pw[process][2][1]-proc2local_pw[process][2][0]+1));
+    }
+    const int my_number_of_elements_pw = (proc2local_pw[my_process_pw][0][1]-proc2local_pw[my_process_pw][0][0]+1)*(proc2local_pw[my_process_pw][1][1]-proc2local_pw[my_process_pw][1][0]+1)*(proc2local_pw[my_process_pw][2][1]-proc2local_pw[my_process_pw][2][0]+1);
+
+    double * recv_buffer = calloc(max_number_of_elements_pw, sizeof(double));
+
+    // A2) Send around local data of the PW grid and copy it to our local buffer
+    for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
+      const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
+      const int recv_process = modulo(my_process_pw-process_shift,number_of_processes);
+
+      int recv_size[3];
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_pw[recv_process][dir][1]-proc2local_pw[recv_process][dir][0]+1;
+
+      if (process_shift == 0) {
+        memcpy(recv_buffer, grid_pw, my_number_of_elements_pw*sizeof(double));
+      } else {
+        grid_mpi_sendrecv_double(grid_pw, my_number_of_elements_pw, send_process, process_shift, recv_buffer, product3(recv_size), recv_process, process_shift, comm_pw);
+      }
+
+      for (int iz = imax(0, proc2local_pw[recv_process][2][0]-my_bounds_rs_inner[2][0]); iz <= imin(my_sizes_rs_inner[2]-1, proc2local_pw[recv_process][2][1]-my_bounds_rs_inner[2][0]); iz++) {
+        for (int iy = imax(0, proc2local_pw[recv_process][1][0]-my_bounds_rs_inner[1][0]); iy <= imin(my_sizes_rs_inner[1]-1, proc2local_pw[recv_process][1][1]-my_bounds_rs_inner[1][0]); iy++) {
+          for (int ix = imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0]); ix <= imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0]); ix++) {
+            assert(iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+ix < my_number_of_inner_elements_rs && "Too large index for grid_rs_inner");
+            assert((iz+my_bounds_rs_inner[2][0]-proc2local_pw[recv_process][2][0])*recv_size[0]*recv_size[1]+(iy+my_bounds_rs_inner[1][0]-proc2local_pw[recv_process][1][0])*recv_size[0]+(ix+my_bounds_rs_inner[0][0]-proc2local_pw[recv_process][0][0]) < max_number_of_elements_pw && "Too large index for recv_buffer");
+            grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+ix] += recv_buffer[(iz+my_bounds_rs_inner[2][0]-proc2local_pw[recv_process][2][0])*recv_size[0]*recv_size[1]+(iy+my_bounds_rs_inner[1][0]-proc2local_pw[recv_process][1][0])*recv_size[0]+(ix+my_bounds_rs_inner[0][0]-proc2local_pw[recv_process][0][0])];
+            received_elements++;
+          }
+        }
+      }
+    }
+
+    // Cleanup
+    free(recv_buffer);
+  }
+
+  assert(received_elements == my_number_of_inner_elements_rs && "Not elements of the inner part of the RS grid were received");
+
+  // B) Distribute inner local block the everyone
+  {
+    int max_number_of_elements_rs = 0;
+    for (int process = 0; process < number_of_processes; process++) {
+      max_number_of_elements_rs = imax(max_number_of_elements_rs, (proc2local_rs[process][0][1]-proc2local_rs[process][0][0]+1)*(proc2local_rs[process][1][1]-proc2local_rs[process][1][0]+1)*(proc2local_rs[process][2][1]-proc2local_rs[process][2][0]+1));
+    }
+
+    double * recv_buffer = calloc(max_number_of_elements_rs, sizeof(double));
+
+    received_elements = 0;
+
+    // A2) Send around local data of the PW grid and copy it to our local buffer
+    for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
+      const int send_process = modulo(my_process_rs+process_shift,number_of_processes);
+      const int recv_process = modulo(my_process_rs-process_shift,number_of_processes);
+
+      int recv_size[3];
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_rs[recv_process][dir][1]-proc2local_rs[recv_process][dir][0]+1-2*border_width[dir];
+
+      if (process_shift == 0) {
+        memcpy(recv_buffer, grid_rs_inner, my_number_of_inner_elements_rs*sizeof(double));
+      } else {
+        grid_mpi_sendrecv_double(grid_rs_inner, my_number_of_inner_elements_rs, send_process, process_shift, recv_buffer, product3(recv_size), recv_process, process_shift, comm_rs);
+      }
+
+      // Do not forget the boundary outside of the main bound
+      for (int iz = 0; iz < my_sizes_rs[2]; iz++) {
+        const int iz_orig = modulo(iz+my_bounds_rs[2][0], npts_global[2])-proc2local_rs[recv_process][2][0]-border_width[2];
+        if (iz_orig < 0 || iz_orig >= recv_size[2]) continue;
+        for (int iy = 0; iy < my_sizes_rs[1]; iy++) {
+          const int iy_orig = modulo(iy+my_bounds_rs[1][0], npts_global[1])-proc2local_rs[recv_process][1][0]-border_width[1];
+          if (iy_orig < 0 || iy_orig >= recv_size[1]) continue;
+          for (int ix = 0; ix < my_sizes_rs[0]; ix++) {
+            const int ix_orig = modulo(ix+my_bounds_rs[0][0], npts_global[0])-proc2local_rs[recv_process][0][0]-border_width[0];
+            if (ix_orig < 0 || ix_orig >= recv_size[0]) continue;
+            grid_rs[iz*my_sizes_rs[0]*my_sizes_rs[1]+iy*my_sizes_rs[0]+ix] = recv_buffer[iz_orig*recv_size[0]*recv_size[1]+iy_orig*recv_size[0]+ix_orig];
+            received_elements++;
+          }
+        }
+      }
+    }
+    free(recv_buffer);
+
+    assert(received_elements == my_number_of_elements_rs && "Not all elements of the RS grid and its boundary were received!");
+  }
+
+  free(grid_rs_inner);
 }
 
 void grid_copy_to_multigrid_general(
@@ -370,8 +470,10 @@ void grid_copy_to_multigrid_general_f(
     const grid_mpi_fint fortran_comm[multigrid->nlevels],
     const int *proc2local) {
   grid_mpi_comm comm[multigrid->nlevels];
-  for (int level = 0; level < multigrid->nlevels; level++)
+  for (int level = 0; level < multigrid->nlevels; level++) {
     comm[level] = grid_mpi_comm_f2c(fortran_comm[level]);
+  }
+
   grid_copy_to_multigrid_general(multigrid, grids, comm, proc2local);
 }
 

@@ -1,6 +1,6 @@
 /*----------------------------------------------------------------------------*/
 /*  CP2K: A general program to perform molecular dynamics simulations         */
-/*  Copyright 2000-2024 CP2K developers group <https://cp2k.org>              */
+/*  Copyright 2000-2025 CP2K developers group <https://cp2k.org>              */
 /*                                                                            */
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
@@ -142,6 +142,16 @@ void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
                               const int source, const int recvtag,
                               const grid_mpi_comm comm) {
 #if defined(__parallel)
+  assert(sendbuffer != NULL);
+  assert(recvbuffer != NULL);
+  assert(sendcount >= 0 && "Send count must be nonnegative!");
+  assert(recvcount >= 0 && "Receive count must be nonnegative!");
+  assert(sendtag >= 0 && "Send tag must be nonnegative!");
+  assert(recvtag >= 0 && "Receive tag must be nonnegative!");
+  assert(dest >= 0 && "Send process must be nonnegative!");
+  assert(source >= 0 && "Receive process must be nonnegative!");
+  assert(dest < grid_mpi_comm_size(comm) && "Send process must be lower than the number of processes!");
+  assert(source < grid_mpi_comm_size(comm) && "Receive process must be lower than the number of processes!");
   CHECK(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
                      recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
                      MPI_STATUS_IGNORE));
@@ -172,6 +182,11 @@ void grid_mpi_isend_double(const double *sendbuffer, const int sendcount,
                            const grid_mpi_comm comm,
                            grid_mpi_request *request) {
 #if defined(__parallel)
+  assert(sendbuffer != NULL);
+  assert(sendcount >= 0 && "Send count must be nonnegative!");
+  assert(sendtag >= 0 && "Send tag must be nonnegative!");
+  assert(dest >= 0 && "Send process must be nonnegative!");
+  assert(dest < grid_mpi_comm_size(comm) && "Send process must be lower than the number of processes!");
   CHECK(MPI_Isend(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag, comm,
                   request));
 #else
@@ -190,6 +205,11 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
                            const grid_mpi_comm comm,
                            grid_mpi_request *request) {
 #if defined(__parallel)
+  assert(recvbuffer != NULL);
+  assert(recvcount >= 0 && "Receive count must be nonnegative!");
+  assert(recvtag >= 0 && "Receive tag must be nonnegative!");
+  assert(source >= 0 && "Receive process must be nonnegative!");
+  assert(source < grid_mpi_comm_size(comm) && "Receive process must be lower than the number of processes!");
   CHECK(MPI_Irecv(recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
                   request));
 #else
@@ -204,6 +224,7 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
 }
 
 void grid_mpi_wait(grid_mpi_request *request) {
+  assert(request != NULL);
 #if defined(__parallel)
   CHECK(MPI_Wait(request, MPI_STATUS_IGNORE));
 #else
@@ -213,6 +234,7 @@ void grid_mpi_wait(grid_mpi_request *request) {
 
 void grid_mpi_waitany(const int number_of_requests,
                       grid_mpi_request request[number_of_requests], int *idx) {
+  assert(idx != NULL);
 #if defined(__parallel)
   CHECK(MPI_Waitany(number_of_requests, request, idx, MPI_STATUS_IGNORE));
 #else
@@ -240,6 +262,9 @@ void grid_mpi_waitall(const int number_of_requests,
 void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
                             int *recvbuffer, grid_mpi_comm comm) {
 #if defined(__parallel)
+  assert(sendbuffer != NULL);
+  assert(recvbuffer != NULL);
+  assert(sendcount >= 0 && "Send count must be nonnegative!");
   CHECK(MPI_Allgather(sendbuffer, sendcount, MPI_INT, recvbuffer, sendcount,
                       MPI_INT, comm));
 #else
@@ -251,6 +276,8 @@ void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
 void grid_mpi_sum_double(double *buffer, const int count,
                          const grid_mpi_comm comm) {
 #if defined(__parallel)
+  assert(buffer != NULL);
+  assert(count >= 0 && "Send count must be nonnegative!");
   CHECK(MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, MPI_SUM, comm));
 #else
   assert(buffer != NULL);
