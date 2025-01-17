@@ -145,22 +145,43 @@ bool grid_mpi_comm_is_ident(const grid_mpi_comm comm1,
 #endif
 }
 
+void grid_mpi_sendrecv_int(const int *sendbuffer, const int sendcount,
+                           const int dest, const int sendtag,
+                           int *recvbuffer, const int recvcount,
+                           const int source, const int recvtag,
+                           const grid_mpi_comm comm) {
+#if defined(__parallel)
+  error_check(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
+                     recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
+                     MPI_STATUS_IGNORE));
+#else
+  (void)sendbuffer;
+  (void)sendcount;
+  (void)dest;
+  (void)sendtag;
+  (void)recvbuffer;
+  (void)recvcount;
+  (void)source;
+  (void)recvtag;
+  (void)comm;
+  // Check the input for reasonable values in serial case
+  assert(sendbuffer != NULL);
+  assert(recvbuffer != NULL);
+  assert((dest == 0 || dest == grid_mpi_any_source || dest == grid_mpi_proc_null) && "Invalid receive process");
+  assert((source == 0 || source == grid_mpi_proc_null) && "Invalid sent process");
+  assert((recvtag == sendtag || recvtag == grid_mpi_any_tag) && "Invalid send or receive tag");
+  if (dest != grid_mpi_proc_null && source != grid_mpi_proc_null) {
+    memcpy(recvbuffer, sendbuffer, sendcount*sizeof(double));
+  }
+#endif
+}
+
 void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
                               const int dest, const int sendtag,
                               double *recvbuffer, const int recvcount,
                               const int source, const int recvtag,
                               const grid_mpi_comm comm) {
 #if defined(__parallel)
-  assert(sendbuffer != NULL);
-  assert(recvbuffer != NULL);
-  assert(sendcount >= 0 && "Send count must be nonnegative!");
-  assert(recvcount >= 0 && "Receive count must be nonnegative!");
-  assert(sendtag >= 0 && "Send tag must be nonnegative!");
-  assert(recvtag >= 0 && "Receive tag must be nonnegative!");
-  assert(dest >= 0 && "Send process must be nonnegative!");
-  assert(source >= 0 && "Receive process must be nonnegative!");
-  assert(dest < grid_mpi_comm_size(comm) && "Send process must be lower than the number of processes!");
-  assert(source < grid_mpi_comm_size(comm) && "Receive process must be lower than the number of processes!");
   error_check(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
                      recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
                      MPI_STATUS_IGNORE));

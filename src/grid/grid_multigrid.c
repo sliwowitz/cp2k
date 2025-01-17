@@ -727,7 +727,7 @@ void grid_copy_from_multigrid_distributed(
           output_ranges[dir2][0] = my_bounds_rs[dir2][0];
           output_ranges[dir2][1] = my_bounds_rs[dir2][1];
         }
-        output_ranges[dir2][2] = input_ranges[dir2][1]-input_ranges[dir2][0]+1;
+        output_ranges[dir2][2] = output_ranges[dir2][1]-output_ranges[dir2][0]+1;
         assert(output_ranges[dir2][2] >= 0);
       }
       const int number_of_input_elements = input_ranges[0][2]*input_ranges[1][2]*input_ranges[2][2];
@@ -783,17 +783,36 @@ void grid_copy_from_multigrid_distributed(
           }
         }
 
+        int send_ranges[3][3];
+        if (send_process >= 0) {
+          for (int dir2 = 0; dir2 < 3; dir2++) {
+            if (dir2 == dir) {
+              send_ranges[dir2][0] = proc2local_rs[send_process][dir2][0]+border_width[dir2];
+              send_ranges[dir2][1] = proc2local_rs[send_process][dir2][1]-border_width[dir2];
+            } else {
+              send_ranges[dir2][0] = output_ranges[dir2][0];
+              send_ranges[dir2][1] = output_ranges[dir2][1];
+            }
+            send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
+            if (dir != dir2) assert(send_ranges[dir2][2] == output_ranges[dir2][2]);
+          }
+        } else {
+          memset(&send_ranges, 0, 9*sizeof(int));
+        }
+        const int number_of_elements_to_send = send_ranges[0][2]*send_ranges[1][2]*send_ranges[2][2];
+
         int recv_ranges[3][3];
         if (recv_process >= 0) {
           for (int dir2 = 0; dir2 < 3; dir2++) {
             if (dir2 == dir) {
               recv_ranges[dir2][0] = proc2local_rs[recv_process][dir2][0];
               recv_ranges[dir2][1] = proc2local_rs[recv_process][dir2][1];
+              recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
             } else {
               recv_ranges[dir2][0] = input_ranges[dir2][0];
               recv_ranges[dir2][1] = input_ranges[dir2][1];
+              recv_ranges[dir2][2] = input_ranges[dir2][2];
             }
-            recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
             if (dir != dir2) assert(recv_ranges[dir2][2] == input_ranges[dir2][2]);
           }
         } else {

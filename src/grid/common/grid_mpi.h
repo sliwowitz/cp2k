@@ -67,6 +67,12 @@ void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
                               const int source, const int recvtag,
                               const grid_mpi_comm comm);
 
+void grid_mpi_sendrecv_int(const int *sendbuffer, const int sendcount,
+                           const int dest, const int sendtag,
+                           int *recvbuffer, const int recvcount,
+                           const int source, const int recvtag,
+                           const grid_mpi_comm comm);
+
 void grid_mpi_isend_double(const double *sendbuffer, const int sendcount,
                            const int dest, const int sendtag,
                            const grid_mpi_comm comm, grid_mpi_request *request);
