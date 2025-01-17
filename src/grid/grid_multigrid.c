@@ -692,6 +692,7 @@ void grid_copy_from_multigrid_distributed(
     }
 
     double * recv_buffer = calloc(max_number_of_elements_rs, sizeof(double));
+    double * send_buffer = calloc(max_number_of_elements_rs, sizeof(double));
 
     // We send direction wise to cluster communication processes
     double * input_data = malloc(my_number_of_elements_rs*sizeof(double));
@@ -730,7 +731,7 @@ void grid_copy_from_multigrid_distributed(
         output_ranges[dir2][2] = output_ranges[dir2][1]-output_ranges[dir2][0]+1;
         assert(output_ranges[dir2][2] >= 0);
       }
-      const int number_of_input_elements = input_ranges[0][2]*input_ranges[1][2]*input_ranges[2][2];
+      //const int number_of_input_elements = input_ranges[0][2]*input_ranges[1][2]*input_ranges[2][2];
       const int number_of_output_elements = output_ranges[0][2]*output_ranges[1][2]*output_ranges[2][2];
 
       memset(output_data, 0, number_of_output_elements*sizeof(double));
@@ -783,8 +784,9 @@ void grid_copy_from_multigrid_distributed(
           }
         }
 
-        int send_ranges[3][3];
+        int number_of_elements_to_send = 0;
         if (send_process >= 0) {
+          int send_ranges[3][3];
           for (int dir2 = 0; dir2 < 3; dir2++) {
             if (dir2 == dir) {
               send_ranges[dir2][0] = proc2local_rs[send_process][dir2][0]+border_width[dir2];
@@ -796,12 +798,24 @@ void grid_copy_from_multigrid_distributed(
             send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
             if (dir != dir2) assert(send_ranges[dir2][2] == output_ranges[dir2][2]);
           }
-        } else {
-          memset(&send_ranges, 0, 9*sizeof(int));
+          for (int iz = 0; iz < input_ranges[2][2]; iz++) {
+            const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-send_ranges[2][0] : iz);
+            if (iz_orig < 0 || iz_orig >= send_ranges[2][2]) continue;
+            for (int iy = 0; iy < input_ranges[1][2]; iy++) {
+              const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-send_ranges[1][0] : iy);
+              if (iy_orig < 0 || iy_orig >= send_ranges[1][2]) continue;
+              for (int ix = 0; ix < input_ranges[0][2]; ix++) {
+                const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-send_ranges[0][0] : ix);
+                if (ix_orig < 0 || ix_orig >= send_ranges[0][2]) continue;
+                send_buffer[number_of_elements_to_send] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+                number_of_elements_to_send++;
+              }
+            }
+          }
         }
-        const int number_of_elements_to_send = send_ranges[0][2]*send_ranges[1][2]*send_ranges[2][2];
 
         int recv_ranges[3][3];
+        int number_of_elements_to_receive = 0;
         if (recv_process >= 0) {
           for (int dir2 = 0; dir2 < 3; dir2++) {
             if (dir2 == dir) {
@@ -813,17 +827,7 @@ void grid_copy_from_multigrid_distributed(
               recv_ranges[dir2][1] = input_ranges[dir2][1];
               recv_ranges[dir2][2] = input_ranges[dir2][2];
             }
-            if (dir != dir2) assert(recv_ranges[dir2][2] == input_ranges[dir2][2]);
           }
-        } else {
-          memset(&recv_ranges, 0, 9*sizeof(int));
-        }
-        const int number_of_elements_to_receive = recv_ranges[0][2]*recv_ranges[1][2]*recv_ranges[2][2];
-
-        grid_mpi_sendrecv_double(input_data, number_of_input_elements, send_process, process_shift, recv_buffer, number_of_elements_to_receive, recv_process, process_shift, comm_rs);
-        
-        // Do not forget the boundary outside of the main bound
-        if (recv_process >= 0) {
           for (int iz = 0; iz < recv_ranges[2][2]; iz++) {
             const int iz_orig = (dir == 2 ? modulo(iz+recv_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
             if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
@@ -833,7 +837,30 @@ void grid_copy_from_multigrid_distributed(
               for (int ix = 0; ix < recv_ranges[0][2]; ix++) {
                 const int ix_orig = (dir == 0 ? modulo(ix+recv_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
                 if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
-                output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] += recv_buffer[iz*recv_ranges[0][2]*recv_ranges[1][2]+iy*recv_ranges[0][2]+ix];
+                number_of_elements_to_receive++;
+              }
+            }
+          }
+        } else {
+          memset(&recv_ranges, 0, 9*sizeof(int));
+        }
+
+        grid_mpi_sendrecv_double(send_buffer, number_of_elements_to_send, send_process, process_shift, recv_buffer, number_of_elements_to_receive, recv_process, process_shift, comm_rs);
+        
+        // Do not forget the boundary outside of the main bound
+        if (recv_process >= 0) {
+          int index_receive = 0;
+          for (int iz = 0; iz < recv_ranges[2][2]; iz++) {
+            const int iz_orig = (dir == 2 ? modulo(iz+recv_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
+            if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+            for (int iy = 0; iy < recv_ranges[1][2]; iy++) {
+              const int iy_orig = (dir == 1 ? modulo(iy+recv_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
+              if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
+              for (int ix = 0; ix < recv_ranges[0][2]; ix++) {
+                const int ix_orig = (dir == 0 ? modulo(ix+recv_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
+                if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
+                output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] += recv_buffer[index_receive];
+                index_receive++;
               }
             }
           }
@@ -848,6 +875,7 @@ void grid_copy_from_multigrid_distributed(
     memcpy(grid_rs_inner, input_data, my_number_of_inner_elements_rs*sizeof(double));
 
     free(recv_buffer);
+    free(send_buffer);
     free(input_data);
     free(output_data);
   }
