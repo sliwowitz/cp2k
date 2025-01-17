@@ -840,7 +840,7 @@ void grid_copy_from_multigrid_distributed(
       for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_rs[recv_process][dir][1]-proc2local_rs[recv_process][dir][0]+1-2*border_width[dir];
 
       if (process_shift == 0) {
-        memcpy(recv_buffer, grid_rs_inner, max_number_of_inner_elements_rs*sizeof(double));
+        memcpy(recv_buffer, grid_rs_inner, my_number_of_inner_elements_rs*sizeof(double));
       } else {
         grid_mpi_sendrecv_double(grid_rs_inner, my_number_of_inner_elements_rs, send_process, process_shift, recv_buffer, product3(recv_size), recv_process, process_shift, comm_rs);
       }
