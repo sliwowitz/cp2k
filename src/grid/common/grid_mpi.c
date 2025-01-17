@@ -12,22 +12,31 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__parallel)
 /*******************************************************************************
  * \brief Check given MPI status and upon failure abort with a nice message.
- * \author Ole Schuett
+ * \author Ole Schuett, Frederick Stein
  ******************************************************************************/
-#define CHECK(status)                                                          \
-  if (status != MPI_SUCCESS) {                                                 \
-    fprintf(stderr, "MPI error in %s:%i\n", __FILE__, __LINE__);               \
-    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);                                   \
+static inline void error_check(int error) {
+#if defined(__parallel)
+  if (error != MPI_SUCCESS) {
+    int error_len, error_class;
+    char error_string[MPI_MAX_ERROR_STRING];
+    MPI_Error_class(error, &error_class);
+    MPI_Error_string(error, error_string, &error_len);
+    fprintf(stderr, "MPI Error %s (Class %i) in %s:%i\n", error_string,
+            error_class, __FILE__, __LINE__);
+    fflush(stderr);
+    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
   }
+#else
+  (void) error;
 #endif
+}
 
 int grid_mpi_comm_size(const grid_mpi_comm comm) {
 #if defined(__parallel)
   int comm_size;
-  CHECK(MPI_Comm_size(comm, &comm_size));
+  error_check(MPI_Comm_size(comm, &comm_size));
   return comm_size;
 #else
   (void)comm;
@@ -38,7 +47,7 @@ int grid_mpi_comm_size(const grid_mpi_comm comm) {
 int grid_mpi_comm_rank(const grid_mpi_comm comm) {
 #if defined(__parallel)
   int comm_rank;
-  CHECK(MPI_Comm_rank(comm, &comm_rank));
+  error_check(MPI_Comm_rank(comm, &comm_rank));
   return comm_rank;
 #else
   (void)comm;
@@ -64,7 +73,7 @@ grid_mpi_fint grid_mpi_comm_c2f(const grid_mpi_comm comm) {
 
 void grid_mpi_comm_dup(const grid_mpi_comm old_comm, grid_mpi_comm *new_comm) {
 #if defined(__parallel)
-  CHECK(MPI_Comm_dup(old_comm, new_comm));
+  error_check(MPI_Comm_dup(old_comm, new_comm));
 #else
   *new_comm = old_comm;
 #endif
@@ -72,7 +81,7 @@ void grid_mpi_comm_dup(const grid_mpi_comm old_comm, grid_mpi_comm *new_comm) {
 
 void grid_mpi_comm_free(grid_mpi_comm *comm) {
 #if defined(__parallel)
-  CHECK(MPI_Comm_free(comm));
+  error_check(MPI_Comm_free(comm));
 #else
   *comm = grid_mpi_comm_null;
 #endif
@@ -80,7 +89,7 @@ void grid_mpi_comm_free(grid_mpi_comm *comm) {
 
 void grid_mpi_barrier(const grid_mpi_comm comm) {
 #if defined(__parallel)
-  CHECK(MPI_Barrier(comm));
+  error_check(MPI_Barrier(comm));
 #else
   // Nothing to do in the serial case
   (void)comm;
@@ -91,7 +100,7 @@ bool grid_mpi_comm_is_unequal(const grid_mpi_comm comm1,
                               const grid_mpi_comm comm2) {
 #if defined(__parallel)
   int result = -1;
-  CHECK(MPI_Comm_compare(comm1, comm2, &result));
+  error_check(MPI_Comm_compare(comm1, comm2, &result));
   return result == MPI_UNEQUAL;
 #else
   return ((comm1 == grid_mpi_comm_null) && (comm2 != grid_mpi_comm_null)) ||
@@ -103,7 +112,7 @@ bool grid_mpi_comm_is_similar(const grid_mpi_comm comm1,
                               const grid_mpi_comm comm2) {
 #if defined(__parallel)
   int result = -1;
-  CHECK(MPI_Comm_compare(comm1, comm2, &result));
+  error_check(MPI_Comm_compare(comm1, comm2, &result));
   return result == MPI_SIMILAR || result == MPI_CONGRUENT ||
          result == MPI_IDENT;
 #else
@@ -116,7 +125,7 @@ bool grid_mpi_comm_is_congruent(const grid_mpi_comm comm1,
                                 const grid_mpi_comm comm2) {
 #if defined(__parallel)
   int result = -1;
-  CHECK(MPI_Comm_compare(comm1, comm2, &result));
+  error_check(MPI_Comm_compare(comm1, comm2, &result));
   return result == MPI_CONGRUENT || result == MPI_IDENT;
 #else
   return ((comm1 == grid_mpi_comm_null) && (comm2 == grid_mpi_comm_null)) ||
@@ -128,7 +137,7 @@ bool grid_mpi_comm_is_ident(const grid_mpi_comm comm1,
                             const grid_mpi_comm comm2) {
 #if defined(__parallel)
   int result = -1;
-  CHECK(MPI_Comm_compare(comm1, comm2, &result));
+  error_check(MPI_Comm_compare(comm1, comm2, &result));
   return result == MPI_IDENT;
 #else
   return ((comm1 == grid_mpi_comm_null) && (comm2 == grid_mpi_comm_null)) ||
@@ -152,7 +161,7 @@ void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
   assert(source >= 0 && "Receive process must be nonnegative!");
   assert(dest < grid_mpi_comm_size(comm) && "Send process must be lower than the number of processes!");
   assert(source < grid_mpi_comm_size(comm) && "Receive process must be lower than the number of processes!");
-  CHECK(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
+  error_check(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
                      recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
                      MPI_STATUS_IGNORE));
 #else
@@ -187,7 +196,7 @@ void grid_mpi_isend_double(const double *sendbuffer, const int sendcount,
   assert(sendtag >= 0 && "Send tag must be nonnegative!");
   assert(dest >= 0 && "Send process must be nonnegative!");
   assert(dest < grid_mpi_comm_size(comm) && "Send process must be lower than the number of processes!");
-  CHECK(MPI_Isend(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag, comm,
+  error_check(MPI_Isend(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag, comm,
                   request));
 #else
   (void)sendbuffer;
@@ -210,7 +219,7 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
   assert(recvtag >= 0 && "Receive tag must be nonnegative!");
   assert(source >= 0 && "Receive process must be nonnegative!");
   assert(source < grid_mpi_comm_size(comm) && "Receive process must be lower than the number of processes!");
-  CHECK(MPI_Irecv(recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
+  error_check(MPI_Irecv(recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
                   request));
 #else
   (void)recvbuffer;
@@ -226,7 +235,7 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
 void grid_mpi_wait(grid_mpi_request *request) {
   assert(request != NULL);
 #if defined(__parallel)
-  CHECK(MPI_Wait(request, MPI_STATUS_IGNORE));
+  error_check(MPI_Wait(request, MPI_STATUS_IGNORE));
 #else
   *request = grid_mpi_request_null;
 #endif
@@ -236,7 +245,7 @@ void grid_mpi_waitany(const int number_of_requests,
                       grid_mpi_request request[number_of_requests], int *idx) {
   assert(idx != NULL);
 #if defined(__parallel)
-  CHECK(MPI_Waitany(number_of_requests, request, idx, MPI_STATUS_IGNORE));
+  error_check(MPI_Waitany(number_of_requests, request, idx, MPI_STATUS_IGNORE));
 #else
   *idx = -1;
   for (int request_idx = 0; request_idx < number_of_requests; request_idx++) {
@@ -251,7 +260,7 @@ void grid_mpi_waitany(const int number_of_requests,
 void grid_mpi_waitall(const int number_of_requests,
                       grid_mpi_request request[number_of_requests]) {
 #if defined(__parallel)
-  CHECK(MPI_Waitall(number_of_requests, request, MPI_STATUSES_IGNORE));
+  error_check(MPI_Waitall(number_of_requests, request, MPI_STATUSES_IGNORE));
 #else
   for (int idx = 0; idx < number_of_requests; idx++) {
     request[idx] = grid_mpi_request_null;
@@ -265,7 +274,7 @@ void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
   assert(sendbuffer != NULL);
   assert(recvbuffer != NULL);
   assert(sendcount >= 0 && "Send count must be nonnegative!");
-  CHECK(MPI_Allgather(sendbuffer, sendcount, MPI_INT, recvbuffer, sendcount,
+  error_check(MPI_Allgather(sendbuffer, sendcount, MPI_INT, recvbuffer, sendcount,
                       MPI_INT, comm));
 #else
   (void)comm;
@@ -278,7 +287,7 @@ void grid_mpi_sum_double(double *buffer, const int count,
 #if defined(__parallel)
   assert(buffer != NULL);
   assert(count >= 0 && "Send count must be nonnegative!");
-  CHECK(MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, MPI_SUM, comm));
+  error_check(MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, MPI_SUM, comm));
 #else
   assert(buffer != NULL);
   (void)comm;
