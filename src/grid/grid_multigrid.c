@@ -735,8 +735,26 @@ void grid_copy_from_multigrid_distributed(
 
       memset(output_data, 0, number_of_output_elements*sizeof(double));
 
+      // Local data
+      {
+        // Do not forget the boundary outside of the main bound
+        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
+          const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
+          if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
+            const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
+            if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
+            for (int ix = 0; ix < input_ranges[0][2]; ix++) {
+              const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
+              if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
+              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] += input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+            }
+          }
+        }
+      }
+
       // A2) Send around local data of the RS grid and copy it to our local buffer
-      for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
+      for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
         int send_process = modulo(my_process_rs+process_shift,number_of_processes);
         int recv_process = modulo(my_process_rs-process_shift,number_of_processes);
 
@@ -783,12 +801,8 @@ void grid_copy_from_multigrid_distributed(
         }
         const int number_of_elements_to_receive = recv_ranges[0][2]*recv_ranges[1][2]*recv_ranges[2][2];
 
-        if (process_shift == 0) {
-          memcpy(recv_buffer, input_data, number_of_input_elements*sizeof(double));
-        } else {
-          grid_mpi_sendrecv_double(input_data, number_of_input_elements, send_process, process_shift, recv_buffer, number_of_elements_to_receive, recv_process, process_shift, comm_rs);
-        }
-
+        grid_mpi_sendrecv_double(input_data, number_of_input_elements, send_process, process_shift, recv_buffer, number_of_elements_to_receive, recv_process, process_shift, comm_rs);
+        
         // Do not forget the boundary outside of the main bound
         if (recv_process >= 0) {
           for (int iz = 0; iz < recv_ranges[2][2]; iz++) {
