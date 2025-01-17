@@ -691,15 +691,140 @@ void grid_copy_from_multigrid_distributed(
       max_number_of_elements_rs = imax(max_number_of_elements_rs, (proc2local_rs[process][0][1]-proc2local_rs[process][0][0]+1)*(proc2local_rs[process][1][1]-proc2local_rs[process][1][0]+1)*(proc2local_rs[process][2][1]-proc2local_rs[process][2][0]+1));
     }
 
-    double * recv_buffer = calloc(max_number_of_elements_rs, sizeof(double));
-    double * send_buffer = calloc(max_number_of_elements_rs, sizeof(double));
-
     // We send direction wise to cluster communication processes
     double * input_data = malloc(my_number_of_elements_rs*sizeof(double));
     double * output_data = malloc(my_number_of_elements_rs*sizeof(double));
 
     // We start with the own data
     memcpy(input_data, grid_rs, my_number_of_elements_rs*sizeof(double));
+
+    int size_of_send_buffer = 0;
+    int size_of_recv_buffer = 0;
+    for (int dir = 0; dir < 3; dir++) {
+      // Without border, there is nothing to exchange
+      if (border_width[dir] == 0) continue;
+
+      int input_ranges[3][3];
+      int output_ranges[3][3];
+      for (int dir2 = 0; dir2 < 3; dir2++) {
+        // The current input covers the original ranges in all directions which we haven't covered yet
+        // and the smaller directions from which we have
+        if (dir2 < dir) {
+          input_ranges[dir2][0] = my_bounds_rs_inner[dir2][0];
+          input_ranges[dir2][1] = my_bounds_rs_inner[dir2][1];
+        } else {
+          input_ranges[dir2][0] = my_bounds_rs[dir2][0];
+          input_ranges[dir2][1] = my_bounds_rs[dir2][1];
+        }
+        input_ranges[dir2][2] = input_ranges[dir2][1]-input_ranges[dir2][0]+1;
+        assert(input_ranges[dir2][2] >= 0);
+        // The output ranges differ at bounds in the direction of data exchange
+        // by using the smaller bounds
+        if (dir2 <= dir) {
+          output_ranges[dir2][0] = my_bounds_rs_inner[dir2][0];
+          output_ranges[dir2][1] = my_bounds_rs_inner[dir2][1];
+        } else {
+          output_ranges[dir2][0] = my_bounds_rs[dir2][0];
+          output_ranges[dir2][1] = my_bounds_rs[dir2][1];
+        }
+        output_ranges[dir2][2] = output_ranges[dir2][1]-output_ranges[dir2][0]+1;
+        assert(output_ranges[dir2][2] >= 0);
+      }
+
+      // A2) Send around local data of the RS grid and copy it to our local buffer
+      for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
+        int send_process = modulo(my_process_rs+process_shift,number_of_processes);
+        int recv_process = modulo(my_process_rs-process_shift,number_of_processes);
+
+        if (process_shift > 0) {
+          // We only need to send and recv from processes which have different bounds in the exchange direction and the same in the other directions
+          for (int dir2 = 0; dir2 < 3; dir2++) {
+            if (dir2 == dir) {
+              if (proc2local_rs[send_process][dir2][0] == my_bounds_rs[dir2][0] && proc2local_rs[send_process][dir2][1] == my_bounds_rs[dir2][1]) {
+                send_process = grid_mpi_proc_null;
+                break;
+              }
+              if (proc2local_rs[recv_process][dir2][0] == my_bounds_rs[dir2][0] && proc2local_rs[recv_process][dir2][1] == my_bounds_rs[dir2][1]) {
+                recv_process = grid_mpi_proc_null;
+                break;
+              }
+            } else {
+              if (proc2local_rs[send_process][dir2][0] != my_bounds_rs[dir2][0] || proc2local_rs[send_process][dir2][1] != my_bounds_rs[dir2][1]) {
+                send_process = grid_mpi_proc_null;
+                break;
+              }
+              if (proc2local_rs[recv_process][dir2][0] != my_bounds_rs[dir2][0] || proc2local_rs[recv_process][dir2][1] != my_bounds_rs[dir2][1]) {
+                recv_process = grid_mpi_proc_null;
+                break;
+              }
+            }
+          }
+        }
+
+        int number_of_elements_to_send = 0;
+        if (send_process >= 0) {
+          int send_ranges[3][3];
+          for (int dir2 = 0; dir2 < 3; dir2++) {
+            if (dir2 == dir) {
+              send_ranges[dir2][0] = proc2local_rs[send_process][dir2][0]+border_width[dir2];
+              send_ranges[dir2][1] = proc2local_rs[send_process][dir2][1]-border_width[dir2];
+            } else {
+              send_ranges[dir2][0] = output_ranges[dir2][0];
+              send_ranges[dir2][1] = output_ranges[dir2][1];
+            }
+            send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
+            if (dir != dir2) assert(send_ranges[dir2][2] == output_ranges[dir2][2]);
+          }
+          for (int iz = 0; iz < input_ranges[2][2]; iz++) {
+            const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-send_ranges[2][0] : iz);
+            if (iz_orig < 0 || iz_orig >= send_ranges[2][2]) continue;
+            for (int iy = 0; iy < input_ranges[1][2]; iy++) {
+              const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-send_ranges[1][0] : iy);
+              if (iy_orig < 0 || iy_orig >= send_ranges[1][2]) continue;
+              for (int ix = 0; ix < input_ranges[0][2]; ix++) {
+                const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-send_ranges[0][0] : ix);
+                if (ix_orig < 0 || ix_orig >= send_ranges[0][2]) continue;
+                number_of_elements_to_send++;
+              }
+            }
+          }
+        }
+        size_of_send_buffer = imax(size_of_send_buffer, number_of_elements_to_send);
+
+        int number_of_elements_to_receive = 0;
+        if (recv_process >= 0) {
+          int recv_ranges[3][3];
+          for (int dir2 = 0; dir2 < 3; dir2++) {
+            if (dir2 == dir) {
+              recv_ranges[dir2][0] = proc2local_rs[recv_process][dir2][0];
+              recv_ranges[dir2][1] = proc2local_rs[recv_process][dir2][1];
+              recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
+            } else {
+              recv_ranges[dir2][0] = input_ranges[dir2][0];
+              recv_ranges[dir2][1] = input_ranges[dir2][1];
+              recv_ranges[dir2][2] = input_ranges[dir2][2];
+            }
+          }
+          for (int iz = 0; iz < recv_ranges[2][2]; iz++) {
+            const int iz_orig = (dir == 2 ? modulo(iz+recv_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
+            if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+            for (int iy = 0; iy < recv_ranges[1][2]; iy++) {
+              const int iy_orig = (dir == 1 ? modulo(iy+recv_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
+              if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
+              for (int ix = 0; ix < recv_ranges[0][2]; ix++) {
+                const int ix_orig = (dir == 0 ? modulo(ix+recv_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
+                if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
+                number_of_elements_to_receive++;
+              }
+            }
+          }
+        }
+        size_of_recv_buffer = imax(size_of_recv_buffer, number_of_elements_to_receive);
+      }
+    }
+
+    double * recv_buffer = calloc(size_of_recv_buffer, sizeof(double));
+    double * send_buffer = calloc(size_of_send_buffer, sizeof(double));
 
     for (int dir = 0; dir < 3; dir++) {
       // Without border, there is nothing to exchange
