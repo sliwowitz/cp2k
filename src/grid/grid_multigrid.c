@@ -863,9 +863,8 @@ void grid_copy_from_multigrid_distributed(
         }
       }
 
-      // A2) Send around local data of the RS grid and copy it to our local buffer
+      // A2) Post receive requests
       for (int process_shift = 0; process_shift < redistribute_rs->number_of_processes_to_send_to[dir]; process_shift++) {
-        const int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_shift];
         const int recv_process = redistribute_rs->recv_processes[redistribute_rs->recv_offset[dir]+process_shift];
 
         int recv_ranges[3][3];
@@ -900,6 +899,11 @@ void grid_copy_from_multigrid_distributed(
         }
 
         grid_mpi_irecv_double(recv_buffer[recv_process], number_of_elements_to_receive, recv_process, process_shift, comm_rs, &redistribute_rs->recv_requests[recv_process]);
+      }
+
+      // A2) Post send reequests
+      for (int process_shift = 0; process_shift < redistribute_rs->number_of_processes_to_send_to[dir]; process_shift++) {
+        const int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_shift];
 
         int number_of_elements_to_send = 0;
         if (send_process >= 0) {
@@ -931,6 +935,26 @@ void grid_copy_from_multigrid_distributed(
           }
         }
         grid_mpi_isend_double(send_buffer[send_process], number_of_elements_to_send, send_process, process_shift, comm_rs, &redistribute_rs->send_requests[send_process]);
+      }
+
+      // A2) Wait for receive processes and add to local data
+      for (int process_shift = 0; process_shift < redistribute_rs->number_of_processes_to_send_to[dir]; process_shift++) {
+        const int recv_process = redistribute_rs->recv_processes[redistribute_rs->recv_offset[dir]+process_shift];
+
+        int recv_ranges[3][3];
+        if (recv_process >= 0) {
+          for (int dir2 = 0; dir2 < 3; dir2++) {
+            if (dir2 == dir) {
+              recv_ranges[dir2][0] = proc2local_rs[recv_process][dir2][0];
+              recv_ranges[dir2][1] = proc2local_rs[recv_process][dir2][1];
+              recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
+            } else {
+              recv_ranges[dir2][0] = input_ranges[dir2][0];
+              recv_ranges[dir2][1] = input_ranges[dir2][1];
+              recv_ranges[dir2][2] = input_ranges[dir2][2];
+            }
+          }
+        }
         
         // Do not forget the boundary outside of the main bound
         grid_mpi_wait(&redistribute_rs->recv_requests[recv_process]);
@@ -951,7 +975,11 @@ void grid_copy_from_multigrid_distributed(
             }
           }
         }
+      }
 
+      // A2) Wait for the send processes to finish
+      for (int process_shift = 0; process_shift < redistribute_rs->number_of_processes_to_send_to[dir]; process_shift++) {
+        const int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_shift];
         grid_mpi_wait(&redistribute_rs->send_requests[send_process]);
       }
       // Swap pointers
