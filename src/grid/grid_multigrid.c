@@ -738,8 +738,8 @@ void grid_copy_from_multigrid_distributed(
 
       // A2) Send around local data of the RS grid and copy it to our local buffer
       for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
-        int send_process = modulo(my_process_rs+process_shift,number_of_processes);
-        int recv_process = modulo(my_process_rs-process_shift,number_of_processes);
+        int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_shift];
+        int recv_process = redistribute_rs->recv_processes[redistribute_rs->recv_offset[dir]+process_shift];
 
         if (process_shift > 0) {
           // We only need to send and recv from processes which have different bounds in the exchange direction and the same in the other directions
@@ -890,8 +890,8 @@ void grid_copy_from_multigrid_distributed(
 
       // A2) Send around local data of the RS grid and copy it to our local buffer
       for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
-        int send_process = modulo(my_process_rs+process_shift,number_of_processes);
-        int recv_process = modulo(my_process_rs-process_shift,number_of_processes);
+        int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_shift];
+        int recv_process = redistribute_rs->recv_processes[redistribute_rs->recv_offset[dir]+process_shift];
 
         if (process_shift > 0) {
           // We only need to send and recv from processes which have different bounds in the exchange direction and the same in the other directions
@@ -1191,6 +1191,8 @@ void grid_create_multigrid_f(
 void grid_free_redistribute(grid_redistribute *redistribute) {
   free(redistribute->send_requests);
   free(redistribute->recv_requests);
+  free(redistribute->send_processes);
+  free(redistribute->recv_processes);
 }
 
 void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3],
@@ -1200,8 +1202,21 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
 
   grid_free_redistribute(redistribute);
 
-  redistribute->number_of_processes = grid_mpi_comm_size(comm);
+  const int number_of_processes = grid_mpi_comm_size(comm);
+  redistribute->number_of_processes = number_of_processes;
   const int my_process = grid_mpi_comm_rank(comm);
+
+  redistribute->send_processes = calloc(3*number_of_processes, sizeof(int));
+  redistribute->recv_processes = calloc(3*number_of_processes, sizeof(int));
+
+  for (int dir = 0; dir < 3; dir++) {
+    redistribute->send_offset[dir] = dir*number_of_processes;
+    redistribute->recv_offset[dir] = dir*number_of_processes;
+    for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
+      redistribute->send_processes[dir*number_of_processes+process_shift] = (my_process+process_shift)%number_of_processes;
+      redistribute->recv_processes[dir*number_of_processes+process_shift] = (my_process-process_shift+number_of_processes)%number_of_processes;
+    }
+  }
 
   redistribute->send_requests = malloc(redistribute->number_of_processes*sizeof(grid_mpi_request));
   redistribute->recv_requests = malloc(redistribute->number_of_processes*sizeof(grid_mpi_request));
