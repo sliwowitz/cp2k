@@ -24,6 +24,9 @@ typedef struct {
   // Used to adress all arrays
   int send_offset[3];
   int recv_offset[3];
+  // Number of communication processes in each direction
+  int number_of_processes_to_send_to[3];
+  int number_of_processes_to_recv_from[3];
   // MPI requests for sending and receiving
   grid_mpi_request *send_requests;
   grid_mpi_request *recv_requests;
