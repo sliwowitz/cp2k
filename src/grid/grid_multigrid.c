@@ -638,7 +638,7 @@ void grid_copy_from_multigrid_distributed(
     const grid_mpi_comm comm_rs, const int npts_global[3], 
     const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2], 
     const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
-    const int border_width[3]) {
+    const int border_width[3], const grid_redistribute * redistribute_rs) {
   const int number_of_processes = grid_mpi_comm_size(comm_rs);
   const int my_process_rs = grid_mpi_comm_rank(comm_rs);
   const int my_process_pw = grid_mpi_comm_rank(comm_pw);
@@ -698,11 +698,9 @@ void grid_copy_from_multigrid_distributed(
     // We start with the own data
     memcpy(input_data, grid_rs, my_number_of_elements_rs*sizeof(double));
 
-    grid_mpi_request * send_requests = malloc(number_of_processes*sizeof(grid_mpi_request));
-    grid_mpi_request * recv_requests = malloc(number_of_processes*sizeof(grid_mpi_request));
     for (int process = 0; process < number_of_processes; process++) {
-      send_requests[process] = grid_mpi_request_null;
-      recv_requests[process] = grid_mpi_request_null;
+      redistribute_rs->send_requests[process] = grid_mpi_request_null;
+      redistribute_rs->recv_requests[process] = grid_mpi_request_null;
     }
 
     int size_of_send_buffer = 0;
@@ -943,7 +941,7 @@ void grid_copy_from_multigrid_distributed(
           memset(&recv_ranges, 0, 9*sizeof(int));
         }
 
-        grid_mpi_irecv_double(recv_buffer[recv_process], number_of_elements_to_receive, recv_process, process_shift, comm_rs, &recv_requests[recv_process]);
+        grid_mpi_irecv_double(recv_buffer[recv_process], number_of_elements_to_receive, recv_process, process_shift, comm_rs, &redistribute_rs->recv_requests[recv_process]);
 
         if (process_shift > 0) {
           // We only need to send and recv from processes which have different bounds in the exchange direction and the same in the other directions
@@ -991,10 +989,10 @@ void grid_copy_from_multigrid_distributed(
             }
           }
         }
-        grid_mpi_isend_double(send_buffer[send_process], number_of_elements_to_send, send_process, process_shift, comm_rs, &send_requests[send_process]);
+        grid_mpi_isend_double(send_buffer[send_process], number_of_elements_to_send, send_process, process_shift, comm_rs, &redistribute_rs->send_requests[send_process]);
         
         // Do not forget the boundary outside of the main bound
-        grid_mpi_wait(&recv_requests[recv_process]);
+        grid_mpi_wait(&redistribute_rs->recv_requests[recv_process]);
         if (recv_process >= 0) {
           int index_receive = 0;
           for (int iz = 0; iz < recv_ranges[2][2]; iz++) {
@@ -1013,7 +1011,7 @@ void grid_copy_from_multigrid_distributed(
           }
         }
 
-        grid_mpi_wait(&send_requests[send_process]);
+        grid_mpi_wait(&redistribute_rs->send_requests[send_process]);
       }
       // Swap pointers
       double * tmp = input_data;
@@ -1029,8 +1027,6 @@ void grid_copy_from_multigrid_distributed(
     }
     free(recv_buffer);
     free(send_buffer);
-    free(send_requests);
-    free(recv_requests);
     free(input_data);
     free(output_data);
   }
@@ -1108,7 +1104,7 @@ void grid_copy_from_multigrid_general(
           multigrid->grids[level]->host_buffer, grids[level],
         multigrid->comm, comm[level], multigrid->npts_global[level],
         (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
-        (const int (*)[3][2])&proc2local[6*level*grid_mpi_comm_size(multigrid->comm)], multigrid->border_width[level]);
+        (const int (*)[3][2])&proc2local[6*level*grid_mpi_comm_size(multigrid->comm)], multigrid->border_width[level], &multigrid->redistribute[level]);
       }
     }
   }
@@ -1150,7 +1146,7 @@ void grid_copy_from_multigrid_general_single(const grid_multigrid *multigrid,
           multigrid->grids[level]->host_buffer, grid,
         multigrid->comm, comm, multigrid->npts_global[level],
         (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
-        (const int (*)[3][2])proc2local, multigrid->border_width[level]);
+        (const int (*)[3][2])proc2local, multigrid->border_width[level], &multigrid->redistribute[level]);
     }
   }
 }
@@ -1190,6 +1186,30 @@ void grid_create_multigrid_f(
   grid_create_multigrid(orthorhombic, nlevels, npts_global, npts_local,
                         shift_local, border_width, dh, dh_inv, grid_dims,
                         grid_mpi_comm_f2c(fortran_comm), multigrid_out);
+}
+
+void grid_free_redistribute(grid_redistribute *redistribute) {
+  free(redistribute->send_requests);
+  free(redistribute->recv_requests);
+}
+
+void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3],
+                              const int proc2local[grid_mpi_comm_size(comm)][3][2],
+                              const int border_width[3], 
+                              grid_redistribute * redistribute) {
+
+  grid_free_redistribute(redistribute);
+
+  redistribute->number_of_processes = grid_mpi_comm_size(comm);
+  const int my_process = grid_mpi_comm_rank(comm);
+
+  redistribute->send_requests = malloc(redistribute->number_of_processes*sizeof(grid_mpi_request));
+  redistribute->recv_requests = malloc(redistribute->number_of_processes*sizeof(grid_mpi_request));
+
+  (void) my_process;
+  (void) npts_global;
+  (void) proc2local;
+  (void) border_width;
 }
 
 /*******************************************************************************
@@ -1248,6 +1268,7 @@ void grid_create_multigrid(
           realloc(multigrid->dh_inv, num_double * sizeof(double));
       multigrid->pgrid_dims =
           realloc(multigrid->pgrid_dims, num_int * sizeof(int));
+      multigrid->redistribute = realloc(multigrid->redistribute, nlevels*sizeof(grid_redistribute));
 
       for (int level = 0; level < multigrid->nlevels; level++) {
         offload_free_buffer(multigrid->grids[level]);
@@ -1276,6 +1297,7 @@ void grid_create_multigrid(
     multigrid->pgrid_dims = calloc(num_int, sizeof(int));
     multigrid->proc2local =
         calloc(nlevels * grid_mpi_comm_size(comm) * 6, sizeof(int));
+    multigrid->redistribute = calloc(nlevels, sizeof(grid_redistribute));
 
     // Resolve AUTO to a concrete backend.
     if (config.backend == GRID_BACKEND_AUTO) {
@@ -1318,6 +1340,11 @@ void grid_create_multigrid(
     grid_mpi_allgather_int(
         &local_bounds[0][0], 6,
         &multigrid->proc2local[level * 6 * grid_mpi_comm_size(comm)], comm);
+
+    grid_create_redistribute(multigrid->comm, multigrid->npts_global[level],
+                            (const int (*)[3][2])&multigrid->proc2local[level * 6 * grid_mpi_comm_size(comm)],
+                              multigrid->border_width[level],
+                              &(multigrid->redistribute[level]));
   }
 
   grid_ref_create_multigrid(orthorhombic, nlevels, npts_global, npts_local,
@@ -1375,6 +1402,12 @@ void grid_free_multigrid(grid_multigrid *multigrid) {
       free(multigrid->pgrid_dims);
     if (multigrid->proc2local != NULL)
       free(multigrid->proc2local);
+    if (multigrid->redistribute != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_redistribute(&multigrid->redistribute[level]);
+      }
+      free(multigrid->redistribute);
+    }
     grid_mpi_comm_free(&multigrid->comm);
     grid_ref_free_multigrid(multigrid->ref);
     grid_cpu_free_multigrid(multigrid->cpu);

@@ -15,6 +15,16 @@
 #include <stdbool.h>
 
 /*******************************************************************************
+ * \brief Container to precalculate data for redistribution of grids.
+ * \author Frederick Stein
+ ******************************************************************************/
+typedef struct {
+  int number_of_processes;
+  grid_mpi_request *send_requests;
+  grid_mpi_request *recv_requests;
+} grid_redistribute;
+
+/*******************************************************************************
  * \brief Internal representation of a multigrid, abstracting various backends.
  * \author Frederick Stein
  ******************************************************************************/
@@ -32,13 +42,14 @@ typedef struct {
   grid_mpi_comm comm;
   int (*pgrid_dims)[3];
   int *proc2local;
+  grid_redistribute* redistribute;
   grid_ref_multigrid *ref;
   grid_cpu_multigrid *cpu;
   // more backends to be added here
 } grid_multigrid;
 
 /*******************************************************************************
- * \brief Wrapper araound grid_create_multigrid to deal with calls from Fortran.
+ * \brief Wrapper around grid_create_multigrid to deal with calls from Fortran.
  *        Compare grid_create_multigrid for information on the other arguments.
  *
  * \param fortran_comm     The integer Fortran handle
