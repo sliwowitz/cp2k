@@ -744,29 +744,24 @@ void grid_copy_from_multigrid_distributed(
         int number_of_elements_to_send = 0;
         if (send_process >= 0) {
           int send_ranges[3][3];
+          number_of_elements_to_send = 1;
           for (int dir2 = 0; dir2 < 3; dir2++) {
+            int tmp = 0;
             if (dir2 == dir) {
               send_ranges[dir2][0] = proc2local_rs[send_process][dir2][0]+border_width[dir2];
               send_ranges[dir2][1] = proc2local_rs[send_process][dir2][1]-border_width[dir2];
+              send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
+              for (int ix = 0; ix < input_ranges[dir2][2]; ix++) {
+                const int ix_orig = modulo(ix+input_ranges[dir2][0], npts_global[dir2])-send_ranges[dir2][0];
+                if (ix_orig >= 0 && ix_orig < send_ranges[dir2][2]) tmp++;
+              }
             } else {
               send_ranges[dir2][0] = output_ranges[dir2][0];
               send_ranges[dir2][1] = output_ranges[dir2][1];
+              send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
+              tmp = send_ranges[dir2][2];
             }
-            send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
-            if (dir != dir2) assert(send_ranges[dir2][2] == output_ranges[dir2][2]);
-          }
-          for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-            const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-send_ranges[2][0] : iz);
-            if (iz_orig < 0 || iz_orig >= send_ranges[2][2]) continue;
-            for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-              const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-send_ranges[1][0] : iy);
-              if (iy_orig < 0 || iy_orig >= send_ranges[1][2]) continue;
-              for (int ix = 0; ix < input_ranges[0][2]; ix++) {
-                const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-send_ranges[0][0] : ix);
-                if (ix_orig < 0 || ix_orig >= send_ranges[0][2]) continue;
-                number_of_elements_to_send++;
-              }
-            }
+            number_of_elements_to_send *= tmp;
           }
         }
         size_of_send_buffer = imax(size_of_send_buffer, number_of_elements_to_send);
