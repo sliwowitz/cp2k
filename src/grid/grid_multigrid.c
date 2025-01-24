@@ -793,11 +793,12 @@ void grid_copy_from_multigrid_distributed(
       }
     }
 
+    double * memory_pool = calloc((size_of_recv_buffer+size_of_send_buffer)*number_of_processes, sizeof(double));
     double ** recv_buffer = calloc(number_of_processes, sizeof(double*));
     double ** send_buffer = calloc(number_of_processes, sizeof(double*));
     for (int process = 0; process < number_of_processes; process++) {
-      recv_buffer[process] = calloc(size_of_recv_buffer, sizeof(double));
-      send_buffer[process] = calloc(size_of_send_buffer, sizeof(double));
+      recv_buffer[process] = memory_pool+process*size_of_recv_buffer;
+      send_buffer[process] = memory_pool+number_of_processes*size_of_recv_buffer+process*size_of_send_buffer;
     }
 
     for (int dir = 0; dir < 3; dir++) {
@@ -975,12 +976,9 @@ void grid_copy_from_multigrid_distributed(
 
     memcpy(grid_rs_inner, input_data, my_number_of_inner_elements_rs*sizeof(double));
 
-    for (int process = 0; process < number_of_processes; process++) {
-      free(recv_buffer[process]);
-      free(send_buffer[process]);
-    }
     free(recv_buffer);
     free(send_buffer);
+    free(memory_pool);
     free(input_data);
     free(output_data);
   }
