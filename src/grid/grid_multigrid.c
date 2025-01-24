@@ -774,28 +774,23 @@ void grid_copy_from_multigrid_distributed(
         int number_of_elements_to_receive = 0;
         if (recv_process >= 0) {
           int recv_ranges[3][3];
+          number_of_elements_to_receive = 1;
           for (int dir2 = 0; dir2 < 3; dir2++) {
             if (dir2 == dir) {
               recv_ranges[dir2][0] = proc2local_rs[recv_process][dir2][0];
               recv_ranges[dir2][1] = proc2local_rs[recv_process][dir2][1];
               recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
+              int received_elements_in_dir2 = 0;
+              for (int idx_recv = 0; idx_recv < recv_ranges[dir2][2]; idx_recv++) {
+                const int idx_local = modulo(idx_recv+recv_ranges[dir2][0], npts_global[dir2])-output_ranges[dir2][0];
+                if (idx_local >= 0 && idx_local < output_ranges[dir2][2]) received_elements_in_dir2++;
+              }
+              number_of_elements_to_receive *= received_elements_in_dir2;
             } else {
               recv_ranges[dir2][0] = input_ranges[dir2][0];
               recv_ranges[dir2][1] = input_ranges[dir2][1];
               recv_ranges[dir2][2] = input_ranges[dir2][2];
-            }
-          }
-          for (int iz = 0; iz < recv_ranges[2][2]; iz++) {
-            const int iz_orig = (dir == 2 ? modulo(iz+recv_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
-            if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
-            for (int iy = 0; iy < recv_ranges[1][2]; iy++) {
-              const int iy_orig = (dir == 1 ? modulo(iy+recv_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
-              if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
-              for (int ix = 0; ix < recv_ranges[0][2]; ix++) {
-                const int ix_orig = (dir == 0 ? modulo(ix+recv_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
-                if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
-                number_of_elements_to_receive++;
-              }
+              number_of_elements_to_receive *= recv_ranges[dir2][2];
             }
           }
         }
@@ -879,8 +874,7 @@ void grid_copy_from_multigrid_distributed(
               int elements_to_recv_from_direction = 0;
               for (int idx_recv = 0; idx_recv < recv_ranges[dir2][2]; idx_recv++) {
                 const int idx_local = modulo(idx_recv+recv_ranges[dir2][0], npts_global[dir2])-output_ranges[dir2][0];
-                if (idx_local < 0 || idx_local >= output_ranges[dir2][2]) continue;
-                elements_to_recv_from_direction++;
+                if (idx_local >= 0 && idx_local < output_ranges[dir2][2]) elements_to_recv_from_direction++;
               }
               number_of_elements_to_receive *= elements_to_recv_from_direction;
             } else {
