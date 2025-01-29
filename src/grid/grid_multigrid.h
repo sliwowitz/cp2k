@@ -20,6 +20,9 @@
  ******************************************************************************/
 typedef struct {
   int number_of_processes;
+  // Ranges of local grid points in each direction in each step
+  int input_ranges[3][3][3];
+  int output_ranges[3][3][3];
   // Offsets for sending and receiving arrays
   // Used to adress all arrays
   int send_offset[3];

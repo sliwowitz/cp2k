@@ -709,33 +709,6 @@ void grid_copy_from_multigrid_distributed(
       // Without border, there is nothing to exchange
       if (border_width[dir] == 0) continue;
 
-      int input_ranges[3][3];
-      int output_ranges[3][3];
-      for (int dir2 = 0; dir2 < 3; dir2++) {
-        // The current input covers the original ranges in all directions which we haven't covered yet
-        // and the smaller directions from which we have
-        if (dir2 < dir) {
-          input_ranges[dir2][0] = my_bounds_rs_inner[dir2][0];
-          input_ranges[dir2][1] = my_bounds_rs_inner[dir2][1];
-        } else {
-          input_ranges[dir2][0] = my_bounds_rs[dir2][0];
-          input_ranges[dir2][1] = my_bounds_rs[dir2][1];
-        }
-        input_ranges[dir2][2] = input_ranges[dir2][1]-input_ranges[dir2][0]+1;
-        assert(input_ranges[dir2][2] >= 0);
-        // The output ranges differ at bounds in the direction of data exchange
-        // by using the smaller bounds
-        if (dir2 <= dir) {
-          output_ranges[dir2][0] = my_bounds_rs_inner[dir2][0];
-          output_ranges[dir2][1] = my_bounds_rs_inner[dir2][1];
-        } else {
-          output_ranges[dir2][0] = my_bounds_rs[dir2][0];
-          output_ranges[dir2][1] = my_bounds_rs[dir2][1];
-        }
-        output_ranges[dir2][2] = output_ranges[dir2][1]-output_ranges[dir2][0]+1;
-        assert(output_ranges[dir2][2] >= 0);
-      }
-
       // A2) Send around local data of the RS grid and copy it to our local buffer
       for (int process_shift = 0; process_shift < redistribute_rs->number_of_processes_to_send_to[dir]; process_shift++) {
         const int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_shift];
@@ -751,13 +724,13 @@ void grid_copy_from_multigrid_distributed(
               send_ranges[dir2][0] = proc2local_rs[send_process][dir2][0]+border_width[dir2];
               send_ranges[dir2][1] = proc2local_rs[send_process][dir2][1]-border_width[dir2];
               send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
-              for (int ix = 0; ix < input_ranges[dir2][2]; ix++) {
-                const int ix_orig = modulo(ix+input_ranges[dir2][0], npts_global[dir2])-send_ranges[dir2][0];
+              for (int ix = 0; ix < redistribute_rs->input_ranges[dir][dir2][2]; ix++) {
+                const int ix_orig = modulo(ix+redistribute_rs->input_ranges[dir][dir2][0], npts_global[dir2])-send_ranges[dir2][0];
                 if (ix_orig >= 0 && ix_orig < send_ranges[dir2][2]) tmp++;
               }
             } else {
-              send_ranges[dir2][0] = output_ranges[dir2][0];
-              send_ranges[dir2][1] = output_ranges[dir2][1];
+              send_ranges[dir2][0] = redistribute_rs->output_ranges[dir][dir2][0];
+              send_ranges[dir2][1] = redistribute_rs->output_ranges[dir][dir2][1];
               send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
               tmp = send_ranges[dir2][2];
             }
@@ -777,14 +750,14 @@ void grid_copy_from_multigrid_distributed(
               recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
               int received_elements_in_dir2 = 0;
               for (int idx_recv = 0; idx_recv < recv_ranges[dir2][2]; idx_recv++) {
-                const int idx_local = modulo(idx_recv+recv_ranges[dir2][0], npts_global[dir2])-output_ranges[dir2][0];
-                if (idx_local >= 0 && idx_local < output_ranges[dir2][2]) received_elements_in_dir2++;
+                const int idx_local = modulo(idx_recv+recv_ranges[dir2][0], npts_global[dir2])-redistribute_rs->output_ranges[dir][dir2][0];
+                if (idx_local >= 0 && idx_local < redistribute_rs->output_ranges[dir][dir2][2]) received_elements_in_dir2++;
               }
               number_of_elements_to_receive *= received_elements_in_dir2;
             } else {
-              recv_ranges[dir2][0] = input_ranges[dir2][0];
-              recv_ranges[dir2][1] = input_ranges[dir2][1];
-              recv_ranges[dir2][2] = input_ranges[dir2][2];
+              recv_ranges[dir2][0] = redistribute_rs->input_ranges[dir][dir2][0];
+              recv_ranges[dir2][1] = redistribute_rs->input_ranges[dir][dir2][1];
+              recv_ranges[dir2][2] = redistribute_rs->input_ranges[dir][dir2][2];
               number_of_elements_to_receive *= recv_ranges[dir2][2];
             }
           }
@@ -804,51 +777,24 @@ void grid_copy_from_multigrid_distributed(
     for (int dir = 0; dir < 3; dir++) {
       // Without border, there is nothing to exchange
       if (border_width[dir] == 0) continue;
-
-      int input_ranges[3][3];
-      int output_ranges[3][3];
-      for (int dir2 = 0; dir2 < 3; dir2++) {
-        // The current input covers the original ranges in all directions which we haven't covered yet
-        // and the smaller directions from which we have
-        if (dir2 < dir) {
-          input_ranges[dir2][0] = my_bounds_rs_inner[dir2][0];
-          input_ranges[dir2][1] = my_bounds_rs_inner[dir2][1];
-        } else {
-          input_ranges[dir2][0] = my_bounds_rs[dir2][0];
-          input_ranges[dir2][1] = my_bounds_rs[dir2][1];
-        }
-        input_ranges[dir2][2] = input_ranges[dir2][1]-input_ranges[dir2][0]+1;
-        assert(input_ranges[dir2][2] >= 0);
-        // The output ranges differ at bounds in the direction of data exchange
-        // by using the smaller bounds
-        if (dir2 <= dir) {
-          output_ranges[dir2][0] = my_bounds_rs_inner[dir2][0];
-          output_ranges[dir2][1] = my_bounds_rs_inner[dir2][1];
-        } else {
-          output_ranges[dir2][0] = my_bounds_rs[dir2][0];
-          output_ranges[dir2][1] = my_bounds_rs[dir2][1];
-        }
-        output_ranges[dir2][2] = output_ranges[dir2][1]-output_ranges[dir2][0]+1;
-        assert(output_ranges[dir2][2] >= 0);
-      }
-      //const int number_of_input_elements = input_ranges[0][2]*input_ranges[1][2]*input_ranges[2][2];
-      const int number_of_output_elements = output_ranges[0][2]*output_ranges[1][2]*output_ranges[2][2];
+      //const int number_of_input_elements = redistribute_rs->input_ranges[dir][0][2]*redistribute_rs->input_ranges[dir][1][2]*redistribute_rs->input_ranges[dir][2][2];
+      const int number_of_output_elements = redistribute_rs->output_ranges[dir][0][2]*redistribute_rs->output_ranges[dir][1][2]*redistribute_rs->output_ranges[dir][2][2];
 
       memset(output_data, 0, number_of_output_elements*sizeof(double));
 
       // Local data
       {
         // Do not forget the boundary outside of the main bound
-        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-          const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
-          if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
-          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-            const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
-            if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
-            for (int ix = 0; ix < input_ranges[0][2]; ix++) {
-              const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
-              if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
-              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] += input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+        for (int iz = 0; iz < redistribute_rs->input_ranges[dir][2][2]; iz++) {
+          const int iz_orig = (dir == 2 ? modulo(iz+redistribute_rs->input_ranges[dir][2][0], npts_global[2])-redistribute_rs->output_ranges[dir][2][0] : iz);
+          if (iz_orig < 0 || iz_orig >= redistribute_rs->output_ranges[dir][2][2]) continue;
+          for (int iy = 0; iy < redistribute_rs->input_ranges[dir][1][2]; iy++) {
+            const int iy_orig = (dir == 1 ? modulo(iy+redistribute_rs->input_ranges[dir][1][0], npts_global[1])-redistribute_rs->output_ranges[dir][1][0] : iy);
+            if (iy_orig < 0 || iy_orig >= redistribute_rs->output_ranges[dir][1][2]) continue;
+            for (int ix = 0; ix < redistribute_rs->input_ranges[dir][0][2]; ix++) {
+              const int ix_orig = (dir == 0 ? modulo(ix+redistribute_rs->input_ranges[dir][0][0], npts_global[0])-redistribute_rs->output_ranges[dir][0][0] : ix);
+              if (ix_orig < 0 || ix_orig >= redistribute_rs->output_ranges[dir][0][2]) continue;
+              output_data[iz_orig*redistribute_rs->output_ranges[dir][0][2]*redistribute_rs->output_ranges[dir][1][2]+iy_orig*redistribute_rs->output_ranges[dir][0][2]+ix_orig] += input_data[iz*redistribute_rs->input_ranges[dir][0][2]*redistribute_rs->input_ranges[dir][1][2]+iy*redistribute_rs->input_ranges[dir][0][2]+ix];
             }
           }
         }
@@ -869,14 +815,14 @@ void grid_copy_from_multigrid_distributed(
               recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
               int elements_to_recv_from_direction = 0;
               for (int idx_recv = 0; idx_recv < recv_ranges[dir2][2]; idx_recv++) {
-                const int idx_local = modulo(idx_recv+recv_ranges[dir2][0], npts_global[dir2])-output_ranges[dir2][0];
-                if (idx_local >= 0 && idx_local < output_ranges[dir2][2]) elements_to_recv_from_direction++;
+                const int idx_local = modulo(idx_recv+recv_ranges[dir2][0], npts_global[dir2])-redistribute_rs->output_ranges[dir][dir2][0];
+                if (idx_local >= 0 && idx_local < redistribute_rs->output_ranges[dir][dir2][2]) elements_to_recv_from_direction++;
               }
               number_of_elements_to_receive *= elements_to_recv_from_direction;
             } else {
-              recv_ranges[dir2][0] = input_ranges[dir2][0];
-              recv_ranges[dir2][1] = input_ranges[dir2][1];
-              recv_ranges[dir2][2] = input_ranges[dir2][2];
+              recv_ranges[dir2][0] = redistribute_rs->input_ranges[dir][dir2][0];
+              recv_ranges[dir2][1] = redistribute_rs->input_ranges[dir][dir2][1];
+              recv_ranges[dir2][2] = redistribute_rs->input_ranges[dir][dir2][2];
               number_of_elements_to_receive *= recv_ranges[dir2][2];
             }
           }
@@ -899,22 +845,22 @@ void grid_copy_from_multigrid_distributed(
               send_ranges[dir2][0] = proc2local_rs[send_process][dir2][0]+border_width[dir2];
               send_ranges[dir2][1] = proc2local_rs[send_process][dir2][1]-border_width[dir2];
             } else {
-              send_ranges[dir2][0] = output_ranges[dir2][0];
-              send_ranges[dir2][1] = output_ranges[dir2][1];
+              send_ranges[dir2][0] = redistribute_rs->output_ranges[dir][dir2][0];
+              send_ranges[dir2][1] = redistribute_rs->output_ranges[dir][dir2][1];
             }
             send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
-            if (dir != dir2) assert(send_ranges[dir2][2] == output_ranges[dir2][2]);
+            if (dir != dir2) assert(send_ranges[dir2][2] == redistribute_rs->output_ranges[dir][dir2][2]);
           }
-          for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-            const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-send_ranges[2][0] : iz);
+          for (int iz = 0; iz < redistribute_rs->input_ranges[dir][2][2]; iz++) {
+            const int iz_orig = (dir == 2 ? modulo(iz+redistribute_rs->input_ranges[dir][2][0], npts_global[2])-send_ranges[2][0] : iz);
             if (iz_orig < 0 || iz_orig >= send_ranges[2][2]) continue;
-            for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-              const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-send_ranges[1][0] : iy);
+            for (int iy = 0; iy < redistribute_rs->input_ranges[dir][1][2]; iy++) {
+              const int iy_orig = (dir == 1 ? modulo(iy+redistribute_rs->input_ranges[dir][1][0], npts_global[1])-send_ranges[1][0] : iy);
               if (iy_orig < 0 || iy_orig >= send_ranges[1][2]) continue;
-              for (int ix = 0; ix < input_ranges[0][2]; ix++) {
-                const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-send_ranges[0][0] : ix);
+              for (int ix = 0; ix < redistribute_rs->input_ranges[dir][0][2]; ix++) {
+                const int ix_orig = (dir == 0 ? modulo(ix+redistribute_rs->input_ranges[dir][0][0], npts_global[0])-send_ranges[0][0] : ix);
                 if (ix_orig < 0 || ix_orig >= send_ranges[0][2]) continue;
-                send_buffer[send_process][number_of_elements_to_send] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+                send_buffer[send_process][number_of_elements_to_send] = input_data[iz*redistribute_rs->input_ranges[dir][0][2]*redistribute_rs->input_ranges[dir][1][2]+iy*redistribute_rs->input_ranges[dir][0][2]+ix];
                 number_of_elements_to_send++;
               }
             }
@@ -935,9 +881,9 @@ void grid_copy_from_multigrid_distributed(
               recv_ranges[dir2][1] = proc2local_rs[recv_process][dir2][1];
               recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
             } else {
-              recv_ranges[dir2][0] = input_ranges[dir2][0];
-              recv_ranges[dir2][1] = input_ranges[dir2][1];
-              recv_ranges[dir2][2] = input_ranges[dir2][2];
+              recv_ranges[dir2][0] = redistribute_rs->input_ranges[dir][dir2][0];
+              recv_ranges[dir2][1] = redistribute_rs->input_ranges[dir][dir2][1];
+              recv_ranges[dir2][2] = redistribute_rs->input_ranges[dir][dir2][2];
             }
           }
         }
@@ -947,15 +893,15 @@ void grid_copy_from_multigrid_distributed(
         if (recv_process >= 0) {
           int index_receive = 0;
           for (int iz = 0; iz < recv_ranges[2][2]; iz++) {
-            const int iz_orig = (dir == 2 ? modulo(iz+recv_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
-            if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+            const int iz_orig = (dir == 2 ? modulo(iz+recv_ranges[2][0], npts_global[2])-redistribute_rs->output_ranges[dir][2][0] : iz);
+            if (iz_orig < 0 || iz_orig >= redistribute_rs->output_ranges[dir][2][2]) continue;
             for (int iy = 0; iy < recv_ranges[1][2]; iy++) {
-              const int iy_orig = (dir == 1 ? modulo(iy+recv_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
-              if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
+              const int iy_orig = (dir == 1 ? modulo(iy+recv_ranges[1][0], npts_global[1])-redistribute_rs->output_ranges[dir][1][0] : iy);
+              if (iy_orig < 0 || iy_orig >= redistribute_rs->output_ranges[dir][1][2]) continue;
               for (int ix = 0; ix < recv_ranges[0][2]; ix++) {
-                const int ix_orig = (dir == 0 ? modulo(ix+recv_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
-                if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
-                output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] += recv_buffer[recv_process][index_receive];
+                const int ix_orig = (dir == 0 ? modulo(ix+recv_ranges[0][0], npts_global[0])-redistribute_rs->output_ranges[dir][0][0] : ix);
+                if (ix_orig < 0 || ix_orig >= redistribute_rs->output_ranges[dir][0][2]) continue;
+                output_data[iz_orig*redistribute_rs->output_ranges[dir][0][2]*redistribute_rs->output_ranges[dir][1][2]+iy_orig*redistribute_rs->output_ranges[dir][0][2]+ix_orig] += recv_buffer[recv_process][index_receive];
                 index_receive++;
               }
             }
@@ -1175,6 +1121,33 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
   const int my_number_of_inner_elements = product3(my_sizes_inner);
   (void) my_number_of_elements;
   (void) my_number_of_inner_elements;
+
+  for (int dir = 0; dir < 3; dir++) {
+    for (int dir2 = 0; dir2 < 3; dir2++) {
+      // The current input covers the original ranges in all directions which we haven't covered yet
+      // and the smaller directions from which we have
+      if (dir2 < dir) {
+        redistribute->input_ranges[dir][dir2][0] = my_bounds_inner[dir2][0];
+        redistribute->input_ranges[dir][dir2][1] = my_bounds_inner[dir2][1];
+      } else {
+        redistribute->input_ranges[dir][dir2][0] = my_bounds[dir2][0];
+        redistribute->input_ranges[dir][dir2][1] = my_bounds[dir2][1];
+      }
+      redistribute->input_ranges[dir][dir2][2] = redistribute->input_ranges[dir][dir2][1]-redistribute->input_ranges[dir][dir2][0]+1;
+      assert(redistribute->input_ranges[dir][dir2][2] >= 0);
+      // The output ranges differ at bounds in the direction of data exchange
+      // by using the smaller bounds
+      if (dir2 <= dir) {
+        redistribute->output_ranges[dir][dir2][0] = my_bounds_inner[dir2][0];
+        redistribute->output_ranges[dir][dir2][1] = my_bounds_inner[dir2][1];
+      } else {
+        redistribute->output_ranges[dir][dir2][0] = my_bounds[dir2][0];
+        redistribute->output_ranges[dir][dir2][1] = my_bounds[dir2][1];
+      }
+      redistribute->output_ranges[dir][dir2][2] = redistribute->output_ranges[dir][dir2][1]-redistribute->output_ranges[dir][dir2][0]+1;
+      assert(redistribute->output_ranges[dir][dir2][2] >= 0);
+    }
+  }
 
   int total_number_of_processes_to_send_to = 0;
   int total_number_of_processes_to_recv_from = 0;
