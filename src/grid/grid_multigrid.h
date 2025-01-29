@@ -32,6 +32,9 @@ typedef struct {
   // Offsets for send/recv buffers
   int *send_buffer_offsets;
   int *recv_buffer_offsets;
+  // Local coordinates for each process
+  int *** send2local;
+  int *** recv2local;
   // Offsets for sending and receiving arrays
   // Used to adress all arrays
   int send_offset[3];

@@ -763,17 +763,15 @@ void grid_copy_from_multigrid_distributed(
         int number_of_elements_to_send = 0;
         if (send_process >= 0) {
           const int (*send_ranges)[3] = redistribute_rs->send_ranges[redistribute_rs->send_offset[dir]+process_shift];
-          for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-            const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-send_ranges[2][0] : iz);
-            if (iz_orig < 0 || iz_orig >= send_ranges[2][2]) continue;
-            for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-              const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-send_ranges[1][0] : iy);
-              if (iy_orig < 0 || iy_orig >= send_ranges[1][2]) continue;
-              for (int ix = 0; ix < input_ranges[0][2]; ix++) {
-                const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-send_ranges[0][0] : ix);
-                if (ix_orig < 0 || ix_orig >= send_ranges[0][2]) continue;
-                send_buffer[send_process][number_of_elements_to_send] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
-                number_of_elements_to_send++;
+          number_of_elements_to_send = send_ranges[0][2]*send_ranges[1][2]*send_ranges[2][2];
+          const int * const *send2local = (const int * const *)redistribute_rs->send2local[redistribute_rs->send_offset[dir]+process_shift];
+          for (int iz_send = 0; iz_send < send_ranges[2][2]; iz_send++) {
+            const int iz_local = send2local[2][iz_send];
+            for (int iy_send = 0; iy_send < send_ranges[1][2]; iy_send++) {
+              const int iy_local = send2local[1][iy_send];
+              for (int ix_send = 0; ix_send < send_ranges[0][2]; ix_send++) {
+                const int ix_local = send2local[0][ix_send];
+                send_buffer[send_process][iz_send*send_ranges[0][2]*send_ranges[1][2]+iy_send*send_ranges[0][2]+ix_send] = input_data[iz_local*input_ranges[0][2]*input_ranges[1][2]+iy_local*input_ranges[0][2]+ix_local];
               }
             }
           }
@@ -993,6 +991,15 @@ void grid_free_redistribute(grid_redistribute *redistribute) {
   free(redistribute->recv_ranges);
   free(redistribute->send_buffer_offsets);
   free(redistribute->recv_buffer_offsets);
+  for (int proc_count = 0; proc_count < 3*redistribute->number_of_processes; proc_count++) {
+    if (redistribute->send2local[proc_count] == NULL) continue;
+    for (int dir = 0; dir < 3; dir++) {
+      free(redistribute->send2local[proc_count][dir]);
+    }
+    free(redistribute->send2local[proc_count]);
+  }
+  free(redistribute->send2local);
+  free(redistribute->recv2local);
 }
 
 void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3],
@@ -1121,6 +1128,8 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
   redistribute->recv_ranges = calloc(redistribute->number_of_processes, sizeof(int[3][3]));
   redistribute->send_buffer_offsets = calloc(redistribute->number_of_processes, sizeof(int));
   redistribute->recv_buffer_offsets = calloc(redistribute->number_of_processes, sizeof(int));
+  redistribute->send2local = calloc(3*redistribute->number_of_processes, sizeof(int**));
+  redistribute->recv2local = calloc(3*redistribute->number_of_processes, sizeof(int**));
   int proc_counter = 0;
   for (int dir = 0; dir < 3; dir++) {
     // Without border, there is nothing to exchange
@@ -1155,6 +1164,24 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
             tmp = send_ranges[dir2][2];
           }
           number_of_elements_to_send *= tmp;
+        }
+        redistribute->send2local[proc_counter] = calloc(3, sizeof(int*));
+        for (int dir2 = 0; dir2 < 3; dir2++) {
+          redistribute->send2local[proc_counter][dir2] = calloc(send_ranges[dir2][2], sizeof(int));
+          if (dir2 == dir) {
+            int local_send_index = 0;
+            for (int local_index = 0; local_index < input_ranges[dir2][2]; local_index++) {
+              const int send_index = modulo(local_index+input_ranges[dir2][0], npts_global[dir2])-send_ranges[dir2][0];
+              if (send_index >= 0 && send_index < send_ranges[dir2][2]) {
+                redistribute->send2local[proc_counter][dir2][local_send_index] = local_index;
+                local_send_index++;
+              }
+            }
+          } else {
+            for (int local_index = 0; local_index < input_ranges[dir2][2]; local_index++) {
+                redistribute->send2local[proc_counter][dir2][local_index] = local_index;
+            }
+          }
         }
       }
       redistribute->send_buffer_offsets[proc_counter] = redistribute->size_of_send_buffer;
