@@ -23,6 +23,15 @@ typedef struct {
   // Ranges of local grid points in each direction in each step
   int input_ranges[3][3][3];
   int output_ranges[3][3][3];
+  // Size of the communication buffers
+  int size_of_recv_buffer;
+  int size_of_send_buffer;
+  // Ranges to send/recv in each step
+  int (*send_ranges)[3][3];
+  int (*recv_ranges)[3][3];
+  // Offsets for send/recv buffers
+  int *send_buffer_offsets;
+  int *recv_buffer_offsets;
   // Offsets for sending and receiving arrays
   // Used to adress all arrays
   int send_offset[3];
