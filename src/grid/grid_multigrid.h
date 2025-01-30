@@ -29,6 +29,9 @@ typedef struct {
   // Ranges to send/recv in each step
   int (*send_ranges)[3][3];
   int (*recv_ranges)[3][3];
+  // Sizes of the actual send/recv data
+  int (*send_sizes)[3];
+  int (*recv_sizes)[3];
   // Offsets for send/recv buffers
   int *send_buffer_offsets;
   int *recv_buffer_offsets;
