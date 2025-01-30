@@ -1157,9 +1157,9 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
             send_ranges[dir2][0] = proc2local[send_process][dir2][0]+border_width[dir2];
             send_ranges[dir2][1] = proc2local[send_process][dir2][1]-border_width[dir2];
             send_ranges[dir2][2] = send_ranges[dir2][1]-send_ranges[dir2][0]+1;
-            for (int ix = 0; ix < input_ranges[dir2][2]; ix++) {
-              const int ix_orig = modulo(ix+input_ranges[dir2][0], npts_global[dir2])-send_ranges[dir2][0];
-              if (ix_orig >= 0 && ix_orig < send_ranges[dir2][2]) tmp++;
+            for (int local_index = 0; local_index < input_ranges[dir2][2]; local_index++) {
+              const int send_index = modulo(local_index+input_ranges[dir2][0], npts_global[dir2])-send_ranges[dir2][0];
+              if (send_index >= 0 && send_index < send_ranges[dir2][2]) tmp++;
             }
           } else {
             send_ranges[dir2][0] = output_ranges[dir2][0];
@@ -1202,9 +1202,9 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
             recv_ranges[dir2][1] = proc2local[recv_process][dir2][1];
             recv_ranges[dir2][2] = recv_ranges[dir2][1]-recv_ranges[dir2][0]+1;
             int received_elements_in_dir2 = 0;
-            for (int idx_recv = 0; idx_recv < recv_ranges[dir2][2]; idx_recv++) {
-              const int idx_local = modulo(idx_recv+recv_ranges[dir2][0], npts_global[dir2])-output_ranges[dir2][0];
-              if (idx_local >= 0 && idx_local < output_ranges[dir2][2]) received_elements_in_dir2++;
+            for (int recv_index = 0; recv_index < recv_ranges[dir2][2]; recv_index++) {
+              const int local_index = modulo(recv_index+recv_ranges[dir2][0], npts_global[dir2])-output_ranges[dir2][0];
+              if (local_index >= 0 && local_index < output_ranges[dir2][2]) received_elements_in_dir2++;
             }
             redistribute->recv_sizes[proc_counter][dir2] = received_elements_in_dir2;
             number_of_elements_to_receive *= received_elements_in_dir2;
