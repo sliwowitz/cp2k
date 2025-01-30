@@ -45,6 +45,8 @@ typedef struct {
   // Number of communication processes in each direction
   int number_of_processes_to_send_to[3];
   int number_of_processes_to_recv_from[3];
+  int total_number_of_processes_to_send_to;
+  int total_number_of_processes_to_recv_from;
   // MPI requests for sending and receiving
   grid_mpi_request *send_requests;
   grid_mpi_request *recv_requests;
