@@ -746,13 +746,13 @@ void grid_copy_from_multigrid_distributed(
         if (send_process >= 0) {
           const int * send_sizes = redistribute_rs->send_sizes[redistribute_rs->send_offset[dir]+process_shift];
           number_of_elements_to_send = send_sizes[0]*send_sizes[1]*send_sizes[2];
-          const int * const *send2local = (const int * const *)redistribute_rs->send2local[redistribute_rs->send_offset[dir]+process_shift];
+          const int * const send2local = (const int * const)redistribute_rs->send2local[redistribute_rs->send_offset[dir]+process_shift];
           for (int iz_send = 0; iz_send < send_sizes[2]; iz_send++) {
-            const int iz_local = send2local[2][iz_send];
+            const int iz_local = (2 == dir ? send2local[iz_send] : iz_send);
             for (int iy_send = 0; iy_send < send_sizes[1]; iy_send++) {
-              const int iy_local = send2local[1][iy_send];
+              const int iy_local = (1 == dir ? send2local[iy_send] : iy_send);
               for (int ix_send = 0; ix_send < send_sizes[0]; ix_send++) {
-                const int ix_local = send2local[0][ix_send];
+                const int ix_local = (0 == dir ? send2local[ix_send] : ix_send);
                 send_buffer[send_process][iz_send*send_sizes[0]*send_sizes[1]+iy_send*send_sizes[0]+ix_send] = input_data[iz_local*input_ranges[0][2]*input_ranges[1][2]+iy_local*input_ranges[0][2]+ix_local];
               }
             }
@@ -787,13 +787,13 @@ void grid_copy_from_multigrid_distributed(
         grid_mpi_wait(&redistribute_rs->recv_requests[recv_process]);
         if (recv_process >= 0) {
           const int * recv_sizes = redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process_shift];
-          const int * const *recv2local = (const int * const *)redistribute_rs->recv2local[redistribute_rs->recv_offset[dir]+process_shift];
+          const int * const recv2local = (const int * const )redistribute_rs->recv2local[redistribute_rs->recv_offset[dir]+process_shift];
           for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
-            const int iz_local = recv2local[2][iz_recv];
+            const int iz_local = (2 == dir ? recv2local[iz_recv] : iz_recv);
             for (int iy_recv = 0; iy_recv < recv_sizes[1]; iy_recv++) {
-              const int iy_local = recv2local[1][iy_recv];
+              const int iy_local = (1 == dir ? recv2local[iy_recv] : iy_recv);
               for (int ix_recv = 0; ix_recv < recv_sizes[0]; ix_recv++) {
-                const int ix_local = recv2local[0][ix_recv];
+                const int ix_local = (0 == dir ? recv2local[ix_recv] : ix_recv);
                 output_data[iz_local*output_ranges[0][2]*output_ranges[1][2]+iy_local*output_ranges[0][2]+ix_local] += recv_buffer[recv_process][iz_recv*recv_sizes[0]*recv_sizes[1]+iy_recv*recv_sizes[0]+ix_recv];
               }
             }
@@ -988,18 +988,10 @@ void grid_free_redistribute(grid_redistribute *redistribute) {
   free(redistribute->send_buffer_offsets);
   free(redistribute->recv_buffer_offsets);
   for (int proc_count = 0; proc_count < 3*redistribute->number_of_processes; proc_count++) {
-    if (redistribute->send2local[proc_count] == NULL) continue;
-    for (int dir = 0; dir < 3; dir++) {
-      free(redistribute->send2local[proc_count][dir]);
-    }
     free(redistribute->send2local[proc_count]);
   }
   free(redistribute->send2local);
   for (int proc_count = 0; proc_count < 3*redistribute->number_of_processes; proc_count++) {
-    if (redistribute->recv2local[proc_count] == NULL) continue;
-    for (int dir = 0; dir < 3; dir++) {
-      free(redistribute->recv2local[proc_count][dir]);
-    }
     free(redistribute->recv2local[proc_count]);
   }
   free(redistribute->recv2local);
@@ -1173,22 +1165,13 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
           redistribute->send_sizes[proc_counter][dir2] = tmp;
           number_of_elements_to_send *= tmp;
         }
-        redistribute->send2local[proc_counter] = calloc(3, sizeof(int*));
-        for (int dir2 = 0; dir2 < 3; dir2++) {
-          redistribute->send2local[proc_counter][dir2] = calloc(redistribute->send_sizes[proc_counter][dir2], sizeof(int));
-          if (dir2 == dir) {
-            int local_send_index = 0;
-            for (int local_index = 0; local_index < input_ranges[dir2][2]; local_index++) {
-              const int send_index = modulo(local_index+input_ranges[dir2][0], npts_global[dir2])-send_ranges[dir2][0];
-              if (send_index >= 0 && send_index < send_ranges[dir2][2]) {
-                redistribute->send2local[proc_counter][dir2][local_send_index] = local_index;
-                local_send_index++;
-              }
-            }
-          } else {
-            for (int local_index = 0; local_index < input_ranges[dir2][2]; local_index++) {
-                redistribute->send2local[proc_counter][dir2][local_index] = local_index;
-            }
+        redistribute->send2local[proc_counter] = calloc(redistribute->send_sizes[proc_counter][dir], sizeof(int));
+        int local_send_index = 0;
+        for (int local_index = 0; local_index < input_ranges[dir][2]; local_index++) {
+          const int send_index = modulo(local_index+input_ranges[dir][0], npts_global[dir])-send_ranges[dir][0];
+          if (send_index >= 0 && send_index < send_ranges[dir][2]) {
+            redistribute->send2local[proc_counter][local_send_index] = local_index;
+            local_send_index++;
           }
         }
       }
@@ -1219,22 +1202,13 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
             number_of_elements_to_receive *= recv_ranges[dir2][2];
           }
         }
-        redistribute->recv2local[proc_counter] = calloc(3, sizeof(int*));
-        for (int dir2 = 0; dir2 < 3; dir2++) {
-          redistribute->recv2local[proc_counter][dir2] = calloc(redistribute->recv_sizes[proc_counter][dir2], sizeof(int));
-          if (dir2 == dir) {
-            int local_recv_index = 0;
-            for (int recv_index = 0; recv_index < recv_ranges[dir2][2]; recv_index++) {
-              const int local_index = modulo(recv_index+recv_ranges[dir2][0], npts_global[dir2])-output_ranges[dir2][0];
-              if (local_index >= 0 && local_index < output_ranges[dir2][2]) {
-                redistribute->recv2local[proc_counter][dir2][local_recv_index] = local_index;
-                local_recv_index++;
-              }
-            }
-          } else {
-            for (int recv_index = 0; recv_index < recv_ranges[dir2][2]; recv_index++) {
-                redistribute->recv2local[proc_counter][dir2][recv_index] = recv_index;
-            }
+        redistribute->recv2local[proc_counter] = calloc(redistribute->recv_sizes[proc_counter][dir], sizeof(int));
+        int local_recv_index = 0;
+        for (int recv_index = 0; recv_index < recv_ranges[dir][2]; recv_index++) {
+          const int local_index = modulo(recv_index+recv_ranges[dir][0], npts_global[dir])-output_ranges[dir][0];
+          if (local_index >= 0 && local_index < output_ranges[dir][2]) {
+            redistribute->recv2local[proc_counter][local_recv_index] = local_index;
+            local_recv_index++;
           }
         }
       }
