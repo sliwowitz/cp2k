@@ -49,9 +49,6 @@ typedef struct {
   int total_number_of_processes_to_recv_from;
   int max_number_of_processes_to_send_to;
   int max_number_of_processes_to_recv_from;
-  // MPI requests for sending and receiving
-  grid_mpi_request *send_requests;
-  grid_mpi_request *recv_requests;
   // MPI processes to send and receive from
   int *send_processes;
   int *recv_processes;
