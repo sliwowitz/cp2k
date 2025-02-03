@@ -658,41 +658,34 @@ void grid_copy_from_multigrid_distributed(
   }
 
   // Prepare the intermediate buffer
-  int my_bounds_rs[3][2];
   int my_bounds_rs_inner[3][2];
   int my_bounds_pw[3][2];
-  int my_sizes_rs[3];
   int my_sizes_rs_inner[3];
   int my_sizes_pw[3];
   for (int dir = 0; dir < 3; dir++) {
-    my_bounds_rs[dir][0] = proc2local_rs[my_process_rs][dir][0];
-    my_bounds_rs[dir][1] = proc2local_rs[my_process_rs][dir][1];
     my_bounds_rs_inner[dir][0] = proc2local_rs[my_process_rs][dir][0]+border_width[dir];
     my_bounds_rs_inner[dir][1] = proc2local_rs[my_process_rs][dir][1]-border_width[dir];
     my_bounds_pw[dir][0] = proc2local_pw[my_process_pw][dir][0];
     my_bounds_pw[dir][1] = proc2local_pw[my_process_pw][dir][1];
-    my_sizes_rs[dir] = my_bounds_rs[dir][1]-my_bounds_rs[dir][0]+1;
     my_sizes_rs_inner[dir] = my_bounds_rs_inner[dir][1]-my_bounds_rs_inner[dir][0]+1;
     my_sizes_pw[dir] = my_bounds_pw[dir][1]-my_bounds_pw[dir][0]+1;
   }
-  const int my_number_of_elements_rs = product3(my_sizes_rs);
   const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
   const int my_number_of_elements_pw = product3(my_sizes_pw);
   double * grid_rs_inner = calloc(my_number_of_inner_elements_rs, sizeof(double));
 
   // Step A: Collect the inner local block
+  // From our redistribute container, we send to the inner part and recv the halo
   {
-    int max_number_of_elements_rs = 0;
-    for (int process = 0; process < number_of_processes; process++) {
-      max_number_of_elements_rs = imax(max_number_of_elements_rs, (proc2local_rs[process][0][1]-proc2local_rs[process][0][0]+1)*(proc2local_rs[process][1][1]-proc2local_rs[process][1][0]+1)*(proc2local_rs[process][2][1]-proc2local_rs[process][2][0]+1));
-    }
+    int size_of_input_buffer = redistribute_rs->local_ranges[0][0][2]*redistribute_rs->local_ranges[0][1][2]*redistribute_rs->local_ranges[0][2][2];
+    int size_of_output_buffer = redistribute_rs->local_ranges[1][0][2]*redistribute_rs->local_ranges[1][1][2]*redistribute_rs->local_ranges[1][2][2];
 
     // We send direction wise to cluster communication processes
-    double * input_data = malloc(my_number_of_elements_rs*sizeof(double));
-    double * output_data = malloc(my_number_of_elements_rs*sizeof(double));
+    double * input_data = malloc(size_of_input_buffer*sizeof(double));
+    double * output_data = malloc(size_of_output_buffer*sizeof(double));
 
     // We start with the own data
-    memcpy(input_data, grid_rs, my_number_of_elements_rs*sizeof(double));
+    memcpy(input_data, grid_rs, size_of_input_buffer*sizeof(double));
 
     double * memory_pool = calloc(redistribute_rs->size_of_buffer_to_halo+redistribute_rs->size_of_buffer_to_inner, sizeof(double));
     double ** recv_buffer = calloc(redistribute_rs->max_number_of_processes_to_halo, sizeof(double*));
