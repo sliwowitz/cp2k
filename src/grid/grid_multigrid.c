@@ -730,7 +730,7 @@ void grid_copy_from_multigrid_distributed(
 
         int number_of_elements_to_receive = 1;
         for (int dir2 = 0; dir2 < 3; dir2++) {
-          number_of_elements_to_receive *= redistribute_rs->recv_ranges[redistribute_rs->recv_offset[dir]+process_index][dir2][2];
+          number_of_elements_to_receive *= redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process_index][dir2];
         }
 
         grid_mpi_irecv_double(recv_buffer[process_index], number_of_elements_to_receive, recv_process, 1, comm_rs, &recv_requests[process_index]);
@@ -740,9 +740,8 @@ void grid_copy_from_multigrid_distributed(
       for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_send_to[dir]; process_index++) {
         const int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_index];
 
-        int number_of_elements_to_send = 0;
         const int * send_sizes = redistribute_rs->send_sizes[redistribute_rs->send_offset[dir]+process_index];
-        number_of_elements_to_send = send_sizes[0]*send_sizes[1]*send_sizes[2];
+        const int number_of_elements_to_send = send_sizes[0]*send_sizes[1]*send_sizes[2];
         const int * const send2local = (const int * const)redistribute_rs->send2local[redistribute_rs->send_offset[dir]+process_index];
         for (int iz_send = 0; iz_send < send_sizes[2]; iz_send++) {
           const int iz_local = (2 == dir ? send2local[iz_send] : iz_send);
@@ -973,8 +972,6 @@ void grid_create_multigrid_f(
 void grid_free_redistribute(grid_redistribute *redistribute) {
   free(redistribute->send_processes);
   free(redistribute->recv_processes);
-  free(redistribute->send_ranges);
-  free(redistribute->recv_ranges);
   free(redistribute->send_buffer_offsets);
   free(redistribute->recv_buffer_offsets);
   for (int proc_count = 0; proc_count < redistribute->total_number_of_processes_to_send_to; proc_count++) {
@@ -1112,8 +1109,6 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
 
   redistribute->size_of_send_buffer = 0;
   redistribute->size_of_recv_buffer = 0;
-  redistribute->send_ranges = calloc(redistribute->total_number_of_processes_to_send_to, sizeof(int[3][3]));
-  redistribute->recv_ranges = calloc(redistribute->total_number_of_processes_to_recv_from, sizeof(int[3][3]));
   redistribute->send_buffer_offsets = calloc(redistribute->total_number_of_processes_to_send_to, sizeof(int));
   redistribute->recv_buffer_offsets = calloc(redistribute->total_number_of_processes_to_recv_from, sizeof(int));
   redistribute->send2local = calloc(redistribute->total_number_of_processes_to_send_to, sizeof(int**));
@@ -1134,7 +1129,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
 
       int number_of_elements_to_send = 0;
       if (send_process >= 0) {
-        int (*send_ranges)[3] = redistribute->send_ranges[proc_counter];
+        int send_ranges[3][3];
         number_of_elements_to_send = 1;
         for (int dir2 = 0; dir2 < 3; dir2++) {
           int tmp = 0;
@@ -1164,10 +1159,10 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
             local_send_index++;
           }
         }
+        redistribute->send_buffer_offsets[proc_counter] = redistribute->size_of_send_buffer;
+        redistribute->size_of_send_buffer += number_of_elements_to_send;
+        proc_counter++;
       }
-      redistribute->send_buffer_offsets[proc_counter] = redistribute->size_of_send_buffer;
-      redistribute->size_of_send_buffer += number_of_elements_to_send;
-      proc_counter++;
     }
   }
 
@@ -1185,7 +1180,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
 
       int number_of_elements_to_receive = 0;
       if (recv_process >= 0) {
-        int (*recv_ranges)[3] = redistribute->recv_ranges[proc_counter];
+        int recv_ranges[3][3];
         number_of_elements_to_receive = 1;
         for (int dir2 = 0; dir2 < 3; dir2++) {
           if (dir2 == dir) {
@@ -1216,10 +1211,10 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
             local_recv_index++;
           }
         }
+        redistribute->recv_buffer_offsets[proc_counter] = redistribute->size_of_recv_buffer;
+        redistribute->size_of_recv_buffer += number_of_elements_to_receive;
+        proc_counter++;
       }
-      redistribute->recv_buffer_offsets[proc_counter] = redistribute->size_of_recv_buffer;
-      redistribute->size_of_recv_buffer += number_of_elements_to_receive;
-      proc_counter++;
     }
   }
 }
