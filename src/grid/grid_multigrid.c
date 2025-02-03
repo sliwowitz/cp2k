@@ -707,7 +707,7 @@ void grid_copy_from_multigrid_distributed(
     for (int dir = 0; dir < 3; dir++) {
       // Without border, there is nothing to exchange
       if (border_width[dir] == 0) continue;
-      const int number_of_output_elements = redistribute_rs->output_ranges[dir][0][2]*redistribute_rs->output_ranges[dir][1][2]*redistribute_rs->output_ranges[dir][2][2];
+      const int number_of_output_elements = redistribute_rs->input_ranges[dir+1][0][2]*redistribute_rs->input_ranges[dir+1][1][2]*redistribute_rs->input_ranges[dir+1][2][2];
       memset(output_data, 0, number_of_output_elements*sizeof(double));
 
       for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_send_to[dir]; process_index++) {
@@ -722,7 +722,7 @@ void grid_copy_from_multigrid_distributed(
 
 
       const int (*input_ranges)[3] = redistribute_rs->input_ranges[dir];
-      const int (*output_ranges)[3] = redistribute_rs->output_ranges[dir];
+      const int (*output_ranges)[3] = redistribute_rs->input_ranges[dir+1];
 
       // A2) Post receive requests
       for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_recv_from[dir]; process_index++) {
@@ -1022,30 +1022,19 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
   (void) my_number_of_inner_elements;
 
   for (int dir = 0; dir < 3; dir++) {
-    for (int dir2 = 0; dir2 < 3; dir2++) {
-      // The current input covers the original ranges in all directions which we haven't covered yet
-      // and the smaller directions from which we have
-      if (dir2 < dir) {
-        redistribute->input_ranges[dir][dir2][0] = my_bounds_inner[dir2][0];
-        redistribute->input_ranges[dir][dir2][1] = my_bounds_inner[dir2][1];
-      } else {
-        redistribute->input_ranges[dir][dir2][0] = my_bounds[dir2][0];
-        redistribute->input_ranges[dir][dir2][1] = my_bounds[dir2][1];
-      }
-      redistribute->input_ranges[dir][dir2][2] = redistribute->input_ranges[dir][dir2][1]-redistribute->input_ranges[dir][dir2][0]+1;
-      assert(redistribute->input_ranges[dir][dir2][2] >= 0);
-      // The output ranges differ at bounds in the direction of data exchange
-      // by using the smaller bounds
-      if (dir2 <= dir) {
-        redistribute->output_ranges[dir][dir2][0] = my_bounds_inner[dir2][0];
-        redistribute->output_ranges[dir][dir2][1] = my_bounds_inner[dir2][1];
-      } else {
-        redistribute->output_ranges[dir][dir2][0] = my_bounds[dir2][0];
-        redistribute->output_ranges[dir][dir2][1] = my_bounds[dir2][1];
-      }
-      redistribute->output_ranges[dir][dir2][2] = redistribute->output_ranges[dir][dir2][1]-redistribute->output_ranges[dir][dir2][0]+1;
-      assert(redistribute->output_ranges[dir][dir2][2] >= 0);
-    }
+    // The current input covers the original ranges in all directions which we haven't covered yet
+    // and the smaller directions from which we have
+    redistribute->input_ranges[0][dir][0] = my_bounds[dir][0];
+    redistribute->input_ranges[0][dir][1] = my_bounds[dir][1];
+    redistribute->input_ranges[0][dir][2] = redistribute->input_ranges[0][dir][1]-redistribute->input_ranges[0][dir][0]+1;
+    assert(redistribute->input_ranges[0][dir][2] >= 0);
+  }
+  for (int dir = 0; dir < 3; dir++) {
+    memcpy(redistribute->input_ranges[dir+1], redistribute->input_ranges[dir], 3*3*sizeof(int));
+    redistribute->input_ranges[dir+1][dir][0] = my_bounds_inner[dir][0];
+    redistribute->input_ranges[dir+1][dir][1] = my_bounds_inner[dir][1];
+    redistribute->input_ranges[dir+1][dir][2] = redistribute->input_ranges[dir+1][dir][1]-redistribute->input_ranges[dir+1][dir][0]+1;
+    assert(redistribute->input_ranges[dir+1][dir][2] >= 0);
   }
 
   redistribute->total_number_of_processes_to_send_to = 0;
@@ -1058,7 +1047,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
     if (border_width[dir] == 0) continue;
 
     const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->output_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
     
     for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
       int recv_process = (my_process-process_shift+number_of_processes)%number_of_processes;
@@ -1151,7 +1140,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
     if (border_width[dir] == 0) continue;
 
     const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->output_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
     for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
       int recv_process = (my_process-process_shift+number_of_processes)%number_of_processes;
       // We only need to recv from processes which have different bounds in the exchange direction and the same in the other directions
@@ -1246,7 +1235,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
     if (border_width[dir] == 0) continue;
 
     const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->output_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
 
     // A2) Send around local data of the RS grid and copy it to our local buffer
     for (int process_shift = 0; process_shift < redistribute->number_of_processes_to_send_to[dir]; process_shift++) {
@@ -1297,7 +1286,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
     if (border_width[dir] == 0) continue;
 
     const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->output_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
 
     // A2) Send around local data of the RS grid and copy it to our local buffer
     for (int process_shift = 0; process_shift < redistribute->number_of_processes_to_recv_from[dir]; process_shift++) {

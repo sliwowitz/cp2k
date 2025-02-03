@@ -21,8 +21,7 @@
 typedef struct {
   int number_of_processes;
   // Ranges of local grid points in each direction in each step
-  int input_ranges[3][3][3];
-  int output_ranges[3][3][3];
+  int input_ranges[4][3][3];
   // Size of the communication buffers
   int size_of_recv_buffer;
   int size_of_send_buffer;
