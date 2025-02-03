@@ -27,8 +27,8 @@ typedef struct {
   int size_of_recv_buffer;
   int size_of_send_buffer;
   // Sizes of the actual send/recv data
-  int (*send_sizes)[3];
-  int (*recv_sizes)[3];
+  int *send_sizes;
+  int *recv_sizes;
   // Offsets for send/recv buffers
   int *send_buffer_offsets;
   int *recv_buffer_offsets;
