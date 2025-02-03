@@ -730,7 +730,7 @@ void grid_copy_from_multigrid_distributed(
 
         int number_of_elements_to_receive = 1;
         for (int dir2 = 0; dir2 < 3; dir2++) {
-          number_of_elements_to_receive *= redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process_index][dir2];
+          number_of_elements_to_receive *= (dir2 == dir ? redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process_index][dir2] : input_ranges[dir2][2]);
         }
 
         grid_mpi_irecv_double(recv_buffer[process_index], number_of_elements_to_receive, recv_process, 1, comm_rs, &recv_requests[process_index]);
@@ -740,7 +740,10 @@ void grid_copy_from_multigrid_distributed(
       for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_send_to[dir]; process_index++) {
         const int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_index];
 
-        const int * send_sizes = redistribute_rs->send_sizes[redistribute_rs->send_offset[dir]+process_index];
+        int send_sizes[3];
+        for (int dir2 = 0; dir2 < 3; dir2++) {
+          send_sizes[dir2] = (dir2 == dir ? redistribute_rs->send_sizes[redistribute_rs->send_offset[dir]+process_index][dir2] : input_ranges[dir2][2]);
+        }
         const int number_of_elements_to_send = send_sizes[0]*send_sizes[1]*send_sizes[2];
         const int * const send2local = (const int * const)redistribute_rs->send2local[redistribute_rs->send_offset[dir]+process_index];
         for (int iz_send = 0; iz_send < send_sizes[2]; iz_send++) {
@@ -779,7 +782,10 @@ void grid_copy_from_multigrid_distributed(
         // Do not forget the boundary outside of the main bound
         int process = -1;
         grid_mpi_waitany(redistribute_rs->number_of_processes_to_recv_from[dir], recv_requests, &process);
-        const int * recv_sizes = redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process];
+        int recv_sizes[3];
+        for (int dir2 = 0; dir2 < 3; dir2++) {
+          recv_sizes[dir2] = (dir2 == dir ? redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process][dir2] : output_ranges[dir2][2]);
+        }
         const int * const recv2local = (const int * const )redistribute_rs->recv2local[redistribute_rs->recv_offset[dir]+process];
         for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
           const int iz_local = (2 == dir ? recv2local[iz_recv] : iz_recv);
