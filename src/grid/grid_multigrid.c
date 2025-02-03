@@ -133,7 +133,6 @@ void grid_copy_to_multigrid_serial(double *grid_rs, const double *grid_pw,
     int npts_pw[3];
     for (int dir = 0; dir < 3; dir++)
       npts_pw[dir] = npts_rs[dir] - 2 * border_width[dir];
-    (void)npts_pw;
     for (int iz = 0; iz < npts_rs[2]; iz++) {
       //
       int iz_pw = iz - border_width[2];
@@ -432,8 +431,6 @@ void grid_copy_to_multigrid_distributed(
 void grid_copy_to_multigrid_general(
     const grid_multigrid *multigrid, const double *grids[multigrid->nlevels],
     const grid_mpi_comm comm[multigrid->nlevels], const int *proc2local) {
-  (void)grids;
-  (void)proc2local;
   for (int level = 0; level < multigrid->nlevels; level++) {
     assert(!grid_mpi_comm_is_unequal(multigrid->comm, comm[level]));
     if (grid_mpi_comm_size(comm[level]) == 1) {
@@ -525,7 +522,6 @@ void grid_copy_from_multigrid_serial(const double *grid_rs, double *grid_pw,
     int npts_pw[3];
     for (int dir = 0; dir < 3; dir++)
       npts_pw[dir] = npts_rs[dir] - 2 * border_width[dir];
-    (void)npts_pw;
     for (int iz = border_width[2]; iz < npts_rs[2] - border_width[2]; iz++) {
       //
       int iz_pw = iz - border_width[2];
@@ -1006,20 +1002,12 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
   // Prepare the intermediate buffer
   int my_bounds[3][2];
   int my_bounds_inner[3][2];
-  int my_sizes[3];
-  int my_sizes_inner[3];
   for (int dir = 0; dir < 3; dir++) {
     my_bounds[dir][0] = proc2local[my_process][dir][0];
     my_bounds[dir][1] = proc2local[my_process][dir][1];
     my_bounds_inner[dir][0] = proc2local[my_process][dir][0]+border_width[dir];
     my_bounds_inner[dir][1] = proc2local[my_process][dir][1]-border_width[dir];
-    my_sizes[dir] = my_bounds[dir][1]-my_bounds[dir][0]+1;
-    my_sizes_inner[dir] = my_bounds_inner[dir][1]-my_bounds_inner[dir][0]+1;
   }
-  const int my_number_of_elements = product3(my_sizes);
-  const int my_number_of_inner_elements = product3(my_sizes_inner);
-  (void) my_number_of_elements;
-  (void) my_number_of_inner_elements;
 
   for (int dir = 0; dir < 3; dir++) {
     // The current input covers the original ranges in all directions which we haven't covered yet
