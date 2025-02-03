@@ -694,54 +694,54 @@ void grid_copy_from_multigrid_distributed(
     // We start with the own data
     memcpy(input_data, grid_rs, my_number_of_elements_rs*sizeof(double));
 
-    double * memory_pool = calloc(redistribute_rs->size_of_recv_buffer+redistribute_rs->size_of_send_buffer, sizeof(double));
-    double ** recv_buffer = calloc(redistribute_rs->max_number_of_processes_to_recv_from, sizeof(double*));
-    double ** send_buffer = calloc(redistribute_rs->max_number_of_processes_to_send_to, sizeof(double*));
-    grid_mpi_request * recv_requests = malloc(redistribute_rs->max_number_of_processes_to_recv_from*sizeof(grid_mpi_request));
-    grid_mpi_request * send_requests = malloc(redistribute_rs->max_number_of_processes_to_send_to*sizeof(grid_mpi_request));
+    double * memory_pool = calloc(redistribute_rs->size_of_buffer_to_halo+redistribute_rs->size_of_buffer_to_inner, sizeof(double));
+    double ** recv_buffer = calloc(redistribute_rs->max_number_of_processes_to_halo, sizeof(double*));
+    double ** send_buffer = calloc(redistribute_rs->max_number_of_processes_to_inner, sizeof(double*));
+    grid_mpi_request * recv_requests = malloc(redistribute_rs->max_number_of_processes_to_halo*sizeof(grid_mpi_request));
+    grid_mpi_request * send_requests = malloc(redistribute_rs->max_number_of_processes_to_inner*sizeof(grid_mpi_request));
 
     for (int dir = 0; dir < 3; dir++) {
       // Without border, there is nothing to exchange
       if (border_width[dir] == 0) continue;
-      const int number_of_output_elements = redistribute_rs->input_ranges[dir+1][0][2]*redistribute_rs->input_ranges[dir+1][1][2]*redistribute_rs->input_ranges[dir+1][2][2];
+
+      const int (*input_ranges)[3] = redistribute_rs->local_ranges[dir];
+      const int (*output_ranges)[3] = redistribute_rs->local_ranges[dir+1];
+
+      const int number_of_output_elements = output_ranges[0][2]*output_ranges[1][2]*output_ranges[2][2];
       memset(output_data, 0, number_of_output_elements*sizeof(double));
 
-      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_send_to[dir]; process_index++) {
-        send_buffer[process_index] = memory_pool+redistribute_rs->size_of_recv_buffer+redistribute_rs->recv_buffer_offsets[redistribute_rs->recv_offset[dir]+process_index];
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_inner[dir]; process_index++) {
+        send_buffer[process_index] = memory_pool+redistribute_rs->size_of_buffer_to_halo+redistribute_rs->buffer_offsets_to_halo[redistribute_rs->offset_to_halo[dir]+process_index];
         send_requests[process_index] = grid_mpi_request_null;
       }
 
-      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_recv_from[dir]; process_index++) {
-        recv_buffer[process_index] = memory_pool+redistribute_rs->recv_buffer_offsets[redistribute_rs->recv_offset[dir]+process_index];
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_halo[dir]; process_index++) {
+        recv_buffer[process_index] = memory_pool+redistribute_rs->buffer_offsets_to_halo[redistribute_rs->offset_to_halo[dir]+process_index];
         recv_requests[process_index] = grid_mpi_request_null;
       }
 
-
-      const int (*input_ranges)[3] = redistribute_rs->input_ranges[dir];
-      const int (*output_ranges)[3] = redistribute_rs->input_ranges[dir+1];
-
       // A2) Post receive requests
-      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_recv_from[dir]; process_index++) {
-        const int recv_process = redistribute_rs->recv_processes[redistribute_rs->recv_offset[dir]+process_index];
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_halo[dir]; process_index++) {
+        const int recv_process = redistribute_rs->processes_to_halo[redistribute_rs->offset_to_halo[dir]+process_index];
 
         int number_of_elements_to_receive = 1;
         for (int dir2 = 0; dir2 < 3; dir2++) {
-          number_of_elements_to_receive *= (dir2 == dir ? redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process_index] : input_ranges[dir2][2]);
+          number_of_elements_to_receive *= (dir2 == dir ? redistribute_rs->sizes_to_halo[redistribute_rs->offset_to_halo[dir]+process_index] : input_ranges[dir2][2]);
         }
 
         grid_mpi_irecv_double(recv_buffer[process_index], number_of_elements_to_receive, recv_process, 1, comm_rs, &recv_requests[process_index]);
       }
 
       // A2) Post send reequests
-      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_send_to[dir]; process_index++) {
-        const int send_process = redistribute_rs->send_processes[redistribute_rs->send_offset[dir]+process_index];
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_inner[dir]; process_index++) {
+        const int send_process = redistribute_rs->processes_to_inner[redistribute_rs->offset_to_inner[dir]+process_index];
 
         int send_sizes[3];
         for (int dir2 = 0; dir2 < 3; dir2++) {
-          send_sizes[dir2] = (dir2 == dir ? redistribute_rs->send_sizes[redistribute_rs->send_offset[dir]+process_index] : input_ranges[dir2][2]);
+          send_sizes[dir2] = (dir2 == dir ? redistribute_rs->sizes_to_inner[redistribute_rs->offset_to_inner[dir]+process_index] : input_ranges[dir2][2]);
         }
         const int number_of_elements_to_send = send_sizes[0]*send_sizes[1]*send_sizes[2];
-        const int * const send2local = (const int * const)redistribute_rs->send2local[redistribute_rs->send_offset[dir]+process_index];
+        const int * const send2local = (const int * const)redistribute_rs->index2local_to_inner[redistribute_rs->offset_to_inner[dir]+process_index];
         for (int iz_send = 0; iz_send < send_sizes[2]; iz_send++) {
           const int iz_local = (2 == dir ? send2local[iz_send] : iz_send);
           for (int iy_send = 0; iy_send < send_sizes[1]; iy_send++) {
@@ -774,15 +774,15 @@ void grid_copy_from_multigrid_distributed(
       }
 
       // A2) Wait for receive processes and add to local data
-      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_recv_from[dir]; process_index++) {
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_halo[dir]; process_index++) {
         // Do not forget the boundary outside of the main bound
         int process = -1;
-        grid_mpi_waitany(redistribute_rs->number_of_processes_to_recv_from[dir], recv_requests, &process);
+        grid_mpi_waitany(redistribute_rs->number_of_processes_to_halo[dir], recv_requests, &process);
         int recv_sizes[3];
         for (int dir2 = 0; dir2 < 3; dir2++) {
-          recv_sizes[dir2] = (dir2 == dir ? redistribute_rs->recv_sizes[redistribute_rs->recv_offset[dir]+process] : output_ranges[dir2][2]);
+          recv_sizes[dir2] = (dir2 == dir ? redistribute_rs->sizes_to_halo[redistribute_rs->offset_to_halo[dir]+process] : output_ranges[dir2][2]);
         }
-        const int * const recv2local = (const int * const )redistribute_rs->recv2local[redistribute_rs->recv_offset[dir]+process];
+        const int * const recv2local = (const int * const )redistribute_rs->index2local_to_halo[redistribute_rs->offset_to_halo[dir]+process];
         for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
           const int iz_local = (2 == dir ? recv2local[iz_recv] : iz_recv);
           for (int iy_recv = 0; iy_recv < recv_sizes[1]; iy_recv++) {
@@ -796,7 +796,7 @@ void grid_copy_from_multigrid_distributed(
       }
 
       // A2) Wait for the send processes to finish
-      grid_mpi_waitall(redistribute_rs->number_of_processes_to_send_to[dir], send_requests);
+      grid_mpi_waitall(redistribute_rs->number_of_processes_to_inner[dir], send_requests);
       // Swap pointers
       double * tmp = input_data;
       input_data = output_data;
@@ -972,20 +972,20 @@ void grid_create_multigrid_f(
 }
 
 void grid_free_redistribute(grid_redistribute *redistribute) {
-  free(redistribute->send_processes);
-  free(redistribute->recv_processes);
-  free(redistribute->send_buffer_offsets);
-  free(redistribute->recv_buffer_offsets);
-  for (int proc_count = 0; proc_count < redistribute->total_number_of_processes_to_send_to; proc_count++) {
-    free(redistribute->send2local[proc_count]);
+  free(redistribute->processes_to_inner);
+  free(redistribute->processes_to_halo);
+  free(redistribute->buffer_offsets_to_inner);
+  free(redistribute->buffer_offsets_to_halo);
+  for (int proc_count = 0; proc_count < redistribute->total_number_of_processes_to_inner; proc_count++) {
+    free(redistribute->index2local_to_inner[proc_count]);
   }
-  free(redistribute->send2local);
-  for (int proc_count = 0; proc_count < redistribute->total_number_of_processes_to_recv_from; proc_count++) {
-    free(redistribute->recv2local[proc_count]);
+  free(redistribute->index2local_to_inner);
+  for (int proc_count = 0; proc_count < redistribute->total_number_of_processes_to_halo; proc_count++) {
+    free(redistribute->index2local_to_halo[proc_count]);
   }
-  free(redistribute->recv2local);
-  free(redistribute->send_sizes);
-  free(redistribute->recv_sizes);
+  free(redistribute->index2local_to_halo);
+  free(redistribute->sizes_to_inner);
+  free(redistribute->sizes_to_halo);
 }
 
 void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3],
@@ -1012,30 +1012,30 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
   for (int dir = 0; dir < 3; dir++) {
     // The current input covers the original ranges in all directions which we haven't covered yet
     // and the smaller directions from which we have
-    redistribute->input_ranges[0][dir][0] = my_bounds[dir][0];
-    redistribute->input_ranges[0][dir][1] = my_bounds[dir][1];
-    redistribute->input_ranges[0][dir][2] = redistribute->input_ranges[0][dir][1]-redistribute->input_ranges[0][dir][0]+1;
-    assert(redistribute->input_ranges[0][dir][2] >= 0);
+    redistribute->local_ranges[0][dir][0] = my_bounds[dir][0];
+    redistribute->local_ranges[0][dir][1] = my_bounds[dir][1];
+    redistribute->local_ranges[0][dir][2] = redistribute->local_ranges[0][dir][1]-redistribute->local_ranges[0][dir][0]+1;
+    assert(redistribute->local_ranges[0][dir][2] >= 0);
   }
   for (int dir = 0; dir < 3; dir++) {
-    memcpy(redistribute->input_ranges[dir+1], redistribute->input_ranges[dir], 3*3*sizeof(int));
-    redistribute->input_ranges[dir+1][dir][0] = my_bounds_inner[dir][0];
-    redistribute->input_ranges[dir+1][dir][1] = my_bounds_inner[dir][1];
-    redistribute->input_ranges[dir+1][dir][2] = redistribute->input_ranges[dir+1][dir][1]-redistribute->input_ranges[dir+1][dir][0]+1;
-    assert(redistribute->input_ranges[dir+1][dir][2] >= 0);
+    memcpy(redistribute->local_ranges[dir+1], redistribute->local_ranges[dir], 3*3*sizeof(int));
+    redistribute->local_ranges[dir+1][dir][0] = my_bounds_inner[dir][0];
+    redistribute->local_ranges[dir+1][dir][1] = my_bounds_inner[dir][1];
+    redistribute->local_ranges[dir+1][dir][2] = redistribute->local_ranges[dir+1][dir][1]-redistribute->local_ranges[dir+1][dir][0]+1;
+    assert(redistribute->local_ranges[dir+1][dir][2] >= 0);
   }
 
-  redistribute->total_number_of_processes_to_send_to = 0;
-  redistribute->total_number_of_processes_to_recv_from = 0;
-  redistribute->max_number_of_processes_to_send_to = 0;
-  redistribute->max_number_of_processes_to_recv_from = 0;
+  redistribute->total_number_of_processes_to_inner = 0;
+  redistribute->total_number_of_processes_to_inner = 0;
+  redistribute->max_number_of_processes_to_inner = 0;
+  redistribute->max_number_of_processes_to_halo = 0;
   for (int dir = 0; dir < 3; dir++) {
-    redistribute->number_of_processes_to_send_to[dir] = 0;
-    redistribute->number_of_processes_to_recv_from[dir] = 0;
+    redistribute->number_of_processes_to_inner[dir] = 0;
+    redistribute->number_of_processes_to_halo[dir] = 0;
     if (border_width[dir] == 0) continue;
 
-    const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
+    const int (*input_ranges)[3] = redistribute->local_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->local_ranges[dir+1];
     
     for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
       int recv_process = (my_process-process_shift+number_of_processes)%number_of_processes;
@@ -1071,7 +1071,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
           }
         }
       }
-      if (recv_process >= 0) redistribute->number_of_processes_to_recv_from[dir]++;
+      if (recv_process >= 0) redistribute->number_of_processes_to_halo[dir]++;
 
       int send_process = (my_process+process_shift)%number_of_processes;
       // We only need to send to processes which have different bounds in the exchange direction and the same in the other directions
@@ -1107,28 +1107,28 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
         }
       }
       if (send_process >= 0) {
-        redistribute->number_of_processes_to_send_to[dir]++;
+        redistribute->number_of_processes_to_inner[dir]++;
       }
     }
-    redistribute->max_number_of_processes_to_send_to = imax(redistribute->max_number_of_processes_to_send_to, redistribute->number_of_processes_to_send_to[dir]);
-    redistribute->max_number_of_processes_to_recv_from = imax(redistribute->max_number_of_processes_to_recv_from, redistribute->number_of_processes_to_recv_from[dir]);
-    redistribute->total_number_of_processes_to_send_to += redistribute->number_of_processes_to_send_to[dir];
-    redistribute->total_number_of_processes_to_recv_from += redistribute->number_of_processes_to_recv_from[dir];
+    redistribute->max_number_of_processes_to_inner = imax(redistribute->max_number_of_processes_to_inner, redistribute->number_of_processes_to_inner[dir]);
+    redistribute->max_number_of_processes_to_halo = imax(redistribute->max_number_of_processes_to_halo, redistribute->number_of_processes_to_halo[dir]);
+    redistribute->total_number_of_processes_to_inner += redistribute->number_of_processes_to_inner[dir];
+    redistribute->total_number_of_processes_to_halo += redistribute->number_of_processes_to_halo[dir];
   }
 
-  redistribute->send_processes = calloc(redistribute->total_number_of_processes_to_send_to, sizeof(int));
-  redistribute->recv_processes = calloc(redistribute->total_number_of_processes_to_recv_from, sizeof(int));
+  redistribute->processes_to_inner = calloc(redistribute->total_number_of_processes_to_inner, sizeof(int));
+  redistribute->processes_to_halo = calloc(redistribute->total_number_of_processes_to_halo, sizeof(int));
 
   // Determine the processes to send to and receive from and their offsets
   int send_proc_index = 0;
   int recv_proc_index = 0;
   for (int dir = 0; dir < 3; dir++) {
-    redistribute->send_offset[dir] = (dir > 0 ? redistribute->send_offset[dir-1]+redistribute->number_of_processes_to_send_to[dir-1] : 0);
-    redistribute->recv_offset[dir] = (dir > 0 ? redistribute->recv_offset[dir-1]+redistribute->number_of_processes_to_recv_from[dir-1] : 0);
+    redistribute->offset_to_inner[dir] = (dir > 0 ? redistribute->offset_to_inner[dir-1]+redistribute->number_of_processes_to_inner[dir-1] : 0);
+    redistribute->offset_to_halo[dir] = (dir > 0 ? redistribute->offset_to_halo[dir-1]+redistribute->number_of_processes_to_halo[dir-1] : 0);
     if (border_width[dir] == 0) continue;
 
-    const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
+    const int (*input_ranges)[3] = redistribute->local_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->local_ranges[dir+1];
     for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
       int recv_process = (my_process-process_shift+number_of_processes)%number_of_processes;
       // We only need to recv from processes which have different bounds in the exchange direction and the same in the other directions
@@ -1164,7 +1164,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
         }
       }
       if (recv_process >= 0) {
-        redistribute->recv_processes[recv_proc_index] = recv_process;
+        redistribute->processes_to_halo[recv_proc_index] = recv_process;
         recv_proc_index++;
       }
       int send_process = (my_process+process_shift)%number_of_processes;
@@ -1201,33 +1201,33 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
         }
       }
       if (send_process >= 0) {
-        redistribute->send_processes[send_proc_index] = send_process;
+        redistribute->processes_to_inner[send_proc_index] = send_process;
         send_proc_index++;
       }
     }
-    assert(recv_proc_index == redistribute->recv_offset[dir]+redistribute->number_of_processes_to_recv_from[dir]);
-    assert(send_proc_index == redistribute->send_offset[dir]+redistribute->number_of_processes_to_send_to[dir]);
+    assert(recv_proc_index == redistribute->offset_to_halo[dir]+redistribute->number_of_processes_to_halo[dir]);
+    assert(send_proc_index == redistribute->offset_to_inner[dir]+redistribute->number_of_processes_to_inner[dir]);
   }
 
-  redistribute->size_of_send_buffer = 0;
-  redistribute->size_of_recv_buffer = 0;
-  redistribute->send_buffer_offsets = calloc(redistribute->total_number_of_processes_to_send_to, sizeof(int));
-  redistribute->recv_buffer_offsets = calloc(redistribute->total_number_of_processes_to_recv_from, sizeof(int));
-  redistribute->send2local = calloc(redistribute->total_number_of_processes_to_send_to, sizeof(int**));
-  redistribute->recv2local = calloc(redistribute->total_number_of_processes_to_recv_from, sizeof(int**));
-  redistribute->send_sizes = calloc(redistribute->total_number_of_processes_to_send_to, sizeof(int));
-  redistribute->recv_sizes = calloc(redistribute->total_number_of_processes_to_recv_from, sizeof(int));
+  redistribute->size_of_buffer_to_inner = 0;
+  redistribute->size_of_buffer_to_halo = 0;
+  redistribute->buffer_offsets_to_inner = calloc(redistribute->total_number_of_processes_to_inner, sizeof(int));
+  redistribute->buffer_offsets_to_halo = calloc(redistribute->total_number_of_processes_to_halo, sizeof(int));
+  redistribute->index2local_to_inner = calloc(redistribute->total_number_of_processes_to_inner, sizeof(int**));
+  redistribute->index2local_to_halo = calloc(redistribute->total_number_of_processes_to_halo, sizeof(int**));
+  redistribute->sizes_to_inner = calloc(redistribute->total_number_of_processes_to_inner, sizeof(int));
+  redistribute->sizes_to_halo = calloc(redistribute->total_number_of_processes_to_halo, sizeof(int));
   int proc_counter = 0;
   for (int dir = 0; dir < 3; dir++) {
     // Without border, there is nothing to exchange
     if (border_width[dir] == 0) continue;
 
-    const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
+    const int (*input_ranges)[3] = redistribute->local_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->local_ranges[dir+1];
 
     // A2) Send around local data of the RS grid and copy it to our local buffer
-    for (int process_shift = 0; process_shift < redistribute->number_of_processes_to_send_to[dir]; process_shift++) {
-      const int send_process = redistribute->send_processes[redistribute->send_offset[dir]+process_shift];
+    for (int process_shift = 0; process_shift < redistribute->number_of_processes_to_inner[dir]; process_shift++) {
+      const int send_process = redistribute->processes_to_inner[redistribute->offset_to_inner[dir]+process_shift];
 
       int number_of_elements_to_send = 0;
       if (send_process >= 0) {
@@ -1243,7 +1243,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
               const int send_index = modulo(local_index, npts_global[dir]);
               if (send_index >= send_ranges[dir][0] && send_index <= send_ranges[dir][1]) tmp++;
             }
-            redistribute->send_sizes[proc_counter] = tmp;
+            redistribute->sizes_to_inner[proc_counter] = tmp;
           } else {
             send_ranges[dir2][0] = output_ranges[dir2][0];
             send_ranges[dir2][1] = output_ranges[dir2][1];
@@ -1252,17 +1252,17 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
           }
           number_of_elements_to_send *= tmp;
         }
-        redistribute->send2local[proc_counter] = calloc(redistribute->send_sizes[proc_counter], sizeof(int));
+        redistribute->index2local_to_inner[proc_counter] = calloc(redistribute->sizes_to_inner[proc_counter], sizeof(int));
         int local_send_index = 0;
         for (int local_index = 0; local_index < input_ranges[dir][2]; local_index++) {
           const int send_index = modulo(local_index+input_ranges[dir][0], npts_global[dir]);
           if (send_index >= send_ranges[dir][0] && send_index <= send_ranges[dir][1]) {
-            redistribute->send2local[proc_counter][local_send_index] = local_index;
+            redistribute->index2local_to_inner[proc_counter][local_send_index] = local_index;
             local_send_index++;
           }
         }
-        redistribute->send_buffer_offsets[proc_counter] = redistribute->size_of_send_buffer;
-        redistribute->size_of_send_buffer += number_of_elements_to_send;
+        redistribute->buffer_offsets_to_inner[proc_counter] = redistribute->size_of_buffer_to_inner;
+        redistribute->size_of_buffer_to_inner += number_of_elements_to_send;
         proc_counter++;
       }
     }
@@ -1273,12 +1273,12 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
     // Without border, there is nothing to exchange
     if (border_width[dir] == 0) continue;
 
-    const int (*input_ranges)[3] = redistribute->input_ranges[dir];
-    const int (*output_ranges)[3] = redistribute->input_ranges[dir+1];
+    const int (*input_ranges)[3] = redistribute->local_ranges[dir];
+    const int (*output_ranges)[3] = redistribute->local_ranges[dir+1];
 
     // A2) Send around local data of the RS grid and copy it to our local buffer
-    for (int process_shift = 0; process_shift < redistribute->number_of_processes_to_recv_from[dir]; process_shift++) {
-      const int recv_process = redistribute->recv_processes[redistribute->recv_offset[dir]+process_shift];
+    for (int process_shift = 0; process_shift < redistribute->number_of_processes_to_halo[dir]; process_shift++) {
+      const int recv_process = redistribute->processes_to_halo[redistribute->offset_to_halo[dir]+process_shift];
 
       int number_of_elements_to_receive = 0;
       if (recv_process >= 0) {
@@ -1294,7 +1294,7 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
               const int local_index = modulo(recv_index, npts_global[dir]);
               if (local_index >= output_ranges[dir][0] && local_index <= output_ranges[dir][1]) received_elements_in_dir++;
             }
-            redistribute->recv_sizes[proc_counter] = received_elements_in_dir;
+            redistribute->sizes_to_halo[proc_counter] = received_elements_in_dir;
             number_of_elements_to_receive *= received_elements_in_dir;
           } else {
             recv_ranges[dir2][0] = input_ranges[dir2][0];
@@ -1303,17 +1303,17 @@ void grid_create_redistribute(const grid_mpi_comm comm, const int npts_global[3]
             number_of_elements_to_receive *= recv_ranges[dir2][2];
           }
         }
-        redistribute->recv2local[proc_counter] = calloc(redistribute->recv_sizes[proc_counter], sizeof(int));
+        redistribute->index2local_to_halo[proc_counter] = calloc(redistribute->sizes_to_halo[proc_counter], sizeof(int));
         int local_recv_index = 0;
         for (int recv_index = recv_ranges[dir][0]; recv_index <= recv_ranges[dir][1]; recv_index++) {
           const int local_index = modulo(recv_index, npts_global[dir])-output_ranges[dir][0];
           if (local_index >= 0 && local_index < output_ranges[dir][2]) {
-            redistribute->recv2local[proc_counter][local_recv_index] = local_index;
+            redistribute->index2local_to_halo[proc_counter][local_recv_index] = local_index;
             local_recv_index++;
           }
         }
-        redistribute->recv_buffer_offsets[proc_counter] = redistribute->size_of_recv_buffer;
-        redistribute->size_of_recv_buffer += number_of_elements_to_receive;
+        redistribute->buffer_offsets_to_halo[proc_counter] = redistribute->size_of_buffer_to_halo;
+        redistribute->size_of_buffer_to_halo += number_of_elements_to_receive;
         proc_counter++;
       }
     }

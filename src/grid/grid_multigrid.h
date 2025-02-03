@@ -16,38 +16,39 @@
 
 /*******************************************************************************
  * \brief Container to precalculate data for redistribution of grids.
+ *        Arrays were abstracted from the direction RS2PW.
  * \author Frederick Stein
  ******************************************************************************/
 typedef struct {
   int number_of_processes;
   // Ranges of local grid points in each direction in each step
-  int input_ranges[4][3][3];
+  int local_ranges[4][3][3];
   // Size of the communication buffers
-  int size_of_recv_buffer;
-  int size_of_send_buffer;
+  int size_of_buffer_to_halo;
+  int size_of_buffer_to_inner;
   // Sizes of the actual send/recv data
-  int *send_sizes;
-  int *recv_sizes;
+  int *sizes_to_inner;
+  int *sizes_to_halo;
   // Offsets for send/recv buffers
-  int *send_buffer_offsets;
-  int *recv_buffer_offsets;
+  int *buffer_offsets_to_inner;
+  int *buffer_offsets_to_halo;
   // Local coordinates for each process
-  int ** send2local;
-  int ** recv2local;
+  int ** index2local_to_inner;
+  int ** index2local_to_halo;
   // Offsets for sending and receiving arrays
   // Used to adress all arrays
-  int send_offset[3];
-  int recv_offset[3];
+  int offset_to_inner[3];
+  int offset_to_halo[3];
   // Number of communication processes in each direction
-  int number_of_processes_to_send_to[3];
-  int number_of_processes_to_recv_from[3];
-  int total_number_of_processes_to_send_to;
-  int total_number_of_processes_to_recv_from;
-  int max_number_of_processes_to_send_to;
-  int max_number_of_processes_to_recv_from;
+  int number_of_processes_to_inner[3];
+  int number_of_processes_to_halo[3];
+  int total_number_of_processes_to_inner;
+  int total_number_of_processes_to_halo;
+  int max_number_of_processes_to_inner;
+  int max_number_of_processes_to_halo;
   // MPI processes to send and receive from
-  int *send_processes;
-  int *recv_processes;
+  int *processes_to_inner;
+  int *processes_to_halo;
 } grid_redistribute;
 
 /*******************************************************************************
