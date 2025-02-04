@@ -294,13 +294,14 @@ void grid_copy_to_multigrid_distributed(
     const grid_mpi_comm comm_rs, const int npts_global[3], 
     const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2], 
     const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
-    const int border_width[3]) {
+    const int border_width[3], const grid_redistribute * redistribute_rs) {
   const int number_of_processes = grid_mpi_comm_size(comm_rs);
   const int my_process_rs = grid_mpi_comm_rank(comm_rs);
   const int my_process_pw = grid_mpi_comm_rank(comm_pw);
   
   assert(grid_rs != NULL);
   assert(grid_pw != NULL);
+  assert(redistribute_rs != NULL);
   assert(!grid_mpi_comm_is_unequal(comm_pw, comm_rs));
   for (int process = 0; process < number_of_processes; process++) {
     for (int dir = 0; dir < 3; dir++) {
@@ -319,19 +320,13 @@ void grid_copy_to_multigrid_distributed(
 
   // Prepare the intermediate buffer
   int my_bounds_rs_inner[3][2];
-  int my_bounds_rs[3][2];
   int my_sizes_rs_inner[3];
-  int my_sizes_rs[3];
   for (int dir = 0; dir < 3; dir++) {
     my_bounds_rs_inner[dir][0] = proc2local_rs[my_process_rs][dir][0]+border_width[dir];
     my_bounds_rs_inner[dir][1] = proc2local_rs[my_process_rs][dir][1]-border_width[dir];
-    my_bounds_rs[dir][0] = proc2local_rs[my_process_rs][dir][0];
-    my_bounds_rs[dir][1] = proc2local_rs[my_process_rs][dir][1];
     my_sizes_rs_inner[dir] = proc2local_rs[my_process_rs][dir][1]-proc2local_rs[my_process_rs][dir][0]+1-2*border_width[dir];
-    my_sizes_rs[dir] = proc2local_rs[my_process_rs][dir][1]-proc2local_rs[my_process_rs][dir][0]+1;
   }
   const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
-  const int my_number_of_elements_rs = product3(my_sizes_rs);
   double * grid_rs_inner = calloc(my_number_of_inner_elements_rs, sizeof(double));
 
   int received_elements = 0;
@@ -381,48 +376,137 @@ void grid_copy_to_multigrid_distributed(
 
   // B) Distribute inner local block the everyone
   {
-    int max_number_of_elements_rs = 0;
-    for (int process = 0; process < number_of_processes; process++) {
-      max_number_of_elements_rs = imax(max_number_of_elements_rs, (proc2local_rs[process][0][1]-proc2local_rs[process][0][0]+1)*(proc2local_rs[process][1][1]-proc2local_rs[process][1][0]+1)*(proc2local_rs[process][2][1]-proc2local_rs[process][2][0]+1));
-    }
+    int size_of_input_buffer = redistribute_rs->local_ranges[0][0][2]*redistribute_rs->local_ranges[0][1][2]*redistribute_rs->local_ranges[0][2][2];
+    int size_of_output_buffer = redistribute_rs->local_ranges[0][0][2]*redistribute_rs->local_ranges[0][1][2]*redistribute_rs->local_ranges[0][2][2];
 
-    double * recv_buffer = calloc(max_number_of_elements_rs, sizeof(double));
+    // We send direction wise to cluster communication processes
+    double * input_data = malloc(size_of_input_buffer*sizeof(double));
+    double * output_data = malloc(size_of_output_buffer*sizeof(double));
 
-    received_elements = 0;
+    // We start with the own data
+    memcpy(input_data, grid_rs, my_number_of_inner_elements_rs*sizeof(double));
 
-    // A2) Send around local data of the PW grid and copy it to our local buffer
-    for (int process_shift = 0; process_shift < number_of_processes; process_shift++) {
-      const int send_process = modulo(my_process_rs+process_shift,number_of_processes);
-      const int recv_process = modulo(my_process_rs-process_shift,number_of_processes);
+    double * memory_pool = calloc(redistribute_rs->size_of_buffer_to_halo+redistribute_rs->size_of_buffer_to_inner, sizeof(double));
+    double ** recv_buffer = calloc(redistribute_rs->max_number_of_processes_to_inner, sizeof(double*));
+    double ** send_buffer = calloc(redistribute_rs->max_number_of_processes_to_halo, sizeof(double*));
 
-      int recv_size[3];
-      for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_rs[recv_process][dir][1]-proc2local_rs[recv_process][dir][0]+1-2*border_width[dir];
+    grid_mpi_request * recv_requests = malloc(redistribute_rs->max_number_of_processes_to_inner*sizeof(grid_mpi_request));
+    grid_mpi_request * send_requests = malloc(redistribute_rs->max_number_of_processes_to_halo*sizeof(grid_mpi_request));
 
-      if (process_shift == 0) {
-        memcpy(recv_buffer, grid_rs_inner, my_number_of_inner_elements_rs*sizeof(double));
-      } else {
-        grid_mpi_sendrecv_double(grid_rs_inner, my_number_of_inner_elements_rs, send_process, process_shift, recv_buffer, product3(recv_size), recv_process, process_shift, comm_rs);
+    // We go the reverse direction because the normal order of the predetermined arrays assume the other direction
+    for (int dir = 2; dir >= 0; dir--) {
+      // Without border, there is nothing to exchange
+      if (border_width[dir] == 0) continue;
+
+      // We need (2-dir) because have the precalculated the arrays for the direction RS2PW
+      const int (*input_ranges)[3] = redistribute_rs->local_ranges[dir+1];
+      const int (*output_ranges)[3] = redistribute_rs->local_ranges[dir];
+
+      const int number_of_output_elements = output_ranges[0][2]*output_ranges[1][2]*output_ranges[2][2];
+      memset(output_data, 0, number_of_output_elements*sizeof(double));
+
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_inner[dir]; process_index++) {
+        recv_buffer[process_index] = memory_pool+redistribute_rs->buffer_offsets_to_inner[redistribute_rs->offset_to_inner[dir]+process_index];
+        recv_requests[process_index] = grid_mpi_request_null;
       }
 
-      // Do not forget the boundary outside of the main bound
-      for (int iz = 0; iz < my_sizes_rs[2]; iz++) {
-        const int iz_orig = modulo(iz+my_bounds_rs[2][0], npts_global[2])-proc2local_rs[recv_process][2][0]-border_width[2];
-        if (iz_orig < 0 || iz_orig >= recv_size[2]) continue;
-        for (int iy = 0; iy < my_sizes_rs[1]; iy++) {
-          const int iy_orig = modulo(iy+my_bounds_rs[1][0], npts_global[1])-proc2local_rs[recv_process][1][0]-border_width[1];
-          if (iy_orig < 0 || iy_orig >= recv_size[1]) continue;
-          for (int ix = 0; ix < my_sizes_rs[0]; ix++) {
-            const int ix_orig = modulo(ix+my_bounds_rs[0][0], npts_global[0])-proc2local_rs[recv_process][0][0]-border_width[0];
-            if (ix_orig < 0 || ix_orig >= recv_size[0]) continue;
-            grid_rs[iz*my_sizes_rs[0]*my_sizes_rs[1]+iy*my_sizes_rs[0]+ix] = recv_buffer[iz_orig*recv_size[0]*recv_size[1]+iy_orig*recv_size[0]+ix_orig];
-            received_elements++;
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_halo[dir]; process_index++) {
+        send_buffer[process_index] = memory_pool+redistribute_rs->size_of_buffer_to_inner+redistribute_rs->buffer_offsets_to_halo[redistribute_rs->offset_to_halo[dir]+process_index];
+        send_requests[process_index] = grid_mpi_request_null;
+      }
+
+      // A2) Post receive requests
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_inner[dir]; process_index++) {
+        const int recv_process = redistribute_rs->processes_to_inner[redistribute_rs->offset_to_inner[dir]+process_index];
+
+        int number_of_elements_to_receive = 1;
+        for (int dir2 = 0; dir2 < 3; dir2++) {
+          number_of_elements_to_receive *= (dir2 == dir ? redistribute_rs->sizes_to_inner[redistribute_rs->offset_to_inner[dir]+process_index] : input_ranges[dir2][2]);
+        }
+
+        grid_mpi_irecv_double(recv_buffer[process_index], number_of_elements_to_receive, recv_process, 1, comm_rs, &recv_requests[process_index]);
+      }
+
+      // A2) Post send requests
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_halo[dir]; process_index++) {
+        const int send_process = redistribute_rs->processes_to_halo[redistribute_rs->offset_to_halo[dir]+process_index];
+
+        int send_sizes[3];
+        for (int dir2 = 0; dir2 < 3; dir2++) {
+          send_sizes[dir2] = (dir2 == dir ? redistribute_rs->sizes_to_halo[redistribute_rs->offset_to_halo[dir]+process_index] : input_ranges[dir2][2]);
+        }
+        const int number_of_elements_to_send = product3(send_sizes);
+        const int * const send2local = (const int * const)redistribute_rs->index2local_to_halo[redistribute_rs->offset_to_halo[dir]+process_index];
+        for (int iz_send = 0; iz_send < send_sizes[2]; iz_send++) {
+          const int iz_local = (2 == dir ? send2local[iz_send] : iz_send);
+          for (int iy_send = 0; iy_send < send_sizes[1]; iy_send++) {
+            const int iy_local = (1 == dir ? send2local[iy_send] : iy_send);
+            for (int ix_send = 0; ix_send < send_sizes[0]; ix_send++) {
+              const int ix_local = (0 == dir ? send2local[ix_send] : ix_send);
+              send_buffer[process_index][iz_send*send_sizes[0]*send_sizes[1]+iy_send*send_sizes[0]+ix_send] = input_data[iz_local*input_ranges[0][2]*input_ranges[1][2]+iy_local*input_ranges[0][2]+ix_local];
+            }
+          }
+        }
+        grid_mpi_isend_double(send_buffer[process_index], number_of_elements_to_send, send_process, 1, comm_rs, &send_requests[process_index]);
+      }
+
+      // Update the local data
+      {
+        // Do not forget the boundary outside of the main bound
+        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
+          const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
+          if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
+            const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
+            if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
+            for (int ix = 0; ix < input_ranges[0][2]; ix++) {
+              const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
+              if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
+              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] += input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+            }
           }
         }
       }
-    }
-    free(recv_buffer);
 
-    assert(received_elements == my_number_of_elements_rs && "Not all elements of the RS grid and its boundary were received!");
+      // A2) Wait for receive processes and add to local data
+      for (int process_index = 0; process_index < redistribute_rs->number_of_processes_to_inner[dir]; process_index++) {
+        // Do not forget the boundary outside of the main bound
+        int process = -1;
+        grid_mpi_waitany(redistribute_rs->number_of_processes_to_inner[dir], recv_requests, &process);
+        int recv_sizes[3];
+        for (int dir2 = 0; dir2 < 3; dir2++) {
+          recv_sizes[dir2] = (dir2 == dir ? redistribute_rs->sizes_to_inner[redistribute_rs->offset_to_inner[dir]+process] : output_ranges[dir2][2]);
+        }
+        const int * const recv2local = (const int * const )redistribute_rs->index2local_to_inner[redistribute_rs->offset_to_inner[dir]+process];
+        for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
+          const int iz_local = (2 == dir ? recv2local[iz_recv] : iz_recv);
+          for (int iy_recv = 0; iy_recv < recv_sizes[1]; iy_recv++) {
+            const int iy_local = (1 == dir ? recv2local[iy_recv] : iy_recv);
+            for (int ix_recv = 0; ix_recv < recv_sizes[0]; ix_recv++) {
+              const int ix_local = (0 == dir ? recv2local[ix_recv] : ix_recv);
+              output_data[iz_local*output_ranges[0][2]*output_ranges[1][2]+iy_local*output_ranges[0][2]+ix_local] += recv_buffer[process][iz_recv*recv_sizes[0]*recv_sizes[1]+iy_recv*recv_sizes[0]+ix_recv];
+            }
+          }
+        }
+      }
+
+      // A2) Wait for the send processes to finish
+      grid_mpi_waitall(redistribute_rs->number_of_processes_to_halo[dir], send_requests);
+      // Swap pointers
+      double * tmp = input_data;
+      input_data = output_data;
+      output_data = tmp;
+    }
+
+    memcpy(grid_rs_inner, input_data, my_number_of_inner_elements_rs*sizeof(double));
+
+    free(recv_buffer);
+    free(send_buffer);
+    free(recv_requests);
+    free(send_requests);
+    free(memory_pool);
+    free(input_data);
+    free(output_data);
   }
 
   free(grid_rs_inner);
@@ -454,7 +538,8 @@ void grid_copy_to_multigrid_general(
           multigrid->grids[level]->host_buffer, grids[level],
         multigrid->comm, comm[level], multigrid->npts_global[level],
         (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
-        (const int (*)[3][2])&proc2local[6*level*grid_mpi_comm_size(comm[0])], multigrid->border_width[level]);
+        (const int (*)[3][2])&proc2local[6*level*grid_mpi_comm_size(comm[0])],
+        multigrid->border_width[level], &multigrid->redistribute[level]);
       }
     }
   }
@@ -498,7 +583,7 @@ void grid_copy_to_multigrid_general_single(const grid_multigrid *multigrid,
           multigrid->grids[level]->host_buffer, grid,
         multigrid->comm, comm, multigrid->npts_global[level],
         (const int (*)[3][2])&multigrid->proc2local[6*level*grid_mpi_comm_size(multigrid->comm)],
-        (const int (*)[3][2])proc2local, multigrid->border_width[level]);
+        (const int (*)[3][2])proc2local, multigrid->border_width[level], &multigrid->redistribute[level]);
     }
   }
 }
@@ -678,11 +763,11 @@ void grid_copy_from_multigrid_distributed(
   // From our redistribute container, we send to the inner part and recv the halo
   {
     int size_of_input_buffer = redistribute_rs->local_ranges[0][0][2]*redistribute_rs->local_ranges[0][1][2]*redistribute_rs->local_ranges[0][2][2];
-    int size_of_output_buffer = redistribute_rs->local_ranges[1][0][2]*redistribute_rs->local_ranges[1][1][2]*redistribute_rs->local_ranges[1][2][2];
+    //int size_of_output_buffer = redistribute_rs->local_ranges[1][0][2]*redistribute_rs->local_ranges[1][1][2]*redistribute_rs->local_ranges[1][2][2];
 
     // We send direction wise to cluster communication processes
     double * input_data = malloc(size_of_input_buffer*sizeof(double));
-    double * output_data = malloc(size_of_output_buffer*sizeof(double));
+    double * output_data = malloc(size_of_input_buffer*sizeof(double));
 
     // We start with the own data
     memcpy(input_data, grid_rs, size_of_input_buffer*sizeof(double));
@@ -733,7 +818,7 @@ void grid_copy_from_multigrid_distributed(
         for (int dir2 = 0; dir2 < 3; dir2++) {
           send_sizes[dir2] = (dir2 == dir ? redistribute_rs->sizes_to_inner[redistribute_rs->offset_to_inner[dir]+process_index] : input_ranges[dir2][2]);
         }
-        const int number_of_elements_to_send = send_sizes[0]*send_sizes[1]*send_sizes[2];
+        const int number_of_elements_to_send = product3(send_sizes);
         const int * const send2local = (const int * const)redistribute_rs->index2local_to_inner[redistribute_rs->offset_to_inner[dir]+process_index];
         for (int iz_send = 0; iz_send < send_sizes[2]; iz_send++) {
           const int iz_local = (2 == dir ? send2local[iz_send] : iz_send);
@@ -760,7 +845,7 @@ void grid_copy_from_multigrid_distributed(
             for (int ix = 0; ix < input_ranges[0][2]; ix++) {
               const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
               if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
-              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] += input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
             }
           }
         }
