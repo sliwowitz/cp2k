@@ -332,7 +332,7 @@ void grid_copy_to_multigrid_distributed(
     my_sizes_pw[dir] = proc2local_pw[my_process_pw][dir][1]-proc2local_pw[my_process_pw][dir][0]+1;
   }
   const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
-  const int my_number_of_elements_pw = product3(my_sizes_pw);
+  //const int my_number_of_elements_pw = product3(my_sizes_pw);
 
   double * grid_rs_inner = calloc(my_number_of_inner_elements_rs, sizeof(double));
 
@@ -340,42 +340,58 @@ void grid_copy_to_multigrid_distributed(
 
   // Step A: Collect the inner local block
   {
-    // A1) Count number of elements to be received to determine the buffer sizes
-    int max_number_of_elements_pw = 0;
-    for (int process = 0; process < number_of_processes; process++) {
-      max_number_of_elements_pw = imax(max_number_of_elements_pw, (proc2local_pw[process][0][1]-proc2local_pw[process][0][0]+1)*(proc2local_pw[process][1][1]-proc2local_pw[process][1][0]+1)*(proc2local_pw[process][2][1]-proc2local_pw[process][2][0]+1));
-    }
+    int * map_pw2rs = malloc(number_of_processes*sizeof(int));
+    grid_mpi_allgather_int(&my_process_rs, 1, map_pw2rs, comm_pw);
 
+    // Determine from which processes we will receive data
     int number_of_elements_to_recv = 0;
     int number_of_processes_to_recv_from = 0;
     for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
-      number_of_elements_to_recv += max_number_of_elements_pw;
+      const int recv_process = modulo(my_process_pw-process_shift, number_of_processes);
+      int recv_size[3];
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imin(proc2local_pw[recv_process][dir][1], my_bounds_rs_inner[dir][1])-imax(proc2local_pw[recv_process][dir][0], my_bounds_rs_inner[dir][0])+1;
+      
+      if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0) continue;
+      number_of_elements_to_recv += product3(recv_size);
       number_of_processes_to_recv_from++;
     }
 
+    // Setup arrays for recv data
     double * recv_buffer = calloc(number_of_elements_to_recv, sizeof(double));
     double ** recv_buffers = calloc(number_of_processes_to_recv_from, sizeof(double*));
     grid_mpi_request * recv_requests = calloc(number_of_processes_to_recv_from, sizeof(grid_mpi_request));
     int * processes_to_recv_from = calloc(number_of_processes_to_recv_from, sizeof(int));
 
+    // Initiate the receive operations
     int recv_offset = 0;
     int recv_counter = 0;
     for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
       const int recv_process = modulo(my_process_pw-process_shift,number_of_processes);
-      const int number_of_elements_to_recv = (proc2local_pw[recv_process][0][1]-proc2local_pw[recv_process][0][0]+1)*(proc2local_pw[recv_process][1][1]-proc2local_pw[recv_process][1][0]+1)*(proc2local_pw[recv_process][2][1]-proc2local_pw[recv_process][2][0]+1);
+      int recv_size[3];
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imin(proc2local_pw[recv_process][dir][1], my_bounds_rs_inner[dir][1])-imax(proc2local_pw[recv_process][dir][0], my_bounds_rs_inner[dir][0])+1;
+      
+      if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0) continue;
+      const int current_number_of_elements_to_recv = product3(recv_size);
       recv_buffers[recv_counter] = recv_buffer+recv_offset;
       processes_to_recv_from[recv_counter] = recv_process;
 
-      grid_mpi_irecv_double(recv_buffers[recv_counter], number_of_elements_to_recv, recv_process, 1, comm_pw, &recv_requests[recv_counter]);
+      grid_mpi_irecv_double(recv_buffers[recv_counter], current_number_of_elements_to_recv, recv_process, 1, comm_pw, &recv_requests[recv_counter]);
 
-      recv_offset += number_of_elements_to_recv;
+      recv_offset += current_number_of_elements_to_recv;
       recv_counter++;
     }
+    assert(recv_counter == number_of_processes_to_recv_from);
+    assert(recv_offset == number_of_elements_to_recv);
 
     int number_of_elements_to_send = 0;
     int number_of_processes_to_send_to = 0;
     for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
-      const int current_number_of_elements_to_send = my_number_of_elements_pw;
+      const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
+      const int send_process_rs = map_pw2rs[send_process];
+      int send_size[3];
+      for (int dir = 0; dir < 3; dir++) send_size[dir] = imin(my_bounds_pw[dir][1], proc2local_rs[send_process_rs][dir][1]-border_width[dir])-imax(my_bounds_pw[dir][0], proc2local_rs[send_process_rs][dir][0]+border_width[dir])+1;
+      if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0) continue;
+      const int current_number_of_elements_to_send = product3(send_size);
       number_of_elements_to_send += current_number_of_elements_to_send;
       number_of_processes_to_send_to++;
     }
@@ -389,7 +405,11 @@ void grid_copy_to_multigrid_distributed(
     int send_counter = 0;
     for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
       const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
-      const int current_number_of_elements_to_send = my_number_of_elements_pw;
+      const int send_process_rs = map_pw2rs[send_process];
+      int send_size[3];
+      for (int dir = 0; dir < 3; dir++) send_size[dir] = imin(my_bounds_pw[dir][1], proc2local_rs[send_process_rs][dir][1]-border_width[dir])-imax(my_bounds_pw[dir][0], proc2local_rs[send_process_rs][dir][0]+border_width[dir])+1;
+      if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0) continue;
+      const int current_number_of_elements_to_send = product3(send_size);
       send_buffers[send_counter] = send_buffer+send_offset;
       processes_to_send_to[send_counter] = send_process;
 
@@ -398,6 +418,8 @@ void grid_copy_to_multigrid_distributed(
       send_offset += current_number_of_elements_to_send;
       send_counter++;
     }
+    assert(send_offset == number_of_elements_to_send);
+    assert(send_counter == number_of_processes_to_send_to);
 
     // A2) Copy local data
     {
@@ -441,6 +463,7 @@ void grid_copy_to_multigrid_distributed(
     free(send_buffers);
     free(send_requests);
     free(processes_to_send_to);
+    free(map_pw2rs);
   }
 
   assert(received_elements == my_number_of_inner_elements_rs && "Not elements of the inner part of the RS grid were received");
