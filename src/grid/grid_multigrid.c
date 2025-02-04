@@ -403,12 +403,10 @@ void grid_copy_to_multigrid_distributed(
     {
       for (int iz = imax(0, my_bounds_pw[2][0]-my_bounds_rs_inner[2][0]); iz <= imin(my_sizes_rs_inner[2]-1, my_bounds_pw[2][1]-my_bounds_rs_inner[2][0]); iz++) {
         for (int iy = imax(0, my_bounds_pw[1][0]-my_bounds_rs_inner[1][0]); iy <= imin(my_sizes_rs_inner[1]-1, my_bounds_pw[1][1]-my_bounds_rs_inner[1][0]); iy++) {
-          for (int ix = imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0]); ix <= imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0]); ix++) {
-            assert(iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+ix < my_number_of_inner_elements_rs && "Too large index for grid_rs_inner");
-            assert((iz+my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])*my_sizes_pw[0]*my_sizes_pw[1]+(iy+my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])*my_sizes_pw[0]+(ix+my_bounds_rs_inner[0][0]-my_bounds_pw[0][0]) < max_number_of_elements_pw && "Too large index for recv_buffer");
-            grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+ix] = grid_pw[(iz+my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])*my_sizes_pw[0]*my_sizes_pw[1]+(iy+my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])*my_sizes_pw[0]+(ix+my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])];
-            received_elements++;
-          }
+          memcpy(&grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])],
+                 &grid_pw[(iz+my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])*my_sizes_pw[0]*my_sizes_pw[1]+(iy+my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])*my_sizes_pw[0]+(imax(my_bounds_rs_inner[0][0]-my_bounds_pw[0][0], 0))],
+                 imax(0, imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0])-imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])+1)*sizeof(double));
+            received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0])-imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])+1);
         }
       }
     }
@@ -424,12 +422,10 @@ void grid_copy_to_multigrid_distributed(
 
       for (int iz = imax(0, proc2local_pw[recv_process][2][0]-my_bounds_rs_inner[2][0]); iz <= imin(my_sizes_rs_inner[2]-1, proc2local_pw[recv_process][2][1]-my_bounds_rs_inner[2][0]); iz++) {
         for (int iy = imax(0, proc2local_pw[recv_process][1][0]-my_bounds_rs_inner[1][0]); iy <= imin(my_sizes_rs_inner[1]-1, proc2local_pw[recv_process][1][1]-my_bounds_rs_inner[1][0]); iy++) {
-          for (int ix = imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0]); ix <= imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0]); ix++) {
-            assert(iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+ix < my_number_of_inner_elements_rs && "Too large index for grid_rs_inner");
-            assert((iz+my_bounds_rs_inner[2][0]-proc2local_pw[recv_process][2][0])*recv_size[0]*recv_size[1]+(iy+my_bounds_rs_inner[1][0]-proc2local_pw[recv_process][1][0])*recv_size[0]+(ix+my_bounds_rs_inner[0][0]-proc2local_pw[recv_process][0][0]) < max_number_of_elements_pw && "Too large index for recv_buffer");
-            grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+ix] = recv_buffer[(iz+my_bounds_rs_inner[2][0]-proc2local_pw[recv_process][2][0])*recv_size[0]*recv_size[1]+(iy+my_bounds_rs_inner[1][0]-proc2local_pw[recv_process][1][0])*recv_size[0]+(ix+my_bounds_rs_inner[0][0]-proc2local_pw[recv_process][0][0])];
-            received_elements++;
-          }
+          memcpy(&grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])],
+                 &recv_buffer[(iz+my_bounds_rs_inner[2][0]-proc2local_pw[recv_process][2][0])*recv_size[0]*recv_size[1]+(iy+my_bounds_rs_inner[1][0]-proc2local_pw[recv_process][1][0])*recv_size[0]+(imax(my_bounds_rs_inner[0][0]-proc2local_pw[recv_process][0][0], 0))],
+                 imax(0, imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0])-imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])+1)*sizeof(double));
+          received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0])-imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])+1);
         }
       }
     }
