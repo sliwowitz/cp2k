@@ -1090,10 +1090,10 @@ void grid_copy_from_multigrid_distributed(
             assert(iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+ix < my_number_of_elements_pw && "Too large index for grid_pw");
             assert((iz+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+(ix+my_bounds_pw[0][0]-my_bounds_rs_inner[0][0]) < my_number_of_inner_elements_rs && "Too large index for recv_buffer");
             grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+ix] = grid_rs_inner[(iz+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+(ix+my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])];
-            received_elements++;
           }
         }
       }
+      received_elements += (imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1)*(imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0])-imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])+1)*(imin(my_sizes_pw[2]-1, my_bounds_rs_inner[2][1]-my_bounds_pw[2][0])-imax(0, my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])+1);
     }
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
@@ -1111,11 +1111,10 @@ void grid_copy_from_multigrid_distributed(
             assert((iz+imax(proc2local_rs[recv_process_rs][2][0]+border_width[2]-my_bounds_pw[2][0], 0))*my_sizes_pw[0]*my_sizes_pw[1]+(iy+imax(proc2local_rs[recv_process_rs][1][0]+border_width[1]-my_bounds_pw[1][0], 0))*my_sizes_pw[0]+(ix+imax(proc2local_rs[recv_process_rs][0][0]+border_width[0]-my_bounds_pw[0][0], 0)) < my_number_of_elements_pw && "Too large index for grid_pw");
             assert(iz*recv_size[0]*recv_size[1]+iy*recv_size[0]+ix < product3(recv_size) && "Too large index for recv_buffer");
             grid_pw[(iz+imax(proc2local_rs[recv_process_rs][2][0]+border_width[2]-my_bounds_pw[2][0], 0))*my_sizes_pw[0]*my_sizes_pw[1]+(iy+imax(proc2local_rs[recv_process_rs][1][0]+border_width[1]-my_bounds_pw[1][0], 0))*my_sizes_pw[0]+(ix+imax(proc2local_rs[recv_process_rs][0][0]+border_width[0]-my_bounds_pw[0][0], 0))] = recv_buffers[recv_process][iz*recv_size[0]*recv_size[1]+iy*recv_size[0]+ix];
-            received_elements++;
           }
         }
       }
-      assert(received_elements <= my_number_of_elements_pw);
+      received_elements += product3(recv_size);
 
       grid_mpi_waitall(number_of_processes_to_send_to, send_requests);
     }
