@@ -425,9 +425,9 @@ void grid_copy_to_multigrid_distributed(
           memcpy(&grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])],
                  &grid_pw[(iz+my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])*my_sizes_pw[0]*my_sizes_pw[1]+(iy+my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])*my_sizes_pw[0]+(imax(my_bounds_rs_inner[0][0]-my_bounds_pw[0][0], 0))],
                  imax(0, imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0])-imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])+1)*sizeof(double));
-            received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0])-imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])+1);
         }
       }
+      received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0])-imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])+1)*imax(0, imin(my_sizes_rs_inner[1]-1, my_bounds_pw[1][1]-my_bounds_rs_inner[1][0])-imax(0, my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])+1)*imax(0, imin(my_sizes_rs_inner[2]-1, my_bounds_pw[2][1]-my_bounds_rs_inner[2][0])-imax(0, my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])+1);
     }
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
@@ -437,16 +437,16 @@ void grid_copy_to_multigrid_distributed(
       const int recv_process = processes_to_recv_from[recv_counter];
 
       int recv_size[3];
-      for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_pw[recv_process][dir][1]-proc2local_pw[recv_process][dir][0]+1;
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imin(my_sizes_rs_inner[dir]-1, proc2local_pw[recv_process][dir][1]-my_bounds_rs_inner[dir][0])-imax(0, proc2local_pw[recv_process][dir][0]-my_bounds_rs_inner[dir][0])+1;
 
       for (int iz = imax(0, proc2local_pw[recv_process][2][0]-my_bounds_rs_inner[2][0]); iz <= imin(my_sizes_rs_inner[2]-1, proc2local_pw[recv_process][2][1]-my_bounds_rs_inner[2][0]); iz++) {
         for (int iy = imax(0, proc2local_pw[recv_process][1][0]-my_bounds_rs_inner[1][0]); iy <= imin(my_sizes_rs_inner[1]-1, proc2local_pw[recv_process][1][1]-my_bounds_rs_inner[1][0]); iy++) {
           memcpy(&grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])],
                  &recv_buffer[(iz+my_bounds_rs_inner[2][0]-proc2local_pw[recv_process][2][0])*recv_size[0]*recv_size[1]+(iy+my_bounds_rs_inner[1][0]-proc2local_pw[recv_process][1][0])*recv_size[0]+(imax(my_bounds_rs_inner[0][0]-proc2local_pw[recv_process][0][0], 0))],
                  imax(0, imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0])-imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])+1)*sizeof(double));
-          received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0])-imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])+1);
         }
       }
+      received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0])-imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])+1)*imax(0, imin(my_sizes_rs_inner[1]-1, proc2local_pw[recv_process][1][1]-my_bounds_rs_inner[1][0])-imax(0, proc2local_pw[recv_process][1][0]-my_bounds_rs_inner[1][0])+1)*imax(0, imin(my_sizes_rs_inner[2]-1, proc2local_pw[recv_process][2][1]-my_bounds_rs_inner[2][0])-imax(0, proc2local_pw[recv_process][2][0]-my_bounds_rs_inner[2][0])+1);
     }
 
     grid_mpi_waitall(number_of_processes_to_send_to, send_requests);
