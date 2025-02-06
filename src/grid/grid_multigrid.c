@@ -997,7 +997,86 @@ void grid_copy_from_multigrid_distributed(
       max_number_of_inner_elements_rs = imax(max_number_of_inner_elements_rs, (proc2local_rs[process][0][1]-proc2local_rs[process][0][0]+1-2*border_width[0])*(proc2local_pw[process][1][1]-proc2local_pw[process][1][0]+1-2*border_width[1])*(proc2local_pw[process][2][1]-proc2local_pw[process][2][0]+1-2*border_width[2]));
     }
 
-    double * recv_buffer = calloc(max_number_of_inner_elements_rs, sizeof(double));
+    // A2) Count the number of elements and processes to recv (from)
+    int number_of_elements_to_recv = 0;
+    int number_of_processes_to_recv_from = 0;
+    for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
+      const int recv_process = modulo(my_process_pw-process_shift,number_of_processes);
+      const int recv_process_rs = map_pw2rs[recv_process];
+
+      int recv_size[3];
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_rs[recv_process_rs][dir][1]-proc2local_rs[recv_process_rs][dir][0]+1-2*border_width[dir];
+
+      number_of_elements_to_recv += product3(recv_size);
+      number_of_processes_to_recv_from++;
+    }
+
+    double * recv_buffer = calloc(number_of_elements_to_recv, sizeof(double));
+    double ** recv_buffers = calloc(number_of_processes_to_recv_from, sizeof(double*));
+    grid_mpi_request * recv_requests = malloc(number_of_processes_to_recv_from*sizeof(grid_mpi_request));
+    int * recv_processes = calloc(number_of_processes_to_recv_from, sizeof(int));
+
+    // A2) Send around local data of the PW grid and copy it to our local buffer
+    int recv_offset = 0;
+    int recv_counter = 0;
+    for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
+      const int recv_process = modulo(my_process_pw-process_shift,number_of_processes);
+      const int recv_process_rs = map_pw2rs[recv_process];
+
+      int recv_size[3];
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_rs[recv_process_rs][dir][1]-proc2local_rs[recv_process_rs][dir][0]+1-2*border_width[dir];
+
+      recv_buffers[recv_counter] = recv_buffer+recv_offset;
+      recv_processes[recv_counter] = recv_process;
+
+      grid_mpi_irecv_double(recv_buffers[recv_counter], product3(recv_size), recv_process, process_shift, comm_pw, &recv_requests[recv_counter]);
+
+      recv_offset += product3(recv_size);
+      recv_counter++;
+    }
+    assert(recv_counter == number_of_processes_to_recv_from);
+    assert(recv_offset == number_of_elements_to_recv);
+
+    // A2) Send around local data of the PW grid and copy it to our local buffer
+    int number_of_elements_to_send = 0;
+    int number_of_processes_to_send_to = 0;
+    for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
+      const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
+      (void)send_process;
+
+      int send_size[3];
+      for (int dir = 0; dir < 3; dir++) send_size[dir] = my_bounds_rs_inner[dir][1]-my_bounds_rs_inner[dir][0]+1;
+
+      number_of_elements_to_send += product3(send_size);
+      number_of_processes_to_send_to++;
+    }
+
+    double * send_buffer = calloc(number_of_elements_to_send, sizeof(double));
+    double ** send_buffers = calloc(number_of_processes_to_send_to, sizeof(double*));
+    grid_mpi_request * send_requests = malloc(number_of_processes_to_send_to*sizeof(grid_mpi_request));
+    int * send_processes = calloc(number_of_processes_to_send_to, sizeof(int));
+
+    // A2) Send around local data of the PW grid and copy it to our local buffer
+    int send_offset = 0;
+    int send_counter = 0;
+    for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
+      const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
+
+      int send_size[3];
+      for (int dir = 0; dir < 3; dir++) send_size[dir] = my_bounds_rs_inner[dir][1]-my_bounds_rs_inner[dir][0]+1;
+
+      send_buffers[send_counter] = send_buffer+send_offset;
+      send_processes[send_counter] = send_process;
+
+      memcpy(send_buffers[send_counter], grid_rs_inner, my_number_of_inner_elements_rs*sizeof(double));
+
+      grid_mpi_isend_double(send_buffers[send_counter], product3(send_size), send_process, process_shift, comm_pw, &send_requests[send_counter]);
+
+      send_offset += product3(send_size);
+      send_counter++;
+    }
+    assert(send_counter == number_of_processes_to_send_to);
+    assert(send_offset == number_of_elements_to_send);
 
     int received_elements = 0;
 
@@ -1017,26 +1096,27 @@ void grid_copy_from_multigrid_distributed(
     }
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
-    for (int process_shift = 1; process_shift < number_of_processes; process_shift++) {
-      const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
-      const int recv_process = modulo(my_process_pw-process_shift,number_of_processes);
-      const int recv_process_rs = map_pw2rs[recv_process];
+    for (int process = 0; process < number_of_processes_to_recv_from; process++) {
+      int recv_process;
+      grid_mpi_waitany(number_of_processes_to_recv_from, recv_requests, &recv_process);
+      const int recv_process_rs = map_pw2rs[recv_processes[recv_process]];
 
       int recv_size[3];
       for (int dir = 0; dir < 3; dir++) recv_size[dir] = proc2local_rs[recv_process_rs][dir][1]-proc2local_rs[recv_process_rs][dir][0]+1-2*border_width[dir];
 
-      grid_mpi_sendrecv_double(grid_rs_inner, my_number_of_inner_elements_rs, send_process, process_shift, recv_buffer, product3(recv_size), recv_process, process_shift, comm_pw);
-    
       for (int iz = imax(0, proc2local_rs[recv_process_rs][2][0]+border_width[2]-my_bounds_pw[2][0]); iz <= imin(my_sizes_pw[2]-1, proc2local_rs[recv_process_rs][2][1]-border_width[2]-my_bounds_pw[2][0]); iz++) {
         for (int iy = imax(0, proc2local_rs[recv_process_rs][1][0]+border_width[1]-my_bounds_pw[1][0]); iy <= imin(my_sizes_pw[1]-1, proc2local_rs[recv_process_rs][1][1]-border_width[1]-my_bounds_pw[1][0]); iy++) {
           for (int ix = imax(0, proc2local_rs[recv_process_rs][0][0]+border_width[0]-my_bounds_pw[0][0]); ix <= imin(my_sizes_pw[0]-1, proc2local_rs[recv_process_rs][0][1]-border_width[0]-my_bounds_pw[0][0]); ix++) {
             assert(iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+ix < my_number_of_elements_pw && "Too large index for grid_pw");
             assert((iz+my_bounds_pw[2][0]-proc2local_rs[recv_process_rs][2][0]-border_width[2])*recv_size[0]*recv_size[1]+(iy+my_bounds_pw[1][0]-proc2local_rs[recv_process_rs][1][0]-border_width[1])*recv_size[0]+(ix+my_bounds_pw[0][0]-proc2local_rs[recv_process_rs][0][0]-border_width[0]) < max_number_of_inner_elements_rs && "Too large index for recv_buffer");
-            grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+ix] = recv_buffer[(iz+my_bounds_pw[2][0]-proc2local_rs[recv_process_rs][2][0]-border_width[2])*recv_size[0]*recv_size[1]+(iy+my_bounds_pw[1][0]-proc2local_rs[recv_process_rs][1][0]-border_width[1])*recv_size[0]+(ix+my_bounds_pw[0][0]-proc2local_rs[recv_process_rs][0][0]-border_width[0])];
+            grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+ix] = recv_buffers[recv_process][(iz+my_bounds_pw[2][0]-proc2local_rs[recv_process_rs][2][0]-border_width[2])*recv_size[0]*recv_size[1]+(iy+my_bounds_pw[1][0]-proc2local_rs[recv_process_rs][1][0]-border_width[1])*recv_size[0]+(ix+my_bounds_pw[0][0]-proc2local_rs[recv_process_rs][0][0]-border_width[0])];
             received_elements++;
           }
         }
       }
+      assert(received_elements <= my_number_of_elements_pw);
+
+      grid_mpi_waitall(number_of_processes_to_send_to, send_requests);
     }
 
     assert(received_elements == my_number_of_elements_pw);
@@ -1044,6 +1124,13 @@ void grid_copy_from_multigrid_distributed(
     // Cleanup
     free(recv_buffer);
     free(map_pw2rs);
+    free(recv_buffers);
+    free(recv_requests);
+    free(recv_processes);
+    free(send_buffer);
+    free(send_buffers);
+    free(send_requests);
+    free(send_processes);
   }
 
   free(grid_rs_inner);
