@@ -240,12 +240,11 @@ void grid_copy_to_multigrid_replicated(
     grid_mpi_wait(&recv_request);
     for (int iz = 0; iz < recv_size[2]; iz++) {
       for (int iy = 0; iy < recv_size[1]; iy++) {
-        for (int ix = 0; ix < recv_size[0]; ix++) {
-          grid_rs[(iz + border_width[2] + proc2local[recv_process][2][0]) * npts_rs[0] * npts_rs[1] +
-                  (iy + border_width[1] + proc2local[recv_process][1][0]) * npts_rs[0] +
-                  (ix + border_width[0] + proc2local[recv_process][0][0])] =
-              recv_buffer[iz * recv_size[0] * recv_size[1] + iy * recv_size[0] + ix];
-        }
+        memcpy(&grid_rs[(iz + border_width[2] + proc2local[recv_process][2][0]) * npts_rs[0] * npts_rs[1] +
+                        (iy + border_width[1] + proc2local[recv_process][1][0]) * npts_rs[0] +
+                         border_width[0] + proc2local[recv_process][0][0]],
+               &recv_buffer[iz * recv_size[0] * recv_size[1] + iy * recv_size[0]],
+               recv_size[0] * sizeof(double));
       }
     }
 
@@ -1065,9 +1064,9 @@ void grid_copy_from_multigrid_distributed(
 
       for (int iz_send = 0; iz_send < send_size[2]; iz_send++) {
         for (int iy_send = 0; iy_send < send_size[1]; iy_send++) {
-          for (int ix_send = 0; ix_send < send_size[0]; ix_send++) {
-            send_buffers[send_counter][iz_send*send_size[0]*send_size[1]+iy_send*send_size[0]+ix_send] = grid_rs_inner[(iz_send+imax(0, proc2local_pw[send_process][2][0]-my_bounds_rs_inner[2][0]))*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy_send+imax(0, proc2local_pw[send_process][1][0]-my_bounds_rs_inner[1][0]))*my_sizes_rs_inner[0]+(ix_send+imax(0, proc2local_pw[send_process][0][0]-my_bounds_rs_inner[0][0]))];
-          }
+          memcpy(&send_buffers[send_counter][iz_send*send_size[0]*send_size[1]+iy_send*send_size[0]],
+                 &grid_rs_inner[(iz_send+imax(0, proc2local_pw[send_process][2][0]-my_bounds_rs_inner[2][0]))*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy_send+imax(0, proc2local_pw[send_process][1][0]-my_bounds_rs_inner[1][0]))*my_sizes_rs_inner[0]+(imax(0, proc2local_pw[send_process][0][0]-my_bounds_rs_inner[0][0]))],
+                 sizeof(double)*send_size[0]);
         }
       }
 
@@ -1086,11 +1085,9 @@ void grid_copy_from_multigrid_distributed(
 
       for (int iz = imax(0, my_bounds_rs_inner[2][0]-my_bounds_pw[2][0]); iz <= imin(my_sizes_pw[2]-1, my_bounds_rs_inner[2][1]-my_bounds_pw[2][0]); iz++) {
         for (int iy = imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0]); iy <= imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0]); iy++) {
-          for (int ix = imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0]); ix <= imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0]); ix++) {
-            assert(iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+ix < my_number_of_elements_pw && "Too large index for grid_pw");
-            assert((iz+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+(ix+my_bounds_pw[0][0]-my_bounds_rs_inner[0][0]) < my_number_of_inner_elements_rs && "Too large index for recv_buffer");
-            grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+ix] = grid_rs_inner[(iz+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+(ix+my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])];
-          }
+          memcpy(&grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])],
+                 &grid_rs_inner[(iz+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])],
+                 sizeof(double)*(imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1));
         }
       }
       received_elements += (imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1)*(imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0])-imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])+1)*(imin(my_sizes_pw[2]-1, my_bounds_rs_inner[2][1]-my_bounds_pw[2][0])-imax(0, my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])+1);
@@ -1107,11 +1104,9 @@ void grid_copy_from_multigrid_distributed(
 
       for (int iz = 0; iz < recv_size[2]; iz++) {
         for (int iy = 0; iy < recv_size[1]; iy++) {
-          for (int ix = 0; ix < recv_size[0]; ix++) {
-            assert((iz+imax(proc2local_rs[recv_process_rs][2][0]+border_width[2]-my_bounds_pw[2][0], 0))*my_sizes_pw[0]*my_sizes_pw[1]+(iy+imax(proc2local_rs[recv_process_rs][1][0]+border_width[1]-my_bounds_pw[1][0], 0))*my_sizes_pw[0]+(ix+imax(proc2local_rs[recv_process_rs][0][0]+border_width[0]-my_bounds_pw[0][0], 0)) < my_number_of_elements_pw && "Too large index for grid_pw");
-            assert(iz*recv_size[0]*recv_size[1]+iy*recv_size[0]+ix < product3(recv_size) && "Too large index for recv_buffer");
-            grid_pw[(iz+imax(proc2local_rs[recv_process_rs][2][0]+border_width[2]-my_bounds_pw[2][0], 0))*my_sizes_pw[0]*my_sizes_pw[1]+(iy+imax(proc2local_rs[recv_process_rs][1][0]+border_width[1]-my_bounds_pw[1][0], 0))*my_sizes_pw[0]+(ix+imax(proc2local_rs[recv_process_rs][0][0]+border_width[0]-my_bounds_pw[0][0], 0))] = recv_buffers[recv_process][iz*recv_size[0]*recv_size[1]+iy*recv_size[0]+ix];
-          }
+          memcpy(&grid_pw[(iz+imax(proc2local_rs[recv_process_rs][2][0]+border_width[2]-my_bounds_pw[2][0], 0))*my_sizes_pw[0]*my_sizes_pw[1]+(iy+imax(proc2local_rs[recv_process_rs][1][0]+border_width[1]-my_bounds_pw[1][0], 0))*my_sizes_pw[0]+imax(proc2local_rs[recv_process_rs][0][0]+border_width[0]-my_bounds_pw[0][0], 0)],
+                 &recv_buffers[recv_process][iz*recv_size[0]*recv_size[1]+iy*recv_size[0]],
+                 sizeof(double)*recv_size[0]);
         }
       }
       received_elements += product3(recv_size);
