@@ -332,7 +332,6 @@ void grid_copy_to_multigrid_distributed(
     my_sizes_pw[dir] = proc2local_pw[my_process_pw][dir][1]-proc2local_pw[my_process_pw][dir][0]+1;
   }
   const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
-  //const int my_number_of_elements_pw = product3(my_sizes_pw);
 
   double * grid_rs_inner = calloc(my_number_of_inner_elements_rs, sizeof(double));
 
@@ -399,7 +398,6 @@ void grid_copy_to_multigrid_distributed(
     double * send_buffer = calloc(number_of_elements_to_send, sizeof(double));
     double ** send_buffers = calloc(number_of_processes_to_send_to, sizeof(double*));
     grid_mpi_request * send_requests = calloc(number_of_processes_to_send_to, sizeof(grid_mpi_request));
-    int * processes_to_send_to = calloc(number_of_processes_to_send_to, sizeof(int));
 
     int send_offset = 0;
     int send_counter = 0;
@@ -411,7 +409,6 @@ void grid_copy_to_multigrid_distributed(
       if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0) continue;
       const int current_number_of_elements_to_send = product3(send_size);
       send_buffers[send_counter] = send_buffer+send_offset;
-      processes_to_send_to[send_counter] = send_process;
 
       grid_mpi_isend_double(send_buffers[send_counter], current_number_of_elements_to_send, send_process, 1, comm_pw, &send_requests[send_counter]);
 
@@ -462,7 +459,6 @@ void grid_copy_to_multigrid_distributed(
     free(send_buffer);
     free(send_buffers);
     free(send_requests);
-    free(processes_to_send_to);
     free(map_pw2rs);
   }
 
@@ -1053,7 +1049,6 @@ void grid_copy_from_multigrid_distributed(
     double * send_buffer = calloc(number_of_elements_to_send, sizeof(double));
     double ** send_buffers = calloc(number_of_processes_to_send_to, sizeof(double*));
     grid_mpi_request * send_requests = malloc(number_of_processes_to_send_to*sizeof(grid_mpi_request));
-    int * send_processes = calloc(number_of_processes_to_send_to, sizeof(int));
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
     int send_offset = 0;
@@ -1067,7 +1062,6 @@ void grid_copy_from_multigrid_distributed(
       if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0) continue;
 
       send_buffers[send_counter] = send_buffer+send_offset;
-      send_processes[send_counter] = send_process;
 
       for (int iz_send = 0; iz_send < send_size[2]; iz_send++) {
         for (int iy_send = 0; iy_send < send_size[1]; iy_send++) {
@@ -1137,7 +1131,6 @@ void grid_copy_from_multigrid_distributed(
     free(send_buffer);
     free(send_buffers);
     free(send_requests);
-    free(send_processes);
   }
 
   free(grid_rs_inner);
