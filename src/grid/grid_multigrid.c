@@ -1124,15 +1124,24 @@ void grid_copy_from_multigrid_distributed(
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
     {
+      int starts_pw[3];
+      for (int dir = 0; dir < 3; dir++) starts_pw[dir] = imax(0, my_bounds_rs_inner[dir][0]-my_bounds_pw[dir][0]);
+      int ends_pw[3];
+      for (int dir = 0; dir < 3; dir++) ends_pw[dir] = imin(my_sizes_pw[dir]-1, my_bounds_rs_inner[dir][1]-my_bounds_pw[dir][0]);
+      int size_pw[3];
+      for (int dir = 0; dir < 3; dir++) size_pw[dir] = imax(0, ends_pw[dir]-starts_pw[dir]+1);
+      double * current_grid_pw = &grid_pw[starts_pw[2]*my_sizes_pw[0]*my_sizes_pw[1]+starts_pw[1]*my_sizes_pw[0]+starts_pw[0]];
+      const double * current_grid_rs = &grid_rs_inner[(starts_pw[2]+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(starts_pw[1]+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+starts_pw[0]+imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])];
 
-      for (int iz = imax(0, my_bounds_rs_inner[2][0]-my_bounds_pw[2][0]); iz <= imin(my_sizes_pw[2]-1, my_bounds_rs_inner[2][1]-my_bounds_pw[2][0]); iz++) {
-        for (int iy = imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0]); iy <= imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0]); iy++) {
-          memcpy(&grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])],
-                 &grid_rs_inner[(iz+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])],
-                 sizeof(double)*imax(0, imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1));
+#pragma omp parallel for collapse(2) default(none) shared(size_pw, my_sizes_pw, my_sizes_rs_inner, current_grid_pw, current_grid_rs)
+      for (int iz = 0; iz < size_pw[2]; iz++) {
+        for (int iy = 0; iy < size_pw[1]; iy++) {
+          memcpy(&current_grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]],
+                 &current_grid_rs[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]],
+                 sizeof(double)*size_pw[0]);
         }
       }
-      received_elements += imax(0, imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1)*imax(0, imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0])-imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])+1)*imax(0, imin(my_sizes_pw[2]-1, my_bounds_rs_inner[2][1]-my_bounds_pw[2][0])-imax(0, my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])+1);
+      received_elements += product3(size_pw);
     }
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
