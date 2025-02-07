@@ -963,40 +963,37 @@ void grid_copy_from_multigrid_distributed(
       // Update the local data
       if (dir == 0) {
         // Do not forget the boundary outside of the main bound
-        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-          if (iz < 0 || iz >= output_ranges[2][2]) continue;
-          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-            if (iy >= output_ranges[1][2]) continue;
+#pragma omp parallel for default(none) collapse(2) shared(input_ranges, output_ranges, npts_global, output_data, input_data)
+        for (int iz = 0; iz < imin(input_ranges[2][2], output_ranges[2][2]); iz++) {
+          for (int iy = 0; iy < imin(input_ranges[1][2], output_ranges[1][2]); iy++) {
             for (int ix = 0; ix < input_ranges[0][2]; ix++) {
               const int ix_orig = modulo(ix+input_ranges[0][0], npts_global[0])-output_ranges[0][0];
               if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
-              output_data[iz*output_ranges[0][2]*output_ranges[1][2]+iy*output_ranges[0][2]+ix_orig] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+              output_data[iz*output_ranges[0][2]*output_ranges[1][2]+iy*output_ranges[0][2]+ix_orig] += input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
             }
           }
         }
       } else if (dir == 1) {
         // Do not forget the boundary outside of the main bound
-        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-          if (iz >= output_ranges[2][2]) continue;
-          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-            const int iy_orig = modulo(iy+input_ranges[1][0], npts_global[1])-output_ranges[1][0];
-            if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
-            for (int ix = 0; ix < input_ranges[0][2]; ix++) {
-              if (ix >= output_ranges[0][2]) continue;
-              output_data[iz*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+#pragma omp parallel for default(none) collapse(2) shared(input_ranges, output_ranges, npts_global, output_data, input_data)
+        for (int iz = 0; iz < imin(input_ranges[2][2], output_ranges[1][2]); iz++) {
+          for (int ix = 0; ix < imin(input_ranges[0][2], output_ranges[0][2]); ix++) {
+            for (int iy = 0; iy < input_ranges[1][2]; iy++) {
+              const int iy_orig = modulo(iy+input_ranges[1][0], npts_global[1])-output_ranges[1][0];
+              if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
+              output_data[iz*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix] += input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
             }
           }
         }
       } else {
         // Do not forget the boundary outside of the main bound
-        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-          const int iz_orig = modulo(iz+input_ranges[2][0], npts_global[2])-output_ranges[2][0];
-          if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
-          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-            if (iy >= output_ranges[1][2]) continue;
-            for (int ix = 0; ix < input_ranges[0][2]; ix++) {
-              if (ix >= output_ranges[0][2]) continue;
-              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy*output_ranges[0][2]+ix] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+#pragma omp parallel for default(none) collapse(2) shared(input_ranges, output_ranges, npts_global, output_data, input_data)
+        for (int iy = 0; iy < imin(input_ranges[1][2], output_ranges[1][2]); iy++) {
+          for (int ix = 0; ix < imin(input_ranges[0][2], output_ranges[0][2]); ix++) {
+            for (int iz = 0; iz < input_ranges[2][2]; iz++) {
+              const int iz_orig = modulo(iz+input_ranges[2][0], npts_global[2])-output_ranges[2][0];
+              if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy*output_ranges[0][2]+ix] += input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
             }
           }
         }
