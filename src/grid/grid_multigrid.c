@@ -961,18 +961,42 @@ void grid_copy_from_multigrid_distributed(
       }
 
       // Update the local data
-      {
+      if (dir == 0) {
         // Do not forget the boundary outside of the main bound
         for (int iz = 0; iz < input_ranges[2][2]; iz++) {
-          const int iz_orig = (dir == 2 ? modulo(iz+input_ranges[2][0], npts_global[2])-output_ranges[2][0] : iz);
-          if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+          if (iz < 0 || iz >= output_ranges[2][2]) continue;
           for (int iy = 0; iy < input_ranges[1][2]; iy++) {
-            const int iy_orig = (dir == 1 ? modulo(iy+input_ranges[1][0], npts_global[1])-output_ranges[1][0] : iy);
+            if (iy >= output_ranges[1][2]) continue;
+            for (int ix = 0; ix < input_ranges[0][2]; ix++) {
+              const int ix_orig = modulo(ix+input_ranges[0][0], npts_global[0])-output_ranges[0][0];
+              if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
+              output_data[iz*output_ranges[0][2]*output_ranges[1][2]+iy*output_ranges[0][2]+ix_orig] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+            }
+          }
+        }
+      } else if (dir == 1) {
+        // Do not forget the boundary outside of the main bound
+        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
+          if (iz >= output_ranges[2][2]) continue;
+          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
+            const int iy_orig = modulo(iy+input_ranges[1][0], npts_global[1])-output_ranges[1][0];
             if (iy_orig < 0 || iy_orig >= output_ranges[1][2]) continue;
             for (int ix = 0; ix < input_ranges[0][2]; ix++) {
-              const int ix_orig = (dir == 0 ? modulo(ix+input_ranges[0][0], npts_global[0])-output_ranges[0][0] : ix);
-              if (ix_orig < 0 || ix_orig >= output_ranges[0][2]) continue;
-              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix_orig] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+              if (ix >= output_ranges[0][2]) continue;
+              output_data[iz*output_ranges[0][2]*output_ranges[1][2]+iy_orig*output_ranges[0][2]+ix] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
+            }
+          }
+        }
+      } else {
+        // Do not forget the boundary outside of the main bound
+        for (int iz = 0; iz < input_ranges[2][2]; iz++) {
+          const int iz_orig = modulo(iz+input_ranges[2][0], npts_global[2])-output_ranges[2][0];
+          if (iz_orig < 0 || iz_orig >= output_ranges[2][2]) continue;
+          for (int iy = 0; iy < input_ranges[1][2]; iy++) {
+            if (iy >= output_ranges[1][2]) continue;
+            for (int ix = 0; ix < input_ranges[0][2]; ix++) {
+              if (ix >= output_ranges[0][2]) continue;
+              output_data[iz_orig*output_ranges[0][2]*output_ranges[1][2]+iy*output_ranges[0][2]+ix] = input_data[iz*input_ranges[0][2]*input_ranges[1][2]+iy*input_ranges[0][2]+ix];
             }
           }
         }
@@ -988,13 +1012,34 @@ void grid_copy_from_multigrid_distributed(
           recv_sizes[dir2] = (dir2 == dir ? redistribute_rs->sizes_to_halo[redistribute_rs->offset_to_halo[dir]+process] : output_ranges[dir2][2]);
         }
         const int * const recv2local = (const int * const )redistribute_rs->index2local_to_halo[redistribute_rs->offset_to_halo[dir]+process];
-        for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
-          const int iz_local = (2 == dir ? recv2local[iz_recv] : iz_recv);
-          for (int iy_recv = 0; iy_recv < recv_sizes[1]; iy_recv++) {
-            const int iy_local = (1 == dir ? recv2local[iy_recv] : iy_recv);
+        const double * current_recv_buffer = recv_buffer[process];
+        if (dir == 0) {
+          // Collapse(3) may lead to race conditions
+          // Alternative would be atomic operations (expensive)
+#pragma omp parallel for default(none) collapse(2) shared(recv_sizes, recv2local, output_ranges, output_data, current_recv_buffer)
+          for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
+            for (int iy_recv = 0; iy_recv < recv_sizes[1]; iy_recv++) {
+              for (int ix_recv = 0; ix_recv < recv_sizes[0]; ix_recv++) {
+                output_data[iz_recv*output_ranges[0][2]*output_ranges[1][2]+iy_recv*output_ranges[0][2]+recv2local[ix_recv]] += current_recv_buffer[iz_recv*recv_sizes[0]*recv_sizes[1]+iy_recv*recv_sizes[0]+ix_recv];
+              }
+            }
+          }
+        } else if (dir == 1) {
+#pragma omp parallel for default(none) collapse(2) shared(recv_sizes, recv2local, output_ranges, output_data, current_recv_buffer)
+          for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
             for (int ix_recv = 0; ix_recv < recv_sizes[0]; ix_recv++) {
-              const int ix_local = (0 == dir ? recv2local[ix_recv] : ix_recv);
-              output_data[iz_local*output_ranges[0][2]*output_ranges[1][2]+iy_local*output_ranges[0][2]+ix_local] += recv_buffer[process][iz_recv*recv_sizes[0]*recv_sizes[1]+iy_recv*recv_sizes[0]+ix_recv];
+              for (int iy_recv = 0; iy_recv < recv_sizes[1]; iy_recv++) {
+                output_data[iz_recv*output_ranges[0][2]*output_ranges[1][2]+recv2local[iy_recv]*output_ranges[0][2]+ix_recv] += current_recv_buffer[iz_recv*recv_sizes[0]*recv_sizes[1]+iy_recv*recv_sizes[0]+ix_recv];
+              }
+            }
+          }
+        } else {
+#pragma omp parallel for default(none) collapse(2) shared(recv_sizes, recv2local, output_ranges, output_data, current_recv_buffer)
+          for (int iy_recv = 0; iy_recv < recv_sizes[1]; iy_recv++) {
+            for (int ix_recv = 0; ix_recv < recv_sizes[0]; ix_recv++) {
+              for (int iz_recv = 0; iz_recv < recv_sizes[2]; iz_recv++) {
+                output_data[recv2local[iz_recv]*output_ranges[0][2]*output_ranges[1][2]+iy_recv*output_ranges[0][2]+ix_recv] += current_recv_buffer[iz_recv*recv_sizes[0]*recv_sizes[1]+iy_recv*recv_sizes[0]+ix_recv];
+              }
             }
           }
         }
