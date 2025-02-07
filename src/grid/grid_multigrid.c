@@ -133,6 +133,7 @@ void grid_copy_to_multigrid_serial(double *grid_rs, const double *grid_pw,
     int npts_pw[3];
     for (int dir = 0; dir < 3; dir++)
       npts_pw[dir] = npts_rs[dir] - 2 * border_width[dir];
+#pragma omp parallel for default(none) shared(grid_rs, grid_pw, npts_rs, npts_pw, border_width)
     for (int iz = 0; iz < npts_rs[2]; iz++) {
       //
       int iz_pw = iz - border_width[2];
@@ -236,13 +237,16 @@ void grid_copy_to_multigrid_replicated(
                             send_process_static, process_shift, comm, &send_request);
     }
 
+    double * current_rs_grid = &grid_rs[(border_width[2] + proc2local[recv_process][2][0]) * npts_rs[0] * npts_rs[1] +
+                        (border_width[1] + proc2local[recv_process][1][0]) * npts_rs[0] +
+                         border_width[0] + proc2local[recv_process][0][0]];
+
     // Unpack recv
     grid_mpi_wait(&recv_request);
+#pragma omp parallel for collapse(2) default(none) shared(recv_size, current_rs_grid, npts_rs, recv_buffer)
     for (int iz = 0; iz < recv_size[2]; iz++) {
       for (int iy = 0; iy < recv_size[1]; iy++) {
-        memcpy(&grid_rs[(iz + border_width[2] + proc2local[recv_process][2][0]) * npts_rs[0] * npts_rs[1] +
-                        (iy + border_width[1] + proc2local[recv_process][1][0]) * npts_rs[0] +
-                         border_width[0] + proc2local[recv_process][0][0]],
+        memcpy(&current_rs_grid[iz * npts_rs[0] * npts_rs[1] + iy * npts_rs[0]],
                &recv_buffer[iz * recv_size[0] * recv_size[1] + iy * recv_size[0]],
                recv_size[0] * sizeof(double));
       }
@@ -259,7 +263,8 @@ void grid_copy_to_multigrid_replicated(
   // Deal with bounds
   if (border_width[0] != 0 || border_width[1] != 0 || border_width[2] != 0) {
     int shifts[3];
-    for (int dir = 0; dir < 3; dir++) {shifts[dir] = npts_rs[dir]-2*border_width[dir];};
+    for (int dir = 0; dir < 3; dir++) shifts[dir] = npts_rs[dir]-2*border_width[dir];
+#pragma omp parallel for default(none) shared(grid_rs, grid_pw, npts_rs, border_width, shifts)
     for (int iz = 0; iz < npts_rs[2]; iz++) {
       int iz_orig = iz;
       if (iz < border_width[2])
@@ -409,6 +414,18 @@ void grid_copy_to_multigrid_distributed(
       const int current_number_of_elements_to_send = product3(send_size);
       send_buffers[send_counter] = send_buffer+send_offset;
 
+      double * current_send_buffer = send_buffers[send_counter];
+      const double * current_pw_grid = &grid_pw[(proc2local_rs[send_process_rs][2][0]+border_width[2]-my_bounds_pw[2][0])*my_sizes_pw[0]*my_sizes_pw[1]+(proc2local_rs[send_process_rs][1][0]+border_width[1]-my_bounds_pw[1][0])*my_sizes_pw[0]+(proc2local_rs[send_process_rs][0][0]+border_width[0]-my_bounds_pw[0][0])];
+
+#pragma omp parallel for collapse(2) default(none) shared(send_size, my_sizes_pw, current_send_buffer, current_pw_grid)
+      for (int iz = 0; iz < send_size[2]; iz++) {
+        for (int iy = 0; iy < send_size[1]; iy++) {
+          memcpy(&current_send_buffer[iz*send_size[0]*send_size[1]+iy*send_size[0]],
+                 &current_pw_grid[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]],
+                 send_size[0]*sizeof(double));
+        }
+      }
+
       grid_mpi_isend_double(send_buffers[send_counter], current_number_of_elements_to_send, send_process, 1, comm_pw, &send_requests[send_counter]);
 
       send_offset += current_number_of_elements_to_send;
@@ -419,14 +436,21 @@ void grid_copy_to_multigrid_distributed(
 
     // A2) Copy local data
     {
-      for (int iz = imax(0, my_bounds_pw[2][0]-my_bounds_rs_inner[2][0]); iz <= imin(my_sizes_rs_inner[2]-1, my_bounds_pw[2][1]-my_bounds_rs_inner[2][0]); iz++) {
-        for (int iy = imax(0, my_bounds_pw[1][0]-my_bounds_rs_inner[1][0]); iy <= imin(my_sizes_rs_inner[1]-1, my_bounds_pw[1][1]-my_bounds_rs_inner[1][0]); iy++) {
-          memcpy(&grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])],
-                 &grid_pw[(iz+my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])*my_sizes_pw[0]*my_sizes_pw[1]+(iy+my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])*my_sizes_pw[0]+(imax(my_bounds_rs_inner[0][0]-my_bounds_pw[0][0], 0))],
-                 imax(0, imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0])-imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])+1)*sizeof(double));
+      int starts_rs[3];
+      for (int dir = 0; dir < 3; dir++) starts_rs[dir] = imax(0, my_bounds_pw[dir][0]-my_bounds_rs_inner[dir][0]);
+      int ends_rs[3];
+      for (int dir = 0; dir < 3; dir++) ends_rs[dir] = imin(my_sizes_rs_inner[dir]-1, my_bounds_pw[dir][1]-my_bounds_rs_inner[dir][0]);
+      double * current_rs_grid = &grid_rs_inner[starts_rs[0]];
+      const double * current_pw_grid = &grid_pw[(my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])*my_sizes_pw[0]*my_sizes_pw[1]+(my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])*my_sizes_pw[0]+(imax(my_bounds_rs_inner[0][0]-my_bounds_pw[0][0], 0))];
+#pragma omp parallel for collapse(2) default(none) shared(starts_rs, ends_rs, my_sizes_rs_inner, my_sizes_pw, current_rs_grid, current_pw_grid)
+      for (int iz = starts_rs[2]; iz <= ends_rs[2]; iz++) {
+        for (int iy = starts_rs[1]; iy <= ends_rs[1]; iy++) {
+          memcpy(&current_rs_grid[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]],
+                 &current_pw_grid[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]],
+                 imax(0, ends_rs[0]-starts_rs[0]+1)*sizeof(double));
         }
       }
-      received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, my_bounds_pw[0][1]-my_bounds_rs_inner[0][0])-imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])+1)*imax(0, imin(my_sizes_rs_inner[1]-1, my_bounds_pw[1][1]-my_bounds_rs_inner[1][0])-imax(0, my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])+1)*imax(0, imin(my_sizes_rs_inner[2]-1, my_bounds_pw[2][1]-my_bounds_rs_inner[2][0])-imax(0, my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])+1);
+      received_elements += imax(0, ends_rs[0]-starts_rs[0]+1)*imax(0, ends_rs[1]-starts_rs[1]+1)*imax(0, ends_rs[2]-starts_rs[2]+1);
     }
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
@@ -438,14 +462,22 @@ void grid_copy_to_multigrid_distributed(
       int recv_size[3];
       for (int dir = 0; dir < 3; dir++) recv_size[dir] = imin(my_sizes_rs_inner[dir]-1, proc2local_pw[recv_process][dir][1]-my_bounds_rs_inner[dir][0])-imax(0, proc2local_pw[recv_process][dir][0]-my_bounds_rs_inner[dir][0])+1;
 
-      for (int iz = imax(0, proc2local_pw[recv_process][2][0]-my_bounds_rs_inner[2][0]); iz <= imin(my_sizes_rs_inner[2]-1, proc2local_pw[recv_process][2][1]-my_bounds_rs_inner[2][0]); iz++) {
-        for (int iy = imax(0, proc2local_pw[recv_process][1][0]-my_bounds_rs_inner[1][0]); iy <= imin(my_sizes_rs_inner[1]-1, proc2local_pw[recv_process][1][1]-my_bounds_rs_inner[1][0]); iy++) {
-          memcpy(&grid_rs_inner[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]+imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])],
-                 &recv_buffer[(iz+my_bounds_rs_inner[2][0]-proc2local_pw[recv_process][2][0])*recv_size[0]*recv_size[1]+(iy+my_bounds_rs_inner[1][0]-proc2local_pw[recv_process][1][0])*recv_size[0]+(imax(my_bounds_rs_inner[0][0]-proc2local_pw[recv_process][0][0], 0))],
-                 imax(0, imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0])-imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])+1)*sizeof(double));
+      int starts_rs[3];
+      for (int dir = 0; dir < 3; dir++) starts_rs[dir] = imax(0, proc2local_pw[recv_process][dir][0]-my_bounds_rs_inner[dir][0]);
+      int ends_rs[3];
+      for (int dir = 0; dir < 3; dir++) ends_rs[dir] = imin(my_sizes_rs_inner[dir]-1, proc2local_pw[recv_process][dir][1]-my_bounds_rs_inner[dir][0]);
+      double * current_rs_grid = &grid_rs_inner[starts_rs[0]];
+      const double * current_recv_buffer = &recv_buffers[recv_counter][-imax(0, proc2local_pw[recv_process][2][0]-my_bounds_rs_inner[2][0])*recv_size[0]*recv_size[1]-imax(0, proc2local_pw[recv_process][1][0]-my_bounds_rs_inner[1][0])*recv_size[0]];
+
+#pragma omp parallel for collapse(2) default(none) shared(starts_rs, ends_rs, my_sizes_rs_inner, recv_size, current_rs_grid, current_recv_buffer)
+      for (int iz = starts_rs[2]; iz <= ends_rs[2]; iz++) {
+        for (int iy = starts_rs[1]; iy <= ends_rs[1]; iy++) {
+          memcpy(&current_rs_grid[iz*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+iy*my_sizes_rs_inner[0]],
+                 &current_recv_buffer[iz*recv_size[0]*recv_size[1]+iy*recv_size[0]],
+                 imax(0, ends_rs[0]-starts_rs[0]+1)*sizeof(double));
         }
       }
-      received_elements += imax(0, imin(my_sizes_rs_inner[0]-1, proc2local_pw[recv_process][0][1]-my_bounds_rs_inner[0][0])-imax(0, proc2local_pw[recv_process][0][0]-my_bounds_rs_inner[0][0])+1)*imax(0, imin(my_sizes_rs_inner[1]-1, proc2local_pw[recv_process][1][1]-my_bounds_rs_inner[1][0])-imax(0, proc2local_pw[recv_process][1][0]-my_bounds_rs_inner[1][0])+1)*imax(0, imin(my_sizes_rs_inner[2]-1, proc2local_pw[recv_process][2][1]-my_bounds_rs_inner[2][0])-imax(0, proc2local_pw[recv_process][2][0]-my_bounds_rs_inner[2][0])+1);
+      received_elements += imax(0, ends_rs[0]-starts_rs[0]+1)*imax(0, ends_rs[1]-starts_rs[1]+1)*imax(0, ends_rs[2]-starts_rs[2]+1);
     }
 
     grid_mpi_waitall(number_of_processes_to_send_to, send_requests);
@@ -526,13 +558,15 @@ void grid_copy_to_multigrid_distributed(
         }
         const int number_of_elements_to_send = product3(send_sizes);
         const int * const send2local = (const int * const)redistribute_rs->index2local_to_halo[redistribute_rs->offset_to_halo[dir]+process_index];
+        double * current_send_buffer = send_buffer[process_index];
+#pragma omp parallel for default(none) shared(send_sizes, send2local, input_ranges, output_ranges, input_data, current_send_buffer, process_index, comm_rs, dir)
         for (int iz_send = 0; iz_send < send_sizes[2]; iz_send++) {
           const int iz_local = (2 == dir ? send2local[iz_send] : iz_send);
           for (int iy_send = 0; iy_send < send_sizes[1]; iy_send++) {
             const int iy_local = (1 == dir ? send2local[iy_send] : iy_send);
             for (int ix_send = 0; ix_send < send_sizes[0]; ix_send++) {
               const int ix_local = (0 == dir ? send2local[ix_send] : ix_send);
-              send_buffer[process_index][iz_send*send_sizes[0]*send_sizes[1]+iy_send*send_sizes[0]+ix_send] = input_data[iz_local*input_ranges[0][2]*input_ranges[1][2]+iy_local*input_ranges[0][2]+ix_local];
+              current_send_buffer[iz_send*send_sizes[0]*send_sizes[1]+iy_send*send_sizes[0]+ix_send] = input_data[iz_local*input_ranges[0][2]*input_ranges[1][2]+iy_local*input_ranges[0][2]+ix_local];
             }
           }
         }
@@ -994,7 +1028,7 @@ void grid_copy_from_multigrid_distributed(
       const int recv_process_rs = map_pw2rs[recv_process];
 
       int recv_size[3];
-      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imin(proc2local_rs[recv_process_rs][dir][1]-border_width[dir], my_bounds_pw[dir][1])-imax(proc2local_rs[recv_process_rs][dir][0]+border_width[dir], my_bounds_pw[dir][0])+1;
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imax(0, imin(proc2local_rs[recv_process_rs][dir][1]-border_width[dir], my_bounds_pw[dir][1])-imax(proc2local_rs[recv_process_rs][dir][0]+border_width[dir], my_bounds_pw[dir][0])+1);
 
       if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0) continue;
 
@@ -1015,7 +1049,7 @@ void grid_copy_from_multigrid_distributed(
       const int recv_process_rs = map_pw2rs[recv_process];
 
       int recv_size[3];
-      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imin(proc2local_rs[recv_process_rs][dir][1]-border_width[dir], my_bounds_pw[dir][1])-imax(proc2local_rs[recv_process_rs][dir][0]+border_width[dir], my_bounds_pw[dir][0])+1;
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imax(0, imin(proc2local_rs[recv_process_rs][dir][1]-border_width[dir], my_bounds_pw[dir][1])-imax(proc2local_rs[recv_process_rs][dir][0]+border_width[dir], my_bounds_pw[dir][0])+1);
 
       if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0) continue;
 
@@ -1037,7 +1071,7 @@ void grid_copy_from_multigrid_distributed(
       const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
 
       int send_size[3];
-      for (int dir = 0; dir < 3; dir++) send_size[dir] = imin(my_bounds_rs_inner[dir][1], proc2local_pw[send_process][dir][1])-imax(my_bounds_rs_inner[dir][0], proc2local_pw[send_process][dir][0])+1;
+      for (int dir = 0; dir < 3; dir++) send_size[dir] = imax(0, imin(my_bounds_rs_inner[dir][1], proc2local_pw[send_process][dir][1])-imax(my_bounds_rs_inner[dir][0], proc2local_pw[send_process][dir][0])+1);
 
       if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0) continue;
 
@@ -1056,7 +1090,7 @@ void grid_copy_from_multigrid_distributed(
       const int send_process = modulo(my_process_pw+process_shift,number_of_processes);
 
       int send_size[3];
-      for (int dir = 0; dir < 3; dir++) send_size[dir] = imin(my_bounds_rs_inner[dir][1], proc2local_pw[send_process][dir][1])-imax(my_bounds_rs_inner[dir][0], proc2local_pw[send_process][dir][0])+1;
+      for (int dir = 0; dir < 3; dir++) send_size[dir] = imax(0, imin(my_bounds_rs_inner[dir][1], proc2local_pw[send_process][dir][1])-imax(my_bounds_rs_inner[dir][0], proc2local_pw[send_process][dir][0])+1);
 
       if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0) continue;
 
@@ -1087,10 +1121,10 @@ void grid_copy_from_multigrid_distributed(
         for (int iy = imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0]); iy <= imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0]); iy++) {
           memcpy(&grid_pw[iz*my_sizes_pw[0]*my_sizes_pw[1]+iy*my_sizes_pw[0]+imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])],
                  &grid_rs_inner[(iz+my_bounds_pw[2][0]-my_bounds_rs_inner[2][0])*my_sizes_rs_inner[0]*my_sizes_rs_inner[1]+(iy+my_bounds_pw[1][0]-my_bounds_rs_inner[1][0])*my_sizes_rs_inner[0]+imax(0, my_bounds_pw[0][0]-my_bounds_rs_inner[0][0])],
-                 sizeof(double)*(imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1));
+                 sizeof(double)*imax(0, imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1));
         }
       }
-      received_elements += (imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1)*(imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0])-imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])+1)*(imin(my_sizes_pw[2]-1, my_bounds_rs_inner[2][1]-my_bounds_pw[2][0])-imax(0, my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])+1);
+      received_elements += imax(0, imin(my_sizes_pw[0]-1, my_bounds_rs_inner[0][1]-my_bounds_pw[0][0])-imax(0, my_bounds_rs_inner[0][0]-my_bounds_pw[0][0])+1)*imax(0, imin(my_sizes_pw[1]-1, my_bounds_rs_inner[1][1]-my_bounds_pw[1][0])-imax(0, my_bounds_rs_inner[1][0]-my_bounds_pw[1][0])+1)*imax(0, imin(my_sizes_pw[2]-1, my_bounds_rs_inner[2][1]-my_bounds_pw[2][0])-imax(0, my_bounds_rs_inner[2][0]-my_bounds_pw[2][0])+1);
     }
 
     // A2) Send around local data of the PW grid and copy it to our local buffer
@@ -1100,7 +1134,7 @@ void grid_copy_from_multigrid_distributed(
       const int recv_process_rs = map_pw2rs[recv_processes[recv_process]];
 
       int recv_size[3];
-      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imin(proc2local_rs[recv_process_rs][dir][1]-border_width[dir], my_bounds_pw[dir][1])-imax(proc2local_rs[recv_process_rs][dir][0]+border_width[dir], my_bounds_pw[dir][0])+1;
+      for (int dir = 0; dir < 3; dir++) recv_size[dir] = imax(0, imin(proc2local_rs[recv_process_rs][dir][1]-border_width[dir], my_bounds_pw[dir][1])-imax(proc2local_rs[recv_process_rs][dir][0]+border_width[dir], my_bounds_pw[dir][0])+1);
 
       for (int iz = 0; iz < recv_size[2]; iz++) {
         for (int iy = 0; iy < recv_size[1]; iy++) {
