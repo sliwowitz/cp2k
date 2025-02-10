@@ -1842,7 +1842,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: idx
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'sort_shells'
-      REAL(KIND=dp), PARAMETER                           :: small = 5.e-16_dp
+      REAL(KIND=dp), PARAMETER                           :: small = EPSILON(1.0_dp)
 
       INTEGER                                            :: handle, ig, ng, s1, s2
       REAL(KIND=dp)                                      :: s_begin
@@ -1901,6 +1901,7 @@ CONTAINS
          n1 = g_hat(1, ii)
          n2 = g_hat(2, ii)
          n3 = g_hat(3, ii)
+         ! Probably better to use maxval(g_hat, 2) or similar
          slen(i - s1 + 1) = 1000.0_dp*REAL(n1, dp) + &
                             REAL(n2, dp) + 0.001_dp*REAL(n3, dp)
       END DO

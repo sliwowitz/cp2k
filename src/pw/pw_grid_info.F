@@ -105,7 +105,7 @@ CONTAINS
 
 ! ncommensurate is the number of commensurate grids
 ! in order to have non-commensurate grids ncommensurate must be 0
-! icommensurte  is the level number of communensurate grids
+! icommensurate  is the level number of communensurate grids
 ! this implies that the number of grid points in each direction
 ! is k*2**(ncommensurate-icommensurate)
 
