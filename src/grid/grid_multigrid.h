@@ -33,8 +33,8 @@ typedef struct {
   int *buffer_offsets_to_inner;
   int *buffer_offsets_to_halo;
   // Local coordinates for each process
-  int ** index2local_to_inner;
-  int ** index2local_to_halo;
+  int **index2local_to_inner;
+  int **index2local_to_halo;
   // Offsets for sending and receiving arrays
   // Used to adress all arrays
   int offset_to_inner[3];
@@ -69,7 +69,7 @@ typedef struct {
   grid_mpi_comm comm;
   int (*pgrid_dims)[3];
   int *proc2local;
-  grid_redistribute* redistribute;
+  grid_redistribute *redistribute;
   grid_ref_multigrid *ref;
   grid_cpu_multigrid *cpu;
   // more backends to be added here

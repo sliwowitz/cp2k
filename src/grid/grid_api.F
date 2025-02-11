@@ -1383,8 +1383,8 @@ CONTAINS
       TYPE(pw_r3d_rs_type), INTENT(IN)                   :: grid
       INTEGER, INTENT(IN)                                :: ilevel
 
+      INTEGER, ALLOCATABLE, DIMENSION(:, :, :), TARGET   :: proc2local
       INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_global
-      INTEGER, ALLOCATABLE, TARGET, DIMENSION(:, :, :)   :: proc2local
       INTERFACE
          SUBROUTINE grid_copy_to_multigrid_general_single_c(multigrid, ilevel, grid, comm, proc2local) &
             BIND(C, name="grid_copy_to_multigrid_general_single_f")
@@ -1403,7 +1403,7 @@ CONTAINS
       npts_global => grid_get_multigrid_npts_global(multigrid)
       CPASSERT(ALL(grid%pw_grid%npts == npts_global(:, ilevel)))
 
-      ALLOCATE(proc2local(2, 3, grid%pw_grid%para%group%num_pe))
+      ALLOCATE (proc2local(2, 3, grid%pw_grid%para%group%num_pe))
       proc2local(:, :, :) = grid%pw_grid%para%bo(:, :, :, 1) - 1
 
       CALL grid_copy_to_multigrid_general_single_c(multigrid%c_ptr, ilevel, C_LOC(grid%array), &
@@ -1426,8 +1426,8 @@ CONTAINS
       TYPE(pw_r3d_rs_type), INTENT(IN)                   :: grid
       INTEGER, INTENT(IN)                                :: ilevel
 
+      INTEGER, ALLOCATABLE, DIMENSION(:, :, :), TARGET   :: proc2local
       INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_global
-      INTEGER, ALLOCATABLE, TARGET, DIMENSION(:, :, :)   :: proc2local
       INTERFACE
          SUBROUTINE grid_copy_from_multigrid_general_single_c(multigrid, ilevel, grid, comm, proc2local) &
             BIND(C, name="grid_copy_from_multigrid_general_single_f")
@@ -1447,7 +1447,7 @@ CONTAINS
       CPASSERT(ALL(grid%pw_grid%npts == npts_global(:, ilevel)))
       CPASSERT(ASSOCIATED(grid%array))
 
-      ALLOCATE(proc2local(2, 3, grid%pw_grid%para%group%num_pe))
+      ALLOCATE (proc2local(2, 3, grid%pw_grid%para%group%num_pe))
       proc2local(:, :, :) = grid%pw_grid%para%bo(:, :, :, 1) - 1
 
       CALL grid_copy_from_multigrid_general_single_c(multigrid%c_ptr, ilevel, C_LOC(grid%array), &

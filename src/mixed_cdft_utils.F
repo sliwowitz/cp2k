@@ -57,7 +57,7 @@ MODULE mixed_cdft_utils
                                               multiple_fe_list
    USE gaussian_gridlevels,             ONLY: init_gaussian_gridlevel
    USE global_types,                    ONLY: global_environment_type
-   USE grid_api, ONLY: grid_create_multigrid
+   USE grid_api,                        ONLY: grid_create_multigrid
    USE hirshfeld_types,                 ONLY: create_hirshfeld_type,&
                                               release_hirshfeld_type,&
                                               set_hirshfeld_info
@@ -797,7 +797,7 @@ CONTAINS
             CALL rs_grid_print(rs_grids(1), iounit)
             mixed_cdft%pw_env%rs_descs => rs_descs
             mixed_cdft%pw_env%rs_grids => rs_grids
-      CALL grid_create_multigrid(rs_grids, mixed_cdft%pw_env%multigrid)
+            CALL grid_create_multigrid(rs_grids, mixed_cdft%pw_env%multigrid)
             ! qs_kind_set
             subsys_section => section_vals_get_subs_vals(force_env_sections, "SUBSYS", &
                                                          i_rep_section=i_force_eval(1))

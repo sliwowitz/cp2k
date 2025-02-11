@@ -29,7 +29,7 @@ static inline void error_check(int error) {
     MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
   }
 #else
-  (void) error;
+  (void)error;
 #endif
 }
 
@@ -146,14 +146,13 @@ bool grid_mpi_comm_is_ident(const grid_mpi_comm comm1,
 }
 
 void grid_mpi_sendrecv_int(const int *sendbuffer, const int sendcount,
-                           const int dest, const int sendtag,
-                           int *recvbuffer, const int recvcount,
-                           const int source, const int recvtag,
-                           const grid_mpi_comm comm) {
+                           const int dest, const int sendtag, int *recvbuffer,
+                           const int recvcount, const int source,
+                           const int recvtag, const grid_mpi_comm comm) {
 #if defined(__parallel)
   error_check(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
-                     recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
-                     MPI_STATUS_IGNORE));
+                           recvbuffer, recvcount, MPI_DOUBLE, source, recvtag,
+                           comm, MPI_STATUS_IGNORE));
 #else
   (void)sendbuffer;
   (void)sendcount;
@@ -167,11 +166,15 @@ void grid_mpi_sendrecv_int(const int *sendbuffer, const int sendcount,
   // Check the input for reasonable values in serial case
   assert(sendbuffer != NULL);
   assert(recvbuffer != NULL);
-  assert((dest == 0 || dest == grid_mpi_any_source || dest == grid_mpi_proc_null) && "Invalid receive process");
-  assert((source == 0 || source == grid_mpi_proc_null) && "Invalid sent process");
-  assert((recvtag == sendtag || recvtag == grid_mpi_any_tag) && "Invalid send or receive tag");
+  assert((dest == 0 || dest == grid_mpi_any_source ||
+          dest == grid_mpi_proc_null) &&
+         "Invalid receive process");
+  assert((source == 0 || source == grid_mpi_proc_null) &&
+         "Invalid sent process");
+  assert((recvtag == sendtag || recvtag == grid_mpi_any_tag) &&
+         "Invalid send or receive tag");
   if (dest != grid_mpi_proc_null && source != grid_mpi_proc_null) {
-    memcpy(recvbuffer, sendbuffer, sendcount*sizeof(double));
+    memcpy(recvbuffer, sendbuffer, sendcount * sizeof(double));
   }
 #endif
 }
@@ -183,8 +186,8 @@ void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
                               const grid_mpi_comm comm) {
 #if defined(__parallel)
   error_check(MPI_Sendrecv(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag,
-                     recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
-                     MPI_STATUS_IGNORE));
+                           recvbuffer, recvcount, MPI_DOUBLE, source, recvtag,
+                           comm, MPI_STATUS_IGNORE));
 #else
   (void)sendbuffer;
   (void)sendcount;
@@ -198,11 +201,15 @@ void grid_mpi_sendrecv_double(const double *sendbuffer, const int sendcount,
   // Check the input for reasonable values in serial case
   assert(sendbuffer != NULL);
   assert(recvbuffer != NULL);
-  assert((dest == 0 || dest == grid_mpi_any_source || dest == grid_mpi_proc_null) && "Invalid receive process");
-  assert((source == 0 || source == grid_mpi_proc_null) && "Invalid sent process");
-  assert((recvtag == sendtag || recvtag == grid_mpi_any_tag) && "Invalid send or receive tag");
+  assert((dest == 0 || dest == grid_mpi_any_source ||
+          dest == grid_mpi_proc_null) &&
+         "Invalid receive process");
+  assert((source == 0 || source == grid_mpi_proc_null) &&
+         "Invalid sent process");
+  assert((recvtag == sendtag || recvtag == grid_mpi_any_tag) &&
+         "Invalid send or receive tag");
   if (dest != grid_mpi_proc_null && source != grid_mpi_proc_null) {
-    memcpy(recvbuffer, sendbuffer, sendcount*sizeof(double));
+    memcpy(recvbuffer, sendbuffer, sendcount * sizeof(double));
   }
 #endif
 }
@@ -216,9 +223,10 @@ void grid_mpi_isend_double(const double *sendbuffer, const int sendcount,
   assert(sendcount >= 0 && "Send count must be nonnegative!");
   assert(sendtag >= 0 && "Send tag must be nonnegative!");
   assert(dest >= 0 && "Send process must be nonnegative!");
-  assert(dest < grid_mpi_comm_size(comm) && "Send process must be lower than the number of processes!");
+  assert(dest < grid_mpi_comm_size(comm) &&
+         "Send process must be lower than the number of processes!");
   error_check(MPI_Isend(sendbuffer, sendcount, MPI_DOUBLE, dest, sendtag, comm,
-                  request));
+                        request));
 #else
   (void)sendbuffer;
   (void)sendcount;
@@ -239,9 +247,10 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
   assert(recvcount >= 0 && "Receive count must be nonnegative!");
   assert(recvtag >= 0 && "Receive tag must be nonnegative!");
   assert(source >= 0 && "Receive process must be nonnegative!");
-  assert(source < grid_mpi_comm_size(comm) && "Receive process must be lower than the number of processes!");
-  error_check(MPI_Irecv(recvbuffer, recvcount, MPI_DOUBLE, source, recvtag, comm,
-                  request));
+  assert(source < grid_mpi_comm_size(comm) &&
+         "Receive process must be lower than the number of processes!");
+  error_check(MPI_Irecv(recvbuffer, recvcount, MPI_DOUBLE, source, recvtag,
+                        comm, request));
 #else
   (void)recvbuffer;
   (void)recvcount;
@@ -295,8 +304,8 @@ void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
   assert(sendbuffer != NULL);
   assert(recvbuffer != NULL);
   assert(sendcount >= 0 && "Send count must be nonnegative!");
-  error_check(MPI_Allgather(sendbuffer, sendcount, MPI_INT, recvbuffer, sendcount,
-                      MPI_INT, comm));
+  error_check(MPI_Allgather(sendbuffer, sendcount, MPI_INT, recvbuffer,
+                            sendcount, MPI_INT, comm));
 #else
   (void)comm;
   memcpy(recvbuffer, sendbuffer, sendcount * sizeof(int));
@@ -308,7 +317,8 @@ void grid_mpi_sum_double(double *buffer, const int count,
 #if defined(__parallel)
   assert(buffer != NULL);
   assert(count >= 0 && "Send count must be nonnegative!");
-  error_check(MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, MPI_SUM, comm));
+  error_check(
+      MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, MPI_SUM, comm));
 #else
   assert(buffer != NULL);
   (void)comm;

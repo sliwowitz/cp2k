@@ -138,7 +138,7 @@ GRID_HOST_DEVICE static inline int modulo(int a, int m) {
 }
 
 GRID_HOST_DEVICE static inline int product3(const int array3[3]) {
-  return array3[0]*array3[1]*array3[2];
+  return array3[0] * array3[1] * array3[2];
 }
 
 /*******************************************************************************
