@@ -1,0 +1,287 @@
+/*----------------------------------------------------------------------------*/
+/*  CP2K: A general program to perform molecular dynamics simulations         */
+/*  Copyright 2000-2025 CP2K developers group <https://cp2k.org>              */
+/*                                                                            */
+/*  SPDX-License-Identifier: BSD-3-Clause                                     */
+/*----------------------------------------------------------------------------*/
+
+#include "grid_fft.h"
+#include "common/grid_common.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <complex.h>
+
+/*******************************************************************************
+ * \brief Naive implementation of FFT. To be replaced by a real FFT library
+ *later. \author Frederick Stein
+ ******************************************************************************/
+void fft_1d_fw(double complex *grid_rs, double complex *grid_gs,
+               const int fft_size, const int number_of_ffts) {
+  const double pi = acos(-1.0);
+  // Perform the FFT
+  memset(grid_gs, 0, number_of_ffts * fft_size * sizeof(double complex));
+#pragma omp parallel for default(none)                                         \
+    shared(grid_rs, grid_gs, fft_size, number_of_ffts, pi)
+  for (int fft = 0; fft < number_of_ffts; fft++) {
+    for (int index_out = 0; index_out < fft_size; index_out++) {
+      for (int index_in = 0; index_in < fft_size; index_in++) {
+        grid_gs[fft * fft_size + index_out] +=
+            grid_rs[fft * fft_size + index_in] *
+            cexp(-2.0 * I * pi * index_out * index_in / fft_size);
+      }
+    }
+  }
+}
+
+/*******************************************************************************
+ * \brief Performs a transposition of (x,y,z)->(z,x,y).
+ * \author Frederick Stein
+ ******************************************************************************/
+void transpose_xy_to_xz_blocked(double complex *grid,
+                                double complex *transposed,
+                                const int npts_global[3],
+                                const int (*proc2local)[3][2],
+                                const int (*proc2local_transposed)[3][2],
+                                const grid_mpi_comm comm) {
+  const int number_of_processes = grid_mpi_comm_size(comm);
+  const int my_process = grid_mpi_comm_rank(comm);
+  (void) npts_global;
+
+  int max_number_of_elements = 0;
+  for (int process = 0; process < number_of_processes; process++) {
+    max_number_of_elements =
+        imax(max_number_of_elements,
+             (proc2local[process][0][1] - proc2local[process][0][0] + 1) *
+                 (proc2local[process][1][1] - proc2local[process][1][0] + 1) *
+                 (proc2local[process][2][1] - proc2local[process][2][0] + 1));
+  }
+  double complex *recv_buffer =
+      malloc(max_number_of_elements * sizeof(double complex));
+  grid_mpi_request recv_request, send_request;
+
+  const int my_number_of_elements =
+      (proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1) *
+      (proc2local[my_process][1][1] - proc2local[my_process][1][0] + 1) *
+      (proc2local[my_process][2][1] - proc2local[my_process][2][0] + 1);
+
+  int my_transposed_sizes[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_transposed_sizes[dir] = proc2local_transposed[my_process][dir][1] -
+                               proc2local_transposed[my_process][dir][0] + 1;
+
+  for (int process_shift = 0; process_shift < number_of_processes;
+       process_shift++) {
+    const int send_process =
+        modulo(my_process + process_shift, number_of_processes);
+    const int recv_process =
+        modulo(my_process - process_shift, number_of_processes);
+
+    int recv_sizes[3];
+    for (int dir = 0; dir < 3; dir++)
+      recv_sizes[dir] = proc2local[recv_process][dir][1] -
+                        proc2local[recv_process][dir][0] + 1;
+
+    // Post receive request
+    grid_mpi_irecv_double_complex(recv_buffer, product3(recv_sizes),
+                                  recv_process, 1, comm, &recv_request);
+
+    // Post send request
+    grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
+                                  comm, &send_request);
+
+    // Wait for the receive process and copy the data
+    grid_mpi_wait(&recv_request);
+
+    // Copy and transpose the data
+    for (int index_x = imax(proc2local[recv_process][0][0],
+                            proc2local_transposed[my_process][0][0]);
+         index_x <= imin(proc2local[recv_process][0][1],
+                         proc2local_transposed[my_process][0][1]);
+         index_x++) {
+      for (int index_y = imax(proc2local[recv_process][1][0],
+                              proc2local_transposed[my_process][1][0]);
+           index_y <= imin(proc2local[recv_process][1][1],
+                           proc2local_transposed[my_process][1][1]);
+           index_y++) {
+        for (int index_z = imin(proc2local[recv_process][2][0],
+                                proc2local_transposed[my_process][2][0]);
+             index_z <= imin(proc2local[recv_process][2][1],
+                             proc2local_transposed[my_process][2][1]);
+             index_z++) {
+          transposed[(index_z - proc2local_transposed[my_process][2][0]) *
+                         my_transposed_sizes[0] * my_transposed_sizes[1] +
+                     (index_x - proc2local_transposed[my_process][0][0]) *
+                         my_transposed_sizes[1] +
+                     (index_y - proc2local_transposed[my_process][1][0])] =
+              recv_buffer[(index_x - proc2local_transposed[my_process][0][0]) *
+                              recv_sizes[1] * recv_sizes[2] +
+                          (index_y - proc2local[recv_process][1][0]) *
+                              recv_sizes[0] +
+                          (index_z - proc2local[recv_process][2][0])];
+        }
+      }
+    }
+
+    // Wait for the send request
+    grid_mpi_wait(&send_request);
+  }
+}
+
+/*******************************************************************************
+ * \brief Performs a transposition of (z,x,y)->(y,z,x).
+ * \author Frederick Stein
+ ******************************************************************************/
+void transpose_xz_to_yz_blocked(double complex *grid,
+                                double complex *transposed,
+                                const int npts_global[3],
+                                const int (*proc2local)[3][2],
+                                const int (*proc2local_transposed)[3][2],
+                                const grid_mpi_comm comm) {
+  const int number_of_processes = grid_mpi_comm_size(comm);
+  const int my_process = grid_mpi_comm_rank(comm);
+  (void) npts_global;
+
+  int max_number_of_elements = 0;
+  for (int process = 0; process < number_of_processes; process++) {
+    max_number_of_elements =
+        imax(max_number_of_elements,
+             (proc2local[process][0][1] - proc2local[process][0][0] + 1) *
+                 (proc2local[process][1][1] - proc2local[process][1][0] + 1) *
+                 (proc2local[process][2][1] - proc2local[process][2][0] + 1));
+  }
+  double complex *recv_buffer =
+      malloc(max_number_of_elements * sizeof(double complex));
+  grid_mpi_request recv_request, send_request;
+
+  const int my_number_of_elements =
+      (proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1) *
+      (proc2local[my_process][1][1] - proc2local[my_process][1][0] + 1) *
+      (proc2local[my_process][2][1] - proc2local[my_process][2][0] + 1);
+
+  int my_transposed_sizes[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_transposed_sizes[dir] = proc2local_transposed[my_process][dir][1] -
+                               proc2local_transposed[my_process][dir][0] + 1;
+
+  for (int process_shift = 0; process_shift < number_of_processes;
+       process_shift++) {
+    const int send_process =
+        modulo(my_process + process_shift, number_of_processes);
+    const int recv_process =
+        modulo(my_process - process_shift, number_of_processes);
+
+    int recv_sizes[3];
+    for (int dir = 0; dir < 3; dir++)
+      recv_sizes[dir] = proc2local[recv_process][dir][1] -
+                        proc2local[recv_process][dir][0] + 1;
+
+    // Post receive request
+    grid_mpi_irecv_double_complex(recv_buffer, product3(recv_sizes),
+                                  recv_process, 1, comm, &recv_request);
+
+    // Post send request
+    grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
+                                  comm, &send_request);
+
+    // Wait for the receive process and copy the data
+    grid_mpi_wait(&recv_request);
+
+    // Copy and transpose the data
+    for (int index_x = imax(proc2local[recv_process][0][0],
+                            proc2local_transposed[my_process][0][0]);
+         index_x <= imin(proc2local[recv_process][0][1],
+                         proc2local_transposed[my_process][0][1]);
+         index_x++) {
+      for (int index_y = imax(proc2local[recv_process][1][0],
+                              proc2local_transposed[my_process][1][0]);
+           index_y <= imin(proc2local[recv_process][1][1],
+                           proc2local_transposed[my_process][1][1]);
+           index_y++) {
+        for (int index_z = imin(proc2local[recv_process][2][0],
+                                proc2local_transposed[my_process][2][0]);
+             index_z <= imin(proc2local[recv_process][2][1],
+                             proc2local_transposed[my_process][2][1]);
+             index_z++) {
+          transposed[(index_y - proc2local_transposed[my_process][1][0]) *
+                         my_transposed_sizes[0] * my_transposed_sizes[2] +
+                     (index_z - proc2local_transposed[my_process][2][0]) *
+                         my_transposed_sizes[0] +
+                     (index_x - proc2local_transposed[my_process][0][0])] =
+              recv_buffer[(index_z - proc2local_transposed[my_process][2][0]) *
+                              recv_sizes[0] * recv_sizes[1] +
+                          (index_x - proc2local[recv_process][0][0]) *
+                              recv_sizes[1] +
+                          (index_y - proc2local[recv_process][1][0])];
+        }
+      }
+    }
+
+    // Wait for the send request
+    grid_mpi_wait(&send_request);
+  }
+}
+
+/*******************************************************************************
+ * \brief Performs a forward 3D-FFT using a blocked distribution.
+ * \author Frederick Stein
+ ******************************************************************************/
+void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
+                       const int npts_global[3], int (*proc2local_rs)[3][2],
+                       int (*proc2local_ms)[3][2], int (*proc2local_gs)[3][2],
+                       const grid_mpi_comm comm) {
+  const int my_process = grid_mpi_comm_rank(comm);
+
+  // Collect the local sizes (for buffer sizes and FFT dimensions)
+  int fft_sizes_rs[3] = {
+      proc2local_rs[my_process][0][1] - proc2local_rs[my_process][0][0] + 1,
+      proc2local_rs[my_process][1][1] - proc2local_rs[my_process][1][0] + 1,
+      proc2local_rs[my_process][2][1] - proc2local_rs[my_process][2][0] + 1};
+  int fft_sizes_ms[3] = {
+      proc2local_ms[my_process][0][1] - proc2local_ms[my_process][0][0] + 1,
+      proc2local_ms[my_process][1][1] - proc2local_ms[my_process][1][0] + 1,
+      proc2local_ms[my_process][2][1] - proc2local_ms[my_process][2][0] + 1};
+  int fft_sizes_gs[3] = {
+      proc2local_gs[my_process][0][1] - proc2local_gs[my_process][0][0] + 1,
+      proc2local_gs[my_process][1][1] - proc2local_gs[my_process][1][0] + 1,
+      proc2local_gs[my_process][2][1] - proc2local_gs[my_process][2][0] + 1};
+
+  const int number_of_elements_rs = product3(fft_sizes_rs);
+  const int number_of_elements_ms = product3(fft_sizes_ms);
+  const int number_of_elements_gs = product3(fft_sizes_gs);
+  const int size_of_buffer =
+      imax(imax(number_of_elements_rs, number_of_elements_ms),
+           number_of_elements_gs);
+  double complex *grid_buffer_1 =
+      (double complex *)malloc(size_of_buffer * sizeof(double complex));
+  double complex *grid_buffer_2 =
+      (double complex *)malloc(size_of_buffer * sizeof(double complex));
+
+  // Copy real array to complex buffer
+  for (int i = 0; i < number_of_elements_rs; i++) {
+    grid_buffer_1[i] = grid_rs[i];
+  }
+
+  // Perform the first FFT
+  fft_1d_fw(grid_buffer_1, grid_buffer_2, npts_global[2],
+            fft_sizes_rs[0] * fft_sizes_rs[1]);
+
+  // Perform transpose
+  transpose_xy_to_xz_blocked(grid_buffer_2, grid_buffer_1, npts_global,
+                             proc2local_rs, proc2local_ms, comm);
+
+  // Perform the second FFT
+  fft_1d_fw(grid_buffer_1, grid_buffer_2, npts_global[1],
+            fft_sizes_rs[0] * fft_sizes_rs[2]);
+
+  // Perform second transpose
+  transpose_xz_to_yz_blocked(grid_buffer_2, grid_buffer_1, npts_global,
+                             proc2local_ms, proc2local_gs, comm);
+
+  // Perform the third FFT
+  fft_1d_fw(grid_buffer_1, grid_gs, npts_global[0],
+            fft_sizes_rs[1] * fft_sizes_rs[2]);
+}
+
+// EOF

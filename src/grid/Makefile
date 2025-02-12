@@ -17,6 +17,7 @@ ALL_OBJECTS := ../offload/offload_buffer.o \
         grid_collocate.o \
         grid_integrate.o \
         grid_multigrid.o \
+        grid_fft.o \
         common/grid_library.o \
         common/grid_mpi.o \
         common/grid_basis_set.o \
