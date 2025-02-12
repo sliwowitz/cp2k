@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "../offload/offload_library.h"
+#include "grid_fft_test.h"
 #include "common/grid_library.h"
 #include "grid_replay.h"
 
@@ -97,6 +98,8 @@ int main(int argc, char *argv[]) {
   errors += run_test(argv[1], "general_subpatch0.task");
   errors += run_test(argv[1], "general_subpatch16.task");
   errors += run_test(argv[1], "general_overflow.task");
+
+  errors += fft_test_1();
 
   grid_library_print_stats(&mpi_sum_func, 0, &print_func, 0);
   grid_library_finalize();
