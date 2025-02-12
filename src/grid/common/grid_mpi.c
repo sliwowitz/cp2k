@@ -8,6 +8,7 @@
 #include "grid_mpi.h"
 
 #include <assert.h>
+#include <complex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +53,21 @@ int grid_mpi_comm_rank(const grid_mpi_comm comm) {
 #else
   (void)comm;
   return 0;
+#endif
+}
+
+void grid_mpi_cart_get(const grid_mpi_comm comm, int maxdims, int *dims,
+                       int *periods, int *coords) {
+#if defined(__parallel)
+  error_check(MPI_Cart_get(comm, maxdims, dims, periods, coords));
+  return comm_rank;
+#else
+  (void)comm;
+  for (int dim = 0; dim < maxdims; dim++) {
+    dims[dim] = 1;
+    periods[dim] = 0;
+    coords[dim] = 0;
+  }
 #endif
 }
 
@@ -262,6 +278,54 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
 #endif
 }
 
+void grid_mpi_isend_double_complex(const double complex *sendbuffer,
+                                   const int sendcount, const int dest,
+                                   const int sendtag, const grid_mpi_comm comm,
+                                   grid_mpi_request *request) {
+#if defined(__parallel)
+  assert(sendbuffer != NULL);
+  assert(sendcount >= 0 && "Send count must be nonnegative!");
+  assert(sendtag >= 0 && "Send tag must be nonnegative!");
+  assert(dest >= 0 && "Send process must be nonnegative!");
+  assert(dest < grid_mpi_comm_size(comm) &&
+         "Send process must be lower than the number of processes!");
+  error_check(MPI_Isend(sendbuffer, sendcount, MPI_C_DOUBLE_COMPLEX, dest,
+                        sendtag, comm, request));
+#else
+  (void)sendbuffer;
+  (void)sendcount;
+  (void)dest;
+  (void)sendtag;
+  (void)comm;
+  *request = 2;
+  assert(false && "Non-blocking send not allowed in serial mode");
+#endif
+}
+
+void grid_mpi_irecv_double_complex(double complex *recvbuffer,
+                                   const int recvcount, const int source,
+                                   const int recvtag, const grid_mpi_comm comm,
+                                   grid_mpi_request *request) {
+#if defined(__parallel)
+  assert(recvbuffer != NULL);
+  assert(recvcount >= 0 && "Receive count must be nonnegative!");
+  assert(recvtag >= 0 && "Receive tag must be nonnegative!");
+  assert(source >= 0 && "Receive process must be nonnegative!");
+  assert(source < grid_mpi_comm_size(comm) &&
+         "Receive process must be lower than the number of processes!");
+  error_check(MPI_Irecv(recvbuffer, recvcount, MPI_C_DOUBLE_COMPLEX, source,
+                        recvtag, comm, request));
+#else
+  (void)recvbuffer;
+  (void)recvcount;
+  (void)source;
+  (void)recvtag;
+  (void)comm;
+  *request = 3;
+  assert(false && "Non-blocking receive not allowed in serial mode");
+#endif
+}
+
 void grid_mpi_wait(grid_mpi_request *request) {
   assert(request != NULL);
 #if defined(__parallel)
@@ -324,6 +388,51 @@ void grid_mpi_sum_double(double *buffer, const int count,
   (void)comm;
   (void)buffer;
   (void)count;
+#endif
+}
+
+void grid_mpi_dims_create(int number_of_processes, int number_of_dimensions,
+                          int *dimensions) {
+#if defined(__parallel)
+  assert(number_of_processes > 0 &&
+         "The number of processes needs to be positive");
+  assert(number_of_dimensions >= 0 &&
+         "The number of dimensions needs to be positive!");
+  assert(dimensions != NULL && "The target array needs to point to some data!");
+  MPI_Dims_create(number_of_processes, number_of_dimensions, dimensions);
+#else
+  (void)number_of_processes;
+  for (int dim = 0; dim < number_of_dimensions; dim++)
+    dimensions[dim] = 1;
+#endif
+}
+
+void grid_mpi_cart_create(grid_mpi_comm comm_old, int ndims, const int dims[],
+                          const int periods[], int reorder,
+                          grid_mpi_comm *comm_cart) {
+#if defined(__parallel)
+  assert(ndims > 0 && "The number of processes needs to be positive");
+  error_check(
+      MPI_Cart_create(comm_old, ndims, dims, periods, reorder, comm_cart));
+#else
+  (void)ndims;
+  (void)dims;
+  (void)periods;
+  (void)reorder;
+  *comm_cart = comm_old - 43;
+#endif
+}
+
+void grid_mpi_cart_coords(const grid_mpi_comm comm, const int rank, int maxdims,
+                          int coords[]) {
+#if defined(__parallel)
+  assert(ndims > 0 && "The number of processes needs to be positive");
+  error_check(MPI_Cart_coords(comm, rank, maxdims, coords));
+#else
+  (void)comm;
+  (void)rank;
+  for (int dim = 0; dim < maxdims; dim++)
+    coords[dim] = 0;
 #endif
 }
 

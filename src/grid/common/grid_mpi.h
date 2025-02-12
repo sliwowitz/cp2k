@@ -7,6 +7,7 @@
 #ifndef GRID_MPI_H
 #define GRID_MPI_H
 
+#include <complex.h>
 #include <stdbool.h>
 
 #if defined(__parallel)
@@ -38,6 +39,9 @@ static const int grid_mpi_any_tag = -13;
 int grid_mpi_comm_size(const grid_mpi_comm comm);
 
 int grid_mpi_comm_rank(const grid_mpi_comm comm);
+
+void grid_mpi_cart_get(const grid_mpi_comm comm, int maxdims, int *dims,
+                       int *periods, int *coords);
 
 grid_mpi_comm grid_mpi_comm_f2c(const grid_mpi_fint fortran_comm);
 
@@ -80,6 +84,16 @@ void grid_mpi_irecv_double(double *recvbuffer, const int recvcount,
                            const int source, const int recvtag,
                            const grid_mpi_comm comm, grid_mpi_request *request);
 
+void grid_mpi_isend_double_complex(const double complex *sendbuffer,
+                                   const int sendcount, const int dest,
+                                   const int sendtag, const grid_mpi_comm comm,
+                                   grid_mpi_request *request);
+
+void grid_mpi_irecv_double_complex(double complex *recvbuffer,
+                                   const int recvcount, const int source,
+                                   const int recvtag, const grid_mpi_comm comm,
+                                   grid_mpi_request *request);
+
 void grid_mpi_wait(grid_mpi_request *request);
 
 void grid_mpi_waitany(const int number_of_requests,
@@ -93,6 +107,16 @@ void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
 
 void grid_mpi_sum_double(double *buffer, const int count,
                          const grid_mpi_comm comm);
+
+void grid_mpi_dims_create(const int number_of_processes,
+                          const int number_of_dimensions, int *dimensions);
+
+void grid_mpi_cart_create(const grid_mpi_comm comm_old, const int ndims,
+                          const int dims[ndims], const int periods[ndims],
+                          const int reorder, grid_mpi_comm *comm_cart);
+
+void grid_mpi_cart_coords(const grid_mpi_comm comm, const int rank, int maxdims,
+                          int coords[]);
 
 #endif
 
