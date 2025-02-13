@@ -7,22 +7,27 @@
 
 #include "grid_fft_test.h"
 
+#include "common/grid_common.h"
 #include "common/grid_mpi.h"
 #include "grid_fft.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /*******************************************************************************
- * \brief Function to test the FFT backend.
+ * \brief Function to test the local FFT backend.
  * \author Frederick Stein
  ******************************************************************************/
 int fft_test_1() {
   const grid_mpi_comm comm = grid_mpi_comm_world;
+  (void)comm;
 
   // Use an asymmetric cell to check correctness of indices
   const int npts_global[3] = {16, 18, 20};
+
+  const double pi = acos(-1);
 
   int max_size = npts_global[0];
   for (int dir = 1; dir < 3; dir++)
@@ -36,7 +41,8 @@ int fft_test_1() {
   double error = 0.0;
   for (int dir = 0; dir < 3; dir++) {
     const int current_size = npts_global[dir];
-    memset(input_array, 0, current_size * sizeof(double complex));
+    memset(input_array, 0,
+           current_size * current_size * sizeof(double complex));
 
     for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
       input_array[number_of_fft * current_size + number_of_fft] = 1.0;
@@ -44,20 +50,21 @@ int fft_test_1() {
 
     fft_1d_fw(input_array, output_array, current_size, current_size);
 
-    const double pi = acos(-1);
-
     for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
       for (int index = 0; index < current_size; index++) {
-        error = max(
+        error = fmax(
             error,
-            cabs(output_array[number_of_fft * current_size + number_of_fft] -
+            cabs(output_array[number_of_fft * current_size + index] -
                  cexp(-2.0 * I * pi * number_of_fft * index / current_size)));
       }
     }
   }
 
+  free(input_array);
+  free(output_array);
+
   if (error > 1e-12) {
-    printf("\nThe low-level FFTs do not work properly!\n");
+    printf("\nThe low-level FFTs do not work properly: %f!\n", error);
     return 1;
   } else {
     return 0;

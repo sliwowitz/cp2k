@@ -8,10 +8,10 @@
 #include "grid_fft.h"
 #include "common/grid_common.h"
 
+#include <complex.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <complex.h>
 
 /*******************************************************************************
  * \brief Naive implementation of FFT. To be replaced by a real FFT library
@@ -22,15 +22,16 @@ void fft_1d_fw(double complex *grid_rs, double complex *grid_gs,
   const double pi = acos(-1.0);
   // Perform the FFT
   memset(grid_gs, 0, number_of_ffts * fft_size * sizeof(double complex));
-#pragma omp parallel for default(none)                                         \
+#pragma omp parallel for default(none) collapse(2)                             \
     shared(grid_rs, grid_gs, fft_size, number_of_ffts, pi)
   for (int fft = 0; fft < number_of_ffts; fft++) {
     for (int index_out = 0; index_out < fft_size; index_out++) {
+      double complex tmp = 0.0;
       for (int index_in = 0; index_in < fft_size; index_in++) {
-        grid_gs[fft * fft_size + index_out] +=
-            grid_rs[fft * fft_size + index_in] *
-            cexp(-2.0 * I * pi * index_out * index_in / fft_size);
+        tmp += grid_rs[fft * fft_size + index_in] *
+               cexp(-2.0 * I * pi * index_out * index_in / fft_size);
       }
+      grid_gs[fft * fft_size + index_out] = tmp;
     }
   }
 }
@@ -47,7 +48,7 @@ void transpose_xy_to_xz_blocked(double complex *grid,
                                 const grid_mpi_comm comm) {
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
-  (void) npts_global;
+  (void)npts_global;
 
   int max_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++) {
@@ -141,7 +142,7 @@ void transpose_xz_to_yz_blocked(double complex *grid,
                                 const grid_mpi_comm comm) {
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
-  (void) npts_global;
+  (void)npts_global;
 
   int max_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++) {

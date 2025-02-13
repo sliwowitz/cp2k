@@ -10,8 +10,8 @@
 #include <string.h>
 
 #include "../offload/offload_library.h"
-#include "grid_fft_test.h"
 #include "common/grid_library.h"
+#include "grid_fft_test.h"
 #include "grid_replay.h"
 
 // Only used to call MPI_Init and MPI_Finalize to avoid spurious MPI error.
