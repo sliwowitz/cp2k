@@ -100,6 +100,7 @@ int main(int argc, char *argv[]) {
   errors += run_test(argv[1], "general_overflow.task");
 
   errors += fft_test_local();
+  errors += fft_test_transpose();
   errors += fft_test_parallel();
 
   grid_library_print_stats(&mpi_sum_func, 0, &print_func, 0);

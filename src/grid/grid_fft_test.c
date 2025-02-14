@@ -85,6 +85,64 @@ int fft_test_local() {
 }
 
 /*******************************************************************************
+ * \brief Function to test the local transposition operation.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_transpose() {
+  // Check a few fft sizes
+  const int fft_sizes[2] = {16, 18};
+
+  int max_size = fft_sizes[0] * fft_sizes[1];
+
+  double complex *input_array = calloc(max_size, sizeof(double complex));
+  double complex *output_array = calloc(max_size, sizeof(double complex));
+
+  for (int index_1 = 0; index_1 < fft_sizes[0]; index_1++) {
+    for (int index_2 = 0; index_2 < fft_sizes[1]; index_2++) {
+      input_array[index_1 * fft_sizes[1] + index_2] =
+          1.0 * index_1 - index_2 * I;
+    }
+  }
+
+  printf("input array\n");
+  for (int index_1 = 0; index_1 < fft_sizes[0]; index_1++) {
+    for (int index_2 = 0; index_2 < fft_sizes[1]; index_2++) {
+      printf("(%f, %f) ", creal(input_array[index_1 * fft_sizes[1] + index_2]),
+             cimag(input_array[index_1 * fft_sizes[1] + index_2]));
+    }
+    printf("\n");
+  }
+  printf("\n");
+
+  transpose_local(input_array, output_array, fft_sizes[1], fft_sizes[0]);
+
+  double error = 0.0;
+
+  printf("output array\n");
+  for (int index_1 = 0; index_1 < fft_sizes[0]; index_1++) {
+    for (int index_2 = 0; index_2 < fft_sizes[1]; index_2++) {
+      error = fmax(error, cabs(output_array[index_2 * fft_sizes[0] + index_1] -
+                               (1.0 * index_1 - index_2 * I)));
+      printf("(%f, %f) ", creal(output_array[index_2 * fft_sizes[0] + index_1]),
+             cimag(output_array[index_2 * fft_sizes[0] + index_1]));
+    }
+    printf("\n");
+  }
+  printf("\n");
+
+  free(input_array);
+  free(output_array);
+
+  if (error > 1e-12) {
+    printf("\nThe low-level transpose does not work properly: %f!\n", error);
+    return 1;
+  } else {
+    printf("\nThe local transpose does work properly!\n");
+    return 0;
+  }
+}
+
+/*******************************************************************************
  * \brief Function to test the parallel FFT backend.
  * \author Frederick Stein
  ******************************************************************************/
@@ -93,7 +151,7 @@ int fft_test_parallel() {
   const int my_process = grid_mpi_comm_rank(comm);
 
   // Use an asymmetric cell to check correctness of indices
-  const int npts_global[3] = {16, 18, 20};
+  const int npts_global[3] = {2, 4, 8};
 
   const double pi = acos(-1);
 
@@ -115,7 +173,7 @@ int fft_test_parallel() {
   int my_sizes_gs[3];
   for (int dir = 0; dir < 3; dir++)
     my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
-  const int my_number_of_elements_gs = product3(my_sizes_gs);
+  // const int my_number_of_elements_gs = product3(my_sizes_gs);
 
   double error = 0.0;
   for (int nx = 0; nx < npts_global[0]; nx++) {

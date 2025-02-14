@@ -27,6 +27,10 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
                        int (*proc2local_ms)[3][2], int (*proc2local_gs)[3][2],
                        const grid_mpi_comm comm);
 
+void transpose_local(double complex *grid, double complex *grid_transposed,
+                     const int number_of_columns_grid,
+                     const int number_of_rows_grid);
+
 #endif /* GRID_FFT_H */
 
 // EOF

@@ -17,14 +17,15 @@
 inline double norm_vector(const double complex *vector, const int size) {
   double norm = 0.0;
   for (int i = 0; i < size; i++)
-    norm += cabs(vector[i]);
+    norm += creal(vector[i]) * creal(vector[i]) +
+            cimag(vector[i]) * cimag(vector[i]);
   return sqrt(norm);
 }
 
 inline double norm_vector_double(const double *vector, const int size) {
   double norm = 0.0;
   for (int i = 0; i < size; i++)
-    norm += fabs(vector[i]);
+    norm += vector[i] * vector[i];
   return sqrt(norm);
 }
 
@@ -68,10 +69,20 @@ void fft_3d_fw(double complex *grid_rs, double complex *grid_gs,
   printf("DEBUG npts_global: %i %i %i\n", npts_global[0], npts_global[1],
          npts_global[2]);
   printf("DEBUG 1: %f\n", norm_vector(grid_rs, product3(npts_global)));
+  printf("grid_rs: ");
+  for (int index = 0; index < npts_global[2]; index++) {
+    printf("(%f, %f) ", creal(grid_rs[index]), cimag(grid_rs[index]));
+  }
+  printf("\n");
   // Perform the first FFT along z
   fft_1d_fw(grid_rs, grid_gs, npts_global[2], npts_global[0] * npts_global[1]);
 
   printf("DEBUG 2: %f\n", norm_vector(grid_gs, product3(npts_global)));
+  printf("grid_gs: ");
+  for (int index = 0; index < npts_global[2]; index++) {
+    printf("(%f, %f) ", creal(grid_gs[index]), cimag(grid_gs[index]));
+  }
+  printf("\n");
   // Perform first transposition (x, y, z) -> (z, x, y)
   transpose_local(grid_gs, grid_rs, npts_global[2],
                   npts_global[0] * npts_global[1]);
