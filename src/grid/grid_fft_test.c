@@ -150,21 +150,10 @@ int fft_test_parallel() {
     my_sizes_rs[dir] = my_bounds_rs[dir][1] - my_bounds_rs[dir][0] + 1;
   const int my_number_of_elements_rs = product3(my_sizes_rs);
 
-  for (int dir = 0; dir < 3; dir++) {
-    printf("%i my_bounds_rs %i: %i %i\n", my_process, dir, my_bounds_rs[dir][0],
-           my_bounds_rs[dir][1]);
-  }
-
   const int(*my_bounds_gs)[2] = fft_grid->proc2local_gs[my_process];
   int my_sizes_gs[3];
   for (int dir = 0; dir < 3; dir++)
     my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
-  const int my_number_of_elements_gs = product3(my_sizes_gs);
-
-  for (int dir = 0; dir < 3; dir++) {
-    printf("%i my_bounds_gs %i: %i %i\n", my_process, dir, my_bounds_gs[dir][0],
-           my_bounds_gs[dir][1]);
-  }
 
   double error = 0.0;
   for (int nx = 0; nx < npts_global[0]; nx++) {
@@ -185,16 +174,12 @@ int fft_test_parallel() {
                           fft_grid->proc2local_ms, fft_grid->proc2local_gs,
                           fft_grid->comm);
 
-        printf("Result %i %i %i: %f\n", nx, ny, nz,
-               norm_vector(fft_grid->grid_gs, my_number_of_elements_gs));
         for (int mx = 0; mx < my_sizes_gs[0]; mx++) {
-          printf("mx = %i\n", mx);
           for (int my = 0; my < my_sizes_gs[1]; my++) {
             for (int mz = 0; mz < my_sizes_gs[2]; mz++) {
               const double complex my_value =
                   fft_grid->grid_gs[my * my_sizes_gs[0] * my_sizes_gs[2] +
                                     mz * my_sizes_gs[0] + mx];
-              printf("(%f, %f) ", creal(my_value), cimag(my_value));
               const double complex ref_value = cexp(
                   -2.0 * I * pi *
                   (((double)mx + my_bounds_gs[0][0]) * nx / npts_global[0] +
@@ -203,11 +188,8 @@ int fft_test_parallel() {
               double current_error = cabs(my_value - ref_value);
               error = fmax(error, current_error);
             }
-            printf("\n");
           }
-          printf("\n");
         }
-        printf("\n");
       }
     }
   }
