@@ -104,31 +104,16 @@ int fft_test_transpose() {
     }
   }
 
-  printf("input array\n");
-  for (int index_1 = 0; index_1 < fft_sizes[0]; index_1++) {
-    for (int index_2 = 0; index_2 < fft_sizes[1]; index_2++) {
-      printf("(%f, %f) ", creal(input_array[index_1 * fft_sizes[1] + index_2]),
-             cimag(input_array[index_1 * fft_sizes[1] + index_2]));
-    }
-    printf("\n");
-  }
-  printf("\n");
-
   transpose_local(input_array, output_array, fft_sizes[1], fft_sizes[0]);
 
   double error = 0.0;
 
-  printf("output array\n");
   for (int index_1 = 0; index_1 < fft_sizes[0]; index_1++) {
     for (int index_2 = 0; index_2 < fft_sizes[1]; index_2++) {
       error = fmax(error, cabs(output_array[index_2 * fft_sizes[0] + index_1] -
                                (1.0 * index_1 - index_2 * I)));
-      printf("(%f, %f) ", creal(output_array[index_2 * fft_sizes[0] + index_1]),
-             cimag(output_array[index_2 * fft_sizes[0] + index_1]));
     }
-    printf("\n");
   }
-  printf("\n");
 
   free(input_array);
   free(output_array);
@@ -154,6 +139,7 @@ int fft_test_parallel() {
   const int npts_global[3] = {2, 4, 8};
 
   const double pi = acos(-1);
+  (void)pi;
 
   grid_fft_grid *fft_grid = NULL;
   grid_create_fft_grid(&fft_grid, comm, npts_global);
@@ -173,7 +159,12 @@ int fft_test_parallel() {
   int my_sizes_gs[3];
   for (int dir = 0; dir < 3; dir++)
     my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
-  // const int my_number_of_elements_gs = product3(my_sizes_gs);
+  const int my_number_of_elements_gs = product3(my_sizes_gs);
+
+  for (int dir = 0; dir < 3; dir++) {
+    printf("%i my_bounds_gs %i: %i %i\n", my_process, dir, my_bounds_gs[dir][0],
+           my_bounds_gs[dir][1]);
+  }
 
   double error = 0.0;
   for (int nx = 0; nx < npts_global[0]; nx++) {
@@ -194,12 +185,16 @@ int fft_test_parallel() {
                           fft_grid->proc2local_ms, fft_grid->proc2local_gs,
                           fft_grid->comm);
 
+        printf("Result %i %i %i: %f\n", nx, ny, nz,
+               norm_vector(fft_grid->grid_gs, my_number_of_elements_gs));
         for (int mx = 0; mx < my_sizes_gs[0]; mx++) {
+          printf("mx = %i\n", mx);
           for (int my = 0; my < my_sizes_gs[1]; my++) {
             for (int mz = 0; mz < my_sizes_gs[2]; mz++) {
               const double complex my_value =
-                  fft_grid->grid_gs[my * my_sizes_rs[0] * my_sizes_rs[2] +
-                                    mz * my_sizes_rs[2] + mx];
+                  fft_grid->grid_gs[my * my_sizes_gs[0] * my_sizes_gs[2] +
+                                    mz * my_sizes_gs[0] + mx];
+              printf("(%f, %f) ", creal(my_value), cimag(my_value));
               const double complex ref_value = cexp(
                   -2.0 * I * pi *
                   (((double)mx + my_bounds_gs[0][0]) * nx / npts_global[0] +
@@ -208,8 +203,11 @@ int fft_test_parallel() {
               double current_error = cabs(my_value - ref_value);
               error = fmax(error, current_error);
             }
+            printf("\n");
           }
+          printf("\n");
         }
+        printf("\n");
       }
     }
   }
