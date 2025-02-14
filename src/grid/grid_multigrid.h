@@ -10,36 +10,11 @@
 #include "../offload/offload_buffer.h"
 #include "common/grid_mpi.h"
 #include "cpu/grid_cpu_multigrid.h"
+#include "grid_fft_grid.h"
 #include "ref/grid_ref_multigrid.h"
 
+#include <complex.h>
 #include <stdbool.h>
-
-/*******************************************************************************
- * \brief Container to represent fft grids to merge the multigrids.
- * \author Frederick Stein
- ******************************************************************************/
-typedef struct {
-  // Global number of points
-  int npts_global[3];
-  // New communicator
-  grid_mpi_comm comm;
-  int proc_grid[2];
-  int periodic[2];
-  int proc_coords[2];
-  // distributions for each FFT step (real space/mixed-space 1 (rs), mixed space
-  // 1/mixed space 2 (ms), mixed-space 2/g-space (gs)) first index is for the
-  // process, the second for the coordinate, the third for start (0) / end(1)
-  // proc2local_rs is also used for the distribution of the data in realspace
-  // (that's why it is called "rs") proc2local_gs is also used for the
-  // distribution of the data in reciprocal (g)-space (that's why it is called
-  // "gs") in blocked mode (usually the finest grid)
-  int (*proc2local_rs)[3][2];
-  int (*proc2local_ms)[3][2];
-  int (*proc2local_gs)[3][2];
-  // Actual data
-  double *grid;
-  // buffers for different purposes
-} grid_fft_grid;
 
 /*******************************************************************************
  * \brief Container to precalculate data for redistribution of grids.

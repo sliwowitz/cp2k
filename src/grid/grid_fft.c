@@ -10,8 +10,23 @@
 
 #include <complex.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+inline double norm_vector(const double complex *vector, const int size) {
+  double norm = 0.0;
+  for (int i = 0; i < size; i++)
+    norm += cabs(vector[i]);
+  return sqrt(norm);
+}
+
+inline double norm_vector_double(const double *vector, const int size) {
+  double norm = 0.0;
+  for (int i = 0; i < size; i++)
+    norm += fabs(vector[i]);
+  return sqrt(norm);
+}
 
 /*******************************************************************************
  * \brief Naive implementation of FFT. To be replaced by a real FFT library
@@ -20,8 +35,7 @@
 void fft_1d_fw(double complex *grid_rs, double complex *grid_gs,
                const int fft_size, const int number_of_ffts) {
   const double pi = acos(-1.0);
-  // Perform the FFT
-  memset(grid_gs, 0, number_of_ffts * fft_size * sizeof(double complex));
+  // memset(grid_gs, 0, number_of_ffts * fft_size * sizeof(double complex));
 #pragma omp parallel for default(none) collapse(2)                             \
     shared(grid_rs, grid_gs, fft_size, number_of_ffts, pi)
   for (int fft = 0; fft < number_of_ffts; fft++) {
@@ -34,6 +48,47 @@ void fft_1d_fw(double complex *grid_rs, double complex *grid_gs,
       grid_gs[fft * fft_size + index_out] = tmp;
     }
   }
+}
+
+void transpose_local(double complex *grid, double complex *grid_transposed,
+                     const int number_of_columns_grid,
+                     const int number_of_rows_grid) {
+  for (int column_index = 0; column_index < number_of_columns_grid;
+       column_index++) {
+    for (int row_index = 0; row_index < number_of_rows_grid; row_index++) {
+      grid_transposed[column_index * number_of_rows_grid + row_index] =
+          grid[row_index * number_of_columns_grid + column_index];
+    }
+  }
+}
+
+void fft_3d_fw(double complex *grid_rs, double complex *grid_gs,
+               const int npts_global[3]) {
+
+  printf("DEBUG npts_global: %i %i %i\n", npts_global[0], npts_global[1],
+         npts_global[2]);
+  printf("DEBUG 1: %f\n", norm_vector(grid_rs, product3(npts_global)));
+  // Perform the first FFT along z
+  fft_1d_fw(grid_rs, grid_gs, npts_global[2], npts_global[0] * npts_global[1]);
+
+  printf("DEBUG 2: %f\n", norm_vector(grid_gs, product3(npts_global)));
+  // Perform first transposition (x, y, z) -> (z, x, y)
+  transpose_local(grid_gs, grid_rs, npts_global[2],
+                  npts_global[0] * npts_global[1]);
+
+  printf("DEBUG 3: %f\n", norm_vector(grid_rs, product3(npts_global)));
+  // Perform the second FFT along y
+  fft_1d_fw(grid_rs, grid_gs, npts_global[1], npts_global[0] * npts_global[2]);
+
+  printf("DEBUG 4: %f\n", norm_vector(grid_gs, product3(npts_global)));
+  // Perform second transpose (z, x, y) -> (y, z, x)
+  transpose_local(grid_gs, grid_rs, npts_global[1],
+                  npts_global[0] * npts_global[2]);
+
+  printf("DEBUG 5: %f\n", norm_vector(grid_rs, product3(npts_global)));
+  // Perform the third FFT along x
+  fft_1d_fw(grid_rs, grid_gs, npts_global[0], npts_global[1] * npts_global[2]);
+  printf("DEBUG 6: %f\n", norm_vector(grid_gs, product3(npts_global)));
 }
 
 /*******************************************************************************
@@ -128,6 +183,8 @@ void transpose_xy_to_xz_blocked(double complex *grid,
     // Wait for the send request
     grid_mpi_wait(&send_request);
   }
+
+  free(recv_buffer);
 }
 
 /*******************************************************************************
@@ -222,6 +279,8 @@ void transpose_xz_to_yz_blocked(double complex *grid,
     // Wait for the send request
     grid_mpi_wait(&send_request);
   }
+
+  free(recv_buffer);
 }
 
 /*******************************************************************************
@@ -239,17 +298,16 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
       proc2local_rs[my_process][0][1] - proc2local_rs[my_process][0][0] + 1,
       proc2local_rs[my_process][1][1] - proc2local_rs[my_process][1][0] + 1,
       proc2local_rs[my_process][2][1] - proc2local_rs[my_process][2][0] + 1};
+  const int number_of_elements_rs = product3(fft_sizes_rs);
   int fft_sizes_ms[3] = {
       proc2local_ms[my_process][0][1] - proc2local_ms[my_process][0][0] + 1,
       proc2local_ms[my_process][1][1] - proc2local_ms[my_process][1][0] + 1,
       proc2local_ms[my_process][2][1] - proc2local_ms[my_process][2][0] + 1};
+  const int number_of_elements_ms = product3(fft_sizes_ms);
   int fft_sizes_gs[3] = {
       proc2local_gs[my_process][0][1] - proc2local_gs[my_process][0][0] + 1,
       proc2local_gs[my_process][1][1] - proc2local_gs[my_process][1][0] + 1,
       proc2local_gs[my_process][2][1] - proc2local_gs[my_process][2][0] + 1};
-
-  const int number_of_elements_rs = product3(fft_sizes_rs);
-  const int number_of_elements_ms = product3(fft_sizes_ms);
   const int number_of_elements_gs = product3(fft_sizes_gs);
   const int size_of_buffer =
       imax(imax(number_of_elements_rs, number_of_elements_ms),
@@ -259,30 +317,48 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
   double complex *grid_buffer_2 =
       (double complex *)malloc(size_of_buffer * sizeof(double complex));
 
+  printf("DEBUG rs in: %f\n",
+         norm_vector_double(grid_rs, number_of_elements_rs));
   // Copy real array to complex buffer
   for (int i = 0; i < number_of_elements_rs; i++) {
     grid_buffer_1[i] = grid_rs[i];
   }
+  printf("DEBUG grid_buffer_1: %f\n",
+         norm_vector(grid_buffer_1, number_of_elements_rs));
 
-  // Perform the first FFT
-  fft_1d_fw(grid_buffer_1, grid_buffer_2, npts_global[2],
-            fft_sizes_rs[0] * fft_sizes_rs[1]);
+  if (grid_mpi_comm_size(comm) > 1) {
+    // Perform the first FFT
+    fft_1d_fw(grid_buffer_1, grid_buffer_2, npts_global[2],
+              fft_sizes_rs[0] * fft_sizes_rs[1]);
 
-  // Perform transpose
-  transpose_xy_to_xz_blocked(grid_buffer_2, grid_buffer_1, npts_global,
-                             proc2local_rs, proc2local_ms, comm);
+    // Perform transpose
+    transpose_xy_to_xz_blocked(grid_buffer_2, grid_buffer_1, npts_global,
+                               proc2local_rs, proc2local_ms, comm);
 
-  // Perform the second FFT
-  fft_1d_fw(grid_buffer_1, grid_buffer_2, npts_global[1],
-            fft_sizes_rs[0] * fft_sizes_rs[2]);
+    // Perform the second FFT
+    fft_1d_fw(grid_buffer_1, grid_buffer_2, npts_global[1],
+              fft_sizes_rs[0] * fft_sizes_rs[2]);
 
-  // Perform second transpose
-  transpose_xz_to_yz_blocked(grid_buffer_2, grid_buffer_1, npts_global,
-                             proc2local_ms, proc2local_gs, comm);
+    // Perform second transpose
+    transpose_xz_to_yz_blocked(grid_buffer_2, grid_buffer_1, npts_global,
+                               proc2local_ms, proc2local_gs, comm);
 
-  // Perform the third FFT
-  fft_1d_fw(grid_buffer_1, grid_gs, npts_global[0],
-            fft_sizes_rs[1] * fft_sizes_rs[2]);
+    // Perform the third FFT
+    fft_1d_fw(grid_buffer_1, grid_gs, npts_global[0],
+              fft_sizes_rs[1] * fft_sizes_rs[2]);
+  } else {
+    // Perform the first FFT
+    printf("DEBUG grid_buffer_1 2: %f\n",
+           norm_vector(grid_buffer_1, number_of_elements_rs));
+    fft_3d_fw(grid_buffer_1, grid_gs, npts_global);
+    printf("DEBUG grid_buffer_1 3: %f\n",
+           norm_vector(grid_buffer_1, number_of_elements_rs));
+    printf("DEBUG grid_gs 2: %f\n",
+           norm_vector(grid_gs, number_of_elements_gs));
+  }
+
+  free(grid_buffer_1);
+  free(grid_buffer_2);
 }
 
 // EOF

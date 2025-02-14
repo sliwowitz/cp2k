@@ -60,7 +60,6 @@ void grid_mpi_cart_get(const grid_mpi_comm comm, int maxdims, int *dims,
                        int *periods, int *coords) {
 #if defined(__parallel)
   error_check(MPI_Cart_get(comm, maxdims, dims, periods, coords));
-  return comm_rank;
 #else
   (void)comm;
   for (int dim = 0; dim < maxdims; dim++) {
@@ -391,6 +390,21 @@ void grid_mpi_sum_double(double *buffer, const int count,
 #endif
 }
 
+void grid_mpi_max_double(double *buffer, const int count,
+                         const grid_mpi_comm comm) {
+#if defined(__parallel)
+  assert(buffer != NULL);
+  assert(count >= 0 && "Send count must be nonnegative!");
+  error_check(
+      MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, MPI_MAX, comm));
+#else
+  assert(buffer != NULL);
+  (void)comm;
+  (void)buffer;
+  (void)count;
+#endif
+}
+
 void grid_mpi_dims_create(int number_of_processes, int number_of_dimensions,
                           int *dimensions) {
 #if defined(__parallel)
@@ -426,7 +440,7 @@ void grid_mpi_cart_create(grid_mpi_comm comm_old, int ndims, const int dims[],
 void grid_mpi_cart_coords(const grid_mpi_comm comm, const int rank, int maxdims,
                           int coords[]) {
 #if defined(__parallel)
-  assert(ndims > 0 && "The number of processes needs to be positive");
+  assert(maxdims > 0 && "The number of processes needs to be positive");
   error_check(MPI_Cart_coords(comm, rank, maxdims, coords));
 #else
   (void)comm;

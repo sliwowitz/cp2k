@@ -8,10 +8,16 @@
 #define GRID_FFT_TEST_H
 
 /*******************************************************************************
- * \brief Function to test the FFT backend.
+ * \brief Function to test the local FFT backend.
  * \author Frederick Stein
  ******************************************************************************/
-int fft_test_1();
+int fft_test_local();
+
+/*******************************************************************************
+ * \brief Function to test the parallel FFT backend.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_parallel();
 
 #endif /* GRID_FFT_TEST_H */
 
