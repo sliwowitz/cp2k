@@ -762,13 +762,13 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
     double debug;
     debug = norm_vector(grid_gs, number_of_elements_gs, comm);
     if (my_process == 0)
-      printf("DEBUG grid_gs: %f\n", debug);
+      fprintf(stdout, "DEBUG grid_gs: %f\n", debug);
     fft_1d_bw((const double complex *)grid_gs, grid_buffer_1, fft_sizes_gs[0],
               fft_sizes_gs[1] * fft_sizes_gs[2]);
 
     debug = norm_vector(grid_buffer_1, number_of_elements_gs, comm);
     if (my_process == 0)
-      printf("DEBUG grid_buffer_1: %f\n", debug);
+      fprintf(stdout, "DEBUG grid_buffer_1: %f\n", debug);
 
     // Perform transpose
     transpose_yz_to_xz_blocked(grid_buffer_1, grid_buffer_2, npts_global,
@@ -776,7 +776,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
 
     debug = norm_vector(grid_buffer_2, number_of_elements_ms, comm);
     if (my_process == 0)
-      printf("DEBUG grid_buffer_2: %f\n", debug);
+      fprintf(stdout, "DEBUG grid_buffer_2: %f\n", debug);
 
     // Perform the second FFT
     fft_1d_bw((const double complex *)grid_buffer_2, grid_buffer_1,
@@ -784,7 +784,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
 
     debug = norm_vector(grid_buffer_1, number_of_elements_ms, comm);
     if (my_process == 0)
-      printf("DEBUG grid_buffer_1: %f\n", debug);
+      fprintf(stdout, "DEBUG grid_buffer_1: %f\n", debug);
 
     // Perform second transpose
     transpose_xz_to_xy_blocked(grid_buffer_1, grid_buffer_2, npts_global,
@@ -792,7 +792,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
 
     debug = norm_vector(grid_buffer_2, number_of_elements_rs, comm);
     if (my_process == 0)
-      printf("DEBUG grid_buffer_2: %f\n", debug);
+      fprintf(stdout, "DEBUG grid_buffer_2: %f\n", debug);
 
     // Perform the third FFT
     fft_1d_bw((const double complex *)grid_buffer_2, grid_buffer_1,
@@ -800,7 +800,10 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
 
     debug = norm_vector(grid_buffer_1, number_of_elements_rs, comm);
     if (my_process == 0)
-      printf("DEBUG grid_buffer_1: %f\n", debug);
+      fprintf(stdout, "DEBUG grid_buffer_1: %f\n", debug);
+    if (my_process == 0)
+      fflush(stdout);
+    grid_mpi_barrier(comm);
   } else {
     fft_3d_bw(grid_gs, grid_buffer_1, npts_global);
   }
