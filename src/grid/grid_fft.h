@@ -61,6 +61,20 @@ void transpose_xz_to_xy_blocked(const double complex *grid,
                                 const int (*proc2local_transposed)[3][2],
                                 const grid_mpi_comm comm);
 
+void transpose_xz_to_yz_blocked(const double complex *grid,
+                                double complex *transposed,
+                                const int npts_global[3],
+                                const int (*proc2local)[3][2],
+                                const int (*proc2local_transposed)[3][2],
+                                const grid_mpi_comm comm);
+
+void transpose_yz_to_xz_blocked(const double complex *grid,
+                                double complex *transposed,
+                                const int npts_global[3],
+                                const int (*proc2local)[3][2],
+                                const int (*proc2local_transposed)[3][2],
+                                const grid_mpi_comm comm);
+
 #endif /* GRID_FFT_H */
 
 // EOF

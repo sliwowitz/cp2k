@@ -182,7 +182,6 @@ int fft_test_transpose_parallel() {
   for (int dir = 0; dir < 3; dir++)
     my_sizes_ms[dir] = my_bounds_ms[dir][1] - my_bounds_ms[dir][0] + 1;
   const int my_number_of_elements_ms = product3(my_sizes_ms);
-  (void)my_number_of_elements_ms;
 
   const int(*my_bounds_gs)[2] = fft_grid->proc2local_gs[my_process];
   int my_sizes_gs[3];
@@ -260,11 +259,73 @@ int fft_test_transpose_parallel() {
     }
   }
 
+  if (max_error > 1e-12) {
+    grid_free_fft_grid(fft_grid);
+    if (my_process == 0)
+      printf("\nThe transpose xz_to_xy_blocked does not work properly: %f!\n",
+             max_error);
+    return 1;
+  }
+
+  // Check the MS/GS direction
+  transpose_xz_to_yz_blocked(fft_grid->grid_ms, fft_grid->grid_gs, npts_global,
+                             fft_grid->proc2local_ms, fft_grid->proc2local_gs,
+                             fft_grid->comm);
+
+  // Check forward RS->MS FFTs
+  for (int nx = 0; nx < my_sizes_gs[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_gs[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_gs[2]; nz++) {
+        const double complex my_value =
+            fft_grid->grid_gs[ny * my_sizes_gs[0] * my_sizes_gs[2] +
+                              nz * my_sizes_gs[0] + nx];
+        const double complex ref_value =
+            ((nx + my_bounds_gs[0][0]) * npts_global[1] +
+             (ny + my_bounds_gs[1][0])) +
+            I * (nz + my_bounds_gs[2][0]);
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+      }
+    }
+  }
+
+  if (max_error > 1e-12) {
+    grid_free_fft_grid(fft_grid);
+    if (my_process == 0)
+      printf("\nThe transpose xz_to_yz_blocked does not work properly: %f!\n",
+             max_error);
+    return 1;
+  }
+
+  memset(fft_grid->grid_ms, 0, my_number_of_elements_ms);
+
+  // Check the MS/GS direction
+  transpose_yz_to_xz_blocked(fft_grid->grid_gs, fft_grid->grid_ms, npts_global,
+                             fft_grid->proc2local_gs, fft_grid->proc2local_ms,
+                             fft_grid->comm);
+
+  // Check forward RS->MS FFTs
+  for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
+        const double complex my_value =
+            fft_grid->grid_ms[nz * my_sizes_ms[0] * my_sizes_ms[1] +
+                              nx * my_sizes_ms[1] + ny];
+        const double complex ref_value =
+            ((nx + my_bounds_ms[0][0]) * npts_global[1] +
+             (ny + my_bounds_ms[1][0])) +
+            I * (nz + my_bounds_ms[2][0]);
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+      }
+    }
+  }
+
   grid_free_fft_grid(fft_grid);
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("\nThe transpose xz_to_xy_blocked does not work properly: %f!\n",
+      printf("\nThe transpose yz_to_xz_blocked does not work properly: %f!\n",
              max_error);
     return 1;
   }
