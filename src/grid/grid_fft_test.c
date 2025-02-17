@@ -36,6 +36,8 @@ inline double norm_vector_double(const double *vector, const int size) {
  * \author Frederick Stein
  ******************************************************************************/
 int fft_test_local() {
+  const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
+
   // Check a few fft sizes
   const int fft_sizes[3] = {16, 18, 20};
 
@@ -51,6 +53,7 @@ int fft_test_local() {
       malloc(max_size * max_size * sizeof(double complex));
 
   double error = 0.0;
+  // Check the forward FFT
   for (int dir = 0; dir < 3; dir++) {
     const int current_size = fft_sizes[dir];
     memset(input_array, 0,
@@ -72,14 +75,38 @@ int fft_test_local() {
     }
   }
 
+  // Check the backward FFT
+  for (int dir = 0; dir < 3; dir++) {
+    const int current_size = fft_sizes[dir];
+    memset(input_array, 0,
+           current_size * current_size * sizeof(double complex));
+
+    for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
+      input_array[number_of_fft * current_size + number_of_fft] = 1.0;
+    }
+
+    fft_1d_bw(input_array, output_array, current_size, current_size);
+
+    for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
+      for (int index = 0; index < current_size; index++) {
+        error = fmax(
+            error,
+            cabs(output_array[number_of_fft * current_size + index] -
+                 cexp(2.0 * I * pi * number_of_fft * index / current_size)));
+      }
+    }
+  }
+
   free(input_array);
   free(output_array);
 
   if (error > 1e-12) {
-    printf("\nThe low-level FFTs do not work properly: %f!\n", error);
+    if (my_process == 0)
+      printf("\nThe low-level FFTs do not work properly: %f!\n", error);
     return 1;
   } else {
-    printf("\nThe 1D FFTs do work properly!\n");
+    if (my_process == 0)
+      printf("\nThe 1D FFTs do work properly!\n");
     return 0;
   }
 }
@@ -89,6 +116,7 @@ int fft_test_local() {
  * \author Frederick Stein
  ******************************************************************************/
 int fft_test_transpose() {
+  const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
   // Check a few fft sizes
   const int fft_sizes[2] = {16, 18};
 
@@ -119,12 +147,131 @@ int fft_test_transpose() {
   free(output_array);
 
   if (error > 1e-12) {
-    printf("\nThe low-level transpose does not work properly: %f!\n", error);
+    if (my_process == 0)
+      printf("\nThe low-level transpose does not work properly: %f!\n", error);
     return 1;
   } else {
-    printf("\nThe local transpose does work properly!\n");
+    if (my_process == 0)
+      printf("\nThe local transpose does work properly!\n");
     return 0;
   }
+}
+
+/*******************************************************************************
+ * \brief Function to test the parallel transposition operation.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_transpose_parallel() {
+  const grid_mpi_comm comm = grid_mpi_comm_world;
+  const int my_process = grid_mpi_comm_rank(comm);
+
+  // Use an asymmetric cell to check correctness of indices
+  const int npts_global[3] = {2, 4, 8};
+
+  grid_fft_grid *fft_grid = NULL;
+  grid_create_fft_grid(&fft_grid, comm, npts_global);
+
+  const int(*my_bounds_rs)[2] = fft_grid->proc2local_rs[my_process];
+  int my_sizes_rs[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_sizes_rs[dir] = my_bounds_rs[dir][1] - my_bounds_rs[dir][0] + 1;
+  const int my_number_of_elements_rs = product3(my_sizes_rs);
+
+  const int(*my_bounds_ms)[2] = fft_grid->proc2local_ms[my_process];
+  int my_sizes_ms[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_sizes_ms[dir] = my_bounds_ms[dir][1] - my_bounds_ms[dir][0] + 1;
+  const int my_number_of_elements_ms = product3(my_sizes_ms);
+  (void)my_number_of_elements_ms;
+
+  const int(*my_bounds_gs)[2] = fft_grid->proc2local_gs[my_process];
+  int my_sizes_gs[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
+  const int my_number_of_elements_gs = product3(my_sizes_gs);
+  (void)my_number_of_elements_gs;
+
+  // Collect the maximum error
+  double max_error = 0.0;
+
+  // Check forward RS->MS FFTs
+  for (int nx = 0; nx < my_sizes_rs[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_rs[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_rs[2]; nz++) {
+        fft_grid->grid_rs_complex[nx * my_sizes_rs[1] * my_sizes_rs[2] +
+                                  ny * my_sizes_rs[2] + nz] =
+            ((nx + my_bounds_rs[0][0]) * npts_global[1] +
+             (ny + my_bounds_rs[1][0])) +
+            I * (nz + my_bounds_rs[2][0]);
+      }
+    }
+  }
+
+  transpose_xy_to_xz_blocked(fft_grid->grid_rs_complex, fft_grid->grid_ms,
+                             npts_global, fft_grid->proc2local_rs,
+                             fft_grid->proc2local_ms, fft_grid->comm);
+
+  for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
+        const double complex my_value =
+            fft_grid->grid_ms[nz * my_sizes_ms[0] * my_sizes_ms[1] +
+                              nx * my_sizes_ms[1] + ny];
+        const double complex ref_value =
+            ((nx + my_bounds_ms[0][0]) * npts_global[1] +
+             (ny + my_bounds_ms[1][0])) +
+            I * (nz + my_bounds_ms[2][0]);
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+      }
+    }
+  }
+
+  if (max_error > 1e-12) {
+    grid_free_fft_grid(fft_grid);
+    if (my_process == 0)
+      printf("\nThe transpose xy_to_xz_blocked does not work properly: %f!\n",
+             max_error);
+    return 1;
+  }
+
+  memset(fft_grid->grid_rs_complex, 0,
+         my_number_of_elements_rs * sizeof(double complex));
+
+  // Check the reverse direction
+  transpose_xz_to_xy_blocked(fft_grid->grid_ms, fft_grid->grid_rs_complex,
+                             npts_global, fft_grid->proc2local_ms,
+                             fft_grid->proc2local_rs, fft_grid->comm);
+
+  // Check forward RS->MS FFTs
+  for (int nx = 0; nx < my_sizes_rs[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_rs[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_rs[2]; nz++) {
+        const double complex my_value =
+            fft_grid->grid_rs_complex[nx * my_sizes_rs[1] * my_sizes_rs[2] +
+                                      ny * my_sizes_rs[2] + nz];
+        const double complex ref_value =
+            ((nx + my_bounds_rs[0][0]) * npts_global[1] +
+             (ny + my_bounds_rs[1][0])) +
+            I * (nz + my_bounds_rs[2][0]);
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+      }
+    }
+  }
+
+  grid_free_fft_grid(fft_grid);
+
+  if (max_error > 1e-12) {
+    if (my_process == 0)
+      printf("\nThe transpose xz_to_xy_blocked does not work properly: %f!\n",
+             max_error);
+    return 1;
+  }
+
+  if (my_process == 0)
+    printf("\n The parallel transposition routines work properly!\n");
+  return 0;
 }
 
 /*******************************************************************************
@@ -154,7 +301,9 @@ int fft_test_parallel() {
   int my_sizes_gs[3];
   for (int dir = 0; dir < 3; dir++)
     my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
+  const int my_number_of_elements_gs = product3(my_sizes_gs);
 
+  // Check forward 3D FFTs
   double error = 0.0;
   for (int nx = 0; nx < npts_global[0]; nx++) {
     for (int ny = 0; ny < npts_global[1]; ny++) {
@@ -195,13 +344,72 @@ int fft_test_parallel() {
   }
   grid_mpi_max_double(&error, 1, comm);
 
+  if (error > 1e-12) {
+    grid_free_fft_grid(fft_grid);
+    if (my_process == 0)
+      printf("\nThe 3D forward FFTs do not work properly: %f!\n", error);
+    return 1;
+  }
+
+  // Check backwards 3D FFTs
+  for (int nx = 0; nx < npts_global[0]; nx++) {
+    for (int ny = 0; ny < npts_global[1]; ny++) {
+      for (int nz = 0; nz < npts_global[2]; nz++) {
+        if (my_process == 0)
+          printf("%i %i %i\n", nx, ny, nz);
+
+        memset(fft_grid->grid_gs, 0,
+               my_number_of_elements_gs * sizeof(double complex));
+
+        if (nx >= my_bounds_gs[0][0] && nx <= my_bounds_gs[0][1] &&
+            ny >= my_bounds_gs[1][0] && ny <= my_bounds_gs[1][1] &&
+            nz >= my_bounds_gs[2][0] && nz <= my_bounds_gs[2][1])
+          printf("The one is on process %i\n", my_process);
+        if (nx >= my_bounds_gs[0][0] && nx <= my_bounds_gs[0][1] &&
+            ny >= my_bounds_gs[1][0] && ny <= my_bounds_gs[1][1] &&
+            nz >= my_bounds_gs[2][0] && nz <= my_bounds_gs[2][1])
+          fft_grid->grid_gs[(ny - my_bounds_gs[0][0]) * my_sizes_gs[0] *
+                                my_sizes_gs[2] +
+                            (nz - my_bounds_gs[1][0]) * my_sizes_gs[0] +
+                            (nx - my_bounds_gs[2][0])] = 1.0;
+
+        fft_3d_bw_blocked(fft_grid->grid_gs, fft_grid->grid_rs,
+                          fft_grid->npts_global, fft_grid->proc2local_rs,
+                          fft_grid->proc2local_ms, fft_grid->proc2local_gs,
+                          fft_grid->comm);
+
+        for (int mx = 0; mx < my_sizes_rs[0]; mx++) {
+          for (int my = 0; my < my_sizes_rs[1]; my++) {
+            for (int mz = 0; mz < my_sizes_rs[2]; mz++) {
+              const double my_value =
+                  fft_grid->grid_rs[mx * my_sizes_rs[1] * my_sizes_rs[2] +
+                                    my * my_sizes_rs[2] + mz];
+              const double ref_value = creal(cexp(
+                  2.0 * I * pi *
+                  (((double)mx + my_bounds_rs[0][0]) * nx / npts_global[0] +
+                   ((double)my + my_bounds_rs[1][0]) * ny / npts_global[1] +
+                   ((double)mz + my_bounds_rs[2][0]) * nz / npts_global[2])));
+              double current_error = fabs(my_value - ref_value);
+              error = fmax(error, current_error);
+            }
+          }
+        }
+        fflush(stdout);
+        grid_mpi_barrier(comm);
+      }
+    }
+  }
+  grid_mpi_max_double(&error, 1, comm);
+
   grid_free_fft_grid(fft_grid);
 
   if (error > 1e-12) {
-    printf("\nThe 3D FFTs do not work properly: %f!\n", error);
+    if (my_process == 0)
+      printf("\nThe 3D FFTs do not work properly: %f!\n", error);
     return 1;
   } else {
-    printf("\nThe 3D FFTs do work properly!\n");
+    if (my_process == 0)
+      printf("\nThe 3D FFTs do work properly!\n");
     return 0;
   }
 }

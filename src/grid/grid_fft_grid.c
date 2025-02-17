@@ -21,6 +21,8 @@ void grid_free_fft_grid(grid_fft_grid *fft_grid) {
     free(fft_grid->proc2local_ms);
     free(fft_grid->proc2local_gs);
     free(fft_grid->grid_rs);
+    free(fft_grid->grid_rs_complex);
+    free(fft_grid->grid_ms);
     free(fft_grid->grid_gs);
     free(fft_grid);
   }
@@ -109,6 +111,23 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
                  (my_fft_grid->proc2local_rs[my_process][2][1] -
                   my_fft_grid->proc2local_rs[my_process][2][0] + 1),
              sizeof(double));
+
+  my_fft_grid->grid_rs_complex =
+      calloc((my_fft_grid->proc2local_rs[my_process][0][1] -
+              my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
+                 (my_fft_grid->proc2local_rs[my_process][1][1] -
+                  my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
+                 (my_fft_grid->proc2local_rs[my_process][2][1] -
+                  my_fft_grid->proc2local_rs[my_process][2][0] + 1),
+             sizeof(double complex));
+  my_fft_grid->grid_ms =
+      calloc((my_fft_grid->proc2local_ms[my_process][0][1] -
+              my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
+                 (my_fft_grid->proc2local_ms[my_process][1][1] -
+                  my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
+                 (my_fft_grid->proc2local_ms[my_process][2][1] -
+                  my_fft_grid->proc2local_ms[my_process][2][0] + 1),
+             sizeof(double complex));
   my_fft_grid->grid_gs =
       calloc((my_fft_grid->proc2local_gs[my_process][0][1] -
               my_fft_grid->proc2local_gs[my_process][0][0] + 1) *

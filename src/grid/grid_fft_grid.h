@@ -36,6 +36,8 @@ typedef struct {
   int (*proc2local_gs)[3][2]; // Order: (y, z, x)
   // Actual data
   double *grid_rs;
+  double complex *grid_rs_complex;
+  double complex *grid_ms;
   double complex *grid_gs;
   // buffers for different purposes
 } grid_fft_grid;

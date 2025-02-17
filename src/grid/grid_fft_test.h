@@ -20,6 +20,12 @@ int fft_test_local();
 int fft_test_transpose();
 
 /*******************************************************************************
+ * \brief Function to test the parallel transposition operation.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_transpose_parallel();
+
+/*******************************************************************************
  * \brief Function to test the parallel FFT backend.
  * \author Frederick Stein
  ******************************************************************************/
