@@ -425,11 +425,6 @@ int fft_test_parallel() {
         if (nx >= my_bounds_gs[0][0] && nx <= my_bounds_gs[0][1] &&
             ny >= my_bounds_gs[1][0] && ny <= my_bounds_gs[1][1] &&
             nz >= my_bounds_gs[2][0] && nz <= my_bounds_gs[2][1])
-          printf("The one of %i %i %i is on process %i\n", nx, ny, nz,
-                 my_process);
-        if (nx >= my_bounds_gs[0][0] && nx <= my_bounds_gs[0][1] &&
-            ny >= my_bounds_gs[1][0] && ny <= my_bounds_gs[1][1] &&
-            nz >= my_bounds_gs[2][0] && nz <= my_bounds_gs[2][1])
           fft_grid->grid_gs[(ny - my_bounds_gs[1][0]) * my_sizes_gs[0] *
                                 my_sizes_gs[2] +
                             (nz - my_bounds_gs[2][0]) * my_sizes_gs[0] +
@@ -456,12 +451,6 @@ int fft_test_parallel() {
             }
           }
         }
-        grid_mpi_max_double(&error, 1, comm);
-        if (my_process == 0) {
-          fprintf(stdout, "Error %i %i %i: %f\n", nx, ny, nz, error);
-          fflush(stdout);
-        }
-        grid_mpi_barrier(comm);
       }
     }
   }
