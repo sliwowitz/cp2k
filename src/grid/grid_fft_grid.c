@@ -298,25 +298,20 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
     for (int index_y = fft_grid_ref->proc2local_gs[process][1][0];
          index_y <= fft_grid_ref->proc2local_gs[process][1][1]; index_y++) {
       // The right half of the indices is shifted
-      const int index_y_shifted = (index_y > fft_grid_ref->npts_global[1] / 2
-                                       ? fft_grid_ref->npts_global[1] - index_y
-                                       : index_y);
+      const int index_y_shifted = convert_c_index_to_shifted_index(
+          index_y, fft_grid_ref->npts_global[1]);
       // Compare the shifted index with the allowed subset of shifted indices of
       // the new grid The allowed set is given by -(n-1)//2...n//2 (these are
       // always n elements)
-      if (index_y_shifted < -(npts_global[1] - 1) / 2 ||
-          index_y_shifted > npts_global[1] / 2)
+      if (is_on_grid(index_y_shifted, npts_global[1]))
         continue;
       for (int index_z = fft_grid_ref->proc2local_gs[process][2][0];
            index_z <= fft_grid_ref->proc2local_gs[process][2][1]; index_z++) {
         // The right half of the indices is shifted
-        const int index_z_shifted =
-            (index_z > fft_grid_ref->npts_global[2] / 2
-                 ? fft_grid_ref->npts_global[2] - index_z
-                 : index_z);
+        const int index_z_shifted = convert_c_index_to_shifted_index(
+            index_z, fft_grid_ref->npts_global[2]);
         // Same check for z-coordinate
-        if (index_z_shifted < -(npts_global[2] - 1) / 2 ||
-            index_z_shifted > npts_global[2] / 2)
+        if (is_on_grid(index_z_shifted, npts_global[2]))
           continue;
         my_fft_grid->yz_to_process[index_y * npts_global[2] + index_z] =
             process;

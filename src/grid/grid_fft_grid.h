@@ -57,6 +57,14 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
                                          const int npts_global[3],
                                          const grid_fft_grid *fft_grid_ref);
 
+inline int convert_c_index_to_shifted_index(const int c_index, const int npts) {
+  return (c_index > npts / 2 ? npts - c_index : c_index);
+}
+
+inline bool is_on_grid(const int shifted_index, const int npts) {
+  return (shifted_index < -(npts - 1) / 2 || shifted_index > npts / 2);
+}
+
 #endif
 
 // EOF
