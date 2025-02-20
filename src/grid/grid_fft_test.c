@@ -412,23 +412,17 @@ int fft_test_transpose_parallel() {
   for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
     for (int index_z = 0; index_z < my_sizes_ms_ray[2]; index_z++) {
       // Check whether there is a ray with the given index pair
-      bool found = false;
-      for (int yz_ray = 0; yz_ray < npts_global[1] * npts_global[2]; yz_ray++) {
-        if (index_y == fft_grid_ray->ray_number_to_yz[yz_ray][0] &&
-            index_z == fft_grid_ray->ray_number_to_yz[yz_ray][1]) {
-          found = true;
-          break;
-        }
-      }
-      if (found) {
-        for (int index_x = 0; index_x < npts_global[0]; index_x++) {
+      if (fft_grid_ray->yz_to_process[index_y * npts_global[2] + index_z] >=
+          0) {
+        for (int index_x = 0; index_x < my_sizes_ms_ray[0]; index_x++) {
           const double complex my_value =
-              fft_grid_ray->grid_ms[index_z * npts_global[0] * npts_global[1] +
-                                    index_x * npts_global[1] + index_y];
+              fft_grid_ray
+                  ->grid_ms[index_z * my_sizes_ms_ray[0] * my_sizes_ms_ray[1] +
+                            index_x * my_sizes_ms_ray[1] + index_y];
           const double complex ref_value =
               ((index_y + my_bounds_ms_ray[1][0]) * npts_global[2] +
                (index_z + my_bounds_ms_ray[2][0])) +
-              I * (index_z + my_bounds_ms_ray[0][0]);
+              I * (index_x + my_bounds_ms_ray[0][0]);
           double current_error = cabs(my_value - ref_value);
           if (current_error > 0.1)
             fprintf(stderr, "yz_to_xz: %i %i %i: (%f, %f) (%f, %f)\n", index_x,
