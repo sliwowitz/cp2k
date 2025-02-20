@@ -108,6 +108,8 @@ void grid_mpi_allgather_int(const int *sendbuffer, int sendcount,
 void grid_mpi_sum_double(double *buffer, const int count,
                          const grid_mpi_comm comm);
 
+void grid_mpi_sum_int(int *buffer, const int count, const grid_mpi_comm comm);
+
 void grid_mpi_max_double(double *buffer, const int count,
                          const grid_mpi_comm comm);
 

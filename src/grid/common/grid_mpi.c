@@ -390,6 +390,20 @@ void grid_mpi_sum_double(double *buffer, const int count,
 #endif
 }
 
+void grid_mpi_sum_int(int *buffer, const int count, const grid_mpi_comm comm) {
+#if defined(__parallel)
+  assert(buffer != NULL);
+  assert(count >= 0 && "Send count must be nonnegative!");
+  error_check(
+      MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_INT, MPI_SUM, comm));
+#else
+  assert(buffer != NULL);
+  (void)comm;
+  (void)buffer;
+  (void)count;
+#endif
+}
+
 void grid_mpi_max_double(double *buffer, const int count,
                          const grid_mpi_comm comm) {
 #if defined(__parallel)

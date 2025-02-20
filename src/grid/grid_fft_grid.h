@@ -19,6 +19,12 @@
 typedef struct {
   // Global number of points
   int npts_global[3];
+  // Number of local points in g-space (relevant with ray-distribution)
+  int npts_gs_local;
+  bool ray_distribution;
+  int (*ray_number_to_yz)[2];
+  int *yz_to_process;
+  int *rays_per_process;
   // New communicator
   grid_mpi_comm comm;
   int proc_grid[2];
@@ -46,6 +52,10 @@ void grid_free_fft_grid(grid_fft_grid *fft_grid);
 
 void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
                           const int npts_global[3]);
+
+void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
+                                         const int npts_global[3],
+                                         const grid_fft_grid *fft_grid_ref);
 
 #endif
 

@@ -321,11 +321,141 @@ int fft_test_transpose_parallel() {
     }
   }
 
+  if (max_error > 1e-12) {
+    grid_free_fft_grid(fft_grid);
+    if (my_process == 0)
+      printf("\nThe transpose yz_to_xz_blocked does not work properly: %f!\n",
+             max_error);
+    return 1;
+  }
+
+  // Test ray transpositiond,
+  grid_fft_grid *fft_grid_ray = NULL;
+  grid_create_fft_grid_from_reference(&fft_grid_ray, npts_global, fft_grid);
+
+  int my_bounds_ms_ray[3][2];
+  memcpy(my_bounds_ms_ray, fft_grid_ray->proc2local_ms[my_process],
+         sizeof(int[3][2]));
+  int my_sizes_ms_ray[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_sizes_ms_ray[dir] =
+        my_bounds_ms_ray[dir][1] - my_bounds_ms_ray[dir][0] + 1;
+
+  int my_bounds_gs_ray[3][2];
+  memcpy(my_bounds_gs_ray, fft_grid_ray->proc2local_gs[my_process],
+         sizeof(int[3][2]));
+  int my_sizes_gs_ray[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_sizes_gs_ray[dir] =
+        my_bounds_gs_ray[dir][1] - my_bounds_gs_ray[dir][0] + 1;
+
+  for (int index_x = 0; index_x < my_sizes_ms_ray[0]; index_x++) {
+    for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
+      for (int index_z = 0; index_z < my_sizes_ms_ray[2]; index_z++) {
+        fft_grid_ray
+            ->grid_ms[index_z * my_sizes_ms_ray[0] * my_sizes_ms_ray[1] +
+                      index_x * my_sizes_ms_ray[1] + index_y] =
+            ((index_y + my_bounds_ms_ray[1][0]) * npts_global[2] +
+             (index_z + my_bounds_ms_ray[2][0])) +
+            I * (index_x + my_bounds_ms_ray[0][0]);
+      }
+    }
+  }
+
+  transpose_xz_to_yz_ray(fft_grid_ray->grid_ms, fft_grid_ray->grid_gs,
+                         fft_grid_ray->npts_global, fft_grid_ray->proc2local_ms,
+                         fft_grid_ray->yz_to_process, fft_grid_ray->comm);
+
+  for (int yz_ray = 0; yz_ray < fft_grid_ray->rays_per_process[my_process];
+       yz_ray++) {
+    const int index_y = fft_grid_ray->ray_number_to_yz[yz_ray][0];
+    const int index_z = fft_grid_ray->ray_number_to_yz[yz_ray][1];
+    for (int index_x = 0; index_x < npts_global[0]; index_x++) {
+      const double complex my_value =
+          fft_grid_ray->grid_gs[yz_ray * npts_global[0] + index_x];
+      const double complex ref_value =
+          (index_y * npts_global[2] + index_z) + I * index_x;
+      double current_error = cabs(my_value - ref_value);
+      if (current_error > 0.1)
+        fprintf(stderr, "%i %i %i: (%f, %f) (%f, %f)\n", index_x, index_y,
+                index_z, creal(my_value), cimag(my_value), creal(ref_value),
+                cimag(ref_value));
+      max_error = fmax(max_error, current_error);
+    }
+  }
+
+  if (max_error > 1e-12) {
+    grid_free_fft_grid(fft_grid_ray);
+    grid_free_fft_grid(fft_grid);
+    if (my_process == 0)
+      printf("\nThe transpose xz_to_yz_blocked does not work properly: %f!\n",
+             max_error);
+    return 1;
+  }
+
+  memset(fft_grid_ray->grid_gs, 0,
+         product3(my_sizes_gs_ray) * sizeof(double complex));
+
+  for (int yz_ray = 0; yz_ray < fft_grid_ray->rays_per_process[my_process];
+       yz_ray++) {
+    const int index_y = fft_grid_ray->ray_number_to_yz[yz_ray][0];
+    const int index_z = fft_grid_ray->ray_number_to_yz[yz_ray][1];
+    for (int index_x = 0; index_x < npts_global[0]; index_x++) {
+      fft_grid_ray->grid_gs[yz_ray * npts_global[0] + index_x] =
+          (index_y * npts_global[2] + index_z) + I * index_x;
+    }
+  }
+  transpose_yz_to_xz_ray(fft_grid_ray->grid_gs, fft_grid_ray->grid_ms,
+                         fft_grid_ray->npts_global, fft_grid_ray->yz_to_process,
+                         fft_grid_ray->proc2local_ms, fft_grid_ray->comm);
+
+  for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
+    for (int index_z = 0; index_z < my_sizes_ms_ray[2]; index_z++) {
+      // Check whether there is a ray with the given index pair
+      bool found = false;
+      for (int yz_ray = 0; yz_ray < npts_global[1] * npts_global[2]; yz_ray++) {
+        if (index_y == fft_grid_ray->ray_number_to_yz[yz_ray][0] &&
+            index_z == fft_grid_ray->ray_number_to_yz[yz_ray][1]) {
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        for (int index_x = 0; index_x < npts_global[0]; index_x++) {
+          const double complex my_value =
+              fft_grid_ray->grid_ms[index_z * npts_global[0] * npts_global[1] +
+                                    index_x * npts_global[1] + index_y];
+          const double complex ref_value =
+              ((index_y + my_bounds_ms_ray[1][0]) * npts_global[2] +
+               (index_z + my_bounds_ms_ray[2][0])) +
+              I * (index_z + my_bounds_ms_ray[0][0]);
+          double current_error = cabs(my_value - ref_value);
+          if (current_error > 0.1)
+            fprintf(stderr, "yz_to_xz: %i %i %i: (%f, %f) (%f, %f)\n", index_x,
+                    index_y, index_z, creal(my_value), cimag(my_value),
+                    creal(ref_value), cimag(ref_value));
+          max_error = fmax(max_error, current_error);
+        }
+      } else {
+        for (int index_x = 0; index_x < npts_global[0]; index_x++) {
+          const double complex my_value =
+              fft_grid_ray->grid_ms[index_z * npts_global[0] * npts_global[1] +
+                                    index_x * npts_global[1] + index_y];
+          // The value is assumed to be zero if absent
+          const double complex ref_value = 0.0;
+          double current_error = cabs(my_value - ref_value);
+          max_error = fmax(max_error, current_error);
+        }
+      }
+    }
+  }
+
+  grid_free_fft_grid(fft_grid_ray);
   grid_free_fft_grid(fft_grid);
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("\nThe transpose yz_to_xz_blocked does not work properly: %f!\n",
+      printf("\nThe transpose_yz_to_xz_ray does not work properly: %f!\n",
              max_error);
     return 1;
   }
@@ -416,9 +546,6 @@ int fft_test_parallel() {
   for (int nx = 0; nx < npts_global[0]; nx++) {
     for (int ny = 0; ny < npts_global[1]; ny++) {
       for (int nz = 0; nz < npts_global[2]; nz++) {
-        if (my_process == 0)
-          printf("%i %i %i\n", nx, ny, nz);
-
         memset(fft_grid->grid_gs, 0,
                my_number_of_elements_gs * sizeof(double complex));
 
