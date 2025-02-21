@@ -13,7 +13,7 @@
 #include <stdbool.h>
 
 /*******************************************************************************
- * \brief Container to represent fft grids to merge the multigrids.
+ * \brief Container to represent fft grids.
  * \author Frederick Stein
  ******************************************************************************/
 typedef struct {
@@ -22,7 +22,7 @@ typedef struct {
   // Number of local points in g-space (relevant with ray-distribution)
   int npts_gs_local;
   bool ray_distribution;
-  int (*ray_number_to_yz)[2];
+  int (*ray_to_yz)[2];
   int *yz_to_process;
   int *rays_per_process;
   // New communicator
@@ -48,21 +48,50 @@ typedef struct {
   // buffers for different purposes
 } grid_fft_grid;
 
+/*******************************************************************************
+ * \brief Frees a FFT grid.
+ * \author Frederick Stein
+ ******************************************************************************/
 void grid_free_fft_grid(grid_fft_grid *fft_grid);
 
+/*******************************************************************************
+ * \brief Create a FFT grid.
+ * \author Frederick Stein
+ ******************************************************************************/
 void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
                           const int npts_global[3]);
 
+/*******************************************************************************
+ * \brief Create a FFT grid using a reference grid to interact with this grid.
+ * \author Frederick Stein
+ ******************************************************************************/
 void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
                                          const int npts_global[3],
                                          const grid_fft_grid *fft_grid_ref);
 
+/*******************************************************************************
+ * \brief Convert between C indices (0...n-1) and shifted indices (-n/2...n/2).
+ * \author Frederick Stein
+ ******************************************************************************/
 inline int convert_c_index_to_shifted_index(const int c_index, const int npts) {
-  return (c_index > npts / 2 ? npts - c_index : c_index);
+  return (c_index > npts / 2 ? c_index - npts : c_index);
 }
 
+/*******************************************************************************
+ * \brief Convert between shifted indices (-n/2...n/2) and C indices (0...n-1).
+ * \author Frederick Stein
+ ******************************************************************************/
+inline int convert_shifted_index_to_c_index(const int shifted_index,
+                                            const int npts) {
+  return (shifted_index < 0 ? npts + shifted_index : shifted_index);
+}
+
+/*******************************************************************************
+ * \brief Check whether a shifted index is on the grid.
+ * \author Frederick Stein
+ ******************************************************************************/
 inline bool is_on_grid(const int shifted_index, const int npts) {
-  return (shifted_index < -(npts - 1) / 2 || shifted_index > npts / 2);
+  return (shifted_index >= -(npts - 1) / 2 && shifted_index <= npts / 2);
 }
 
 #endif

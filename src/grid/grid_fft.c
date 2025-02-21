@@ -665,7 +665,8 @@ void transpose_xz_to_yz_ray(const double complex *grid,
                             double complex *transposed,
                             const int npts_global[3],
                             const int (*proc2local)[3][2],
-                            const int *yz_to_process,
+                            const int *yz_to_process, const int *number_of_rays,
+                            const int (*ray_to_yz)[2],
                             const grid_mpi_comm comm) {
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
@@ -690,35 +691,34 @@ void transpose_xz_to_yz_ray(const double complex *grid,
   const int my_number_of_elements = product3(my_original_sizes);
 
   // Copy and transpose the local data
-  int yz_index = -1;
-  for (int index_y = 0; index_y < npts_global[1]; index_y++) {
-    for (int index_z = 0; index_z < npts_global[2]; index_z++) {
-      // Check whether we have the given ray
-      if (yz_to_process[index_y * npts_global[2] + index_z] != my_process)
-        continue;
+  int number_of_received_rays = 0;
+  for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
+    const int index_y = ray_to_yz[yz_ray][0];
+    const int index_z = ray_to_yz[yz_ray][1];
 
-      yz_index++;
+    if (index_y < proc2local[my_process][1][0] ||
+        index_y > proc2local[my_process][1][1])
+      continue;
+    if (index_z < proc2local[my_process][2][0] ||
+        index_z > proc2local[my_process][2][1])
+      continue;
 
-      printf("%i yz_index %i: %i %i\n", my_process, yz_index, index_y, index_z);
+    /*printf("yz_ray = %i, index_y = %i, index_z = %i\n", yz_ray, index_y,
+           index_z);*/
 
-      if (index_y < proc2local[my_process][1][0] ||
-          index_y > proc2local[my_process][1][1])
-        continue;
-      if (index_z < proc2local[my_process][2][0] ||
-          index_z > proc2local[my_process][2][1])
-        continue;
-
-      // Copy the data
-      for (int index_x = proc2local[my_process][0][0];
-           index_x <= proc2local[my_process][0][1]; index_x++) {
-        transposed[yz_index * npts_global[0] + index_x] =
-            grid[(index_z - proc2local[my_process][2][0]) *
-                     my_original_sizes[0] * my_original_sizes[1] +
-                 (index_x - proc2local[my_process][0][0]) *
-                     my_original_sizes[1] +
-                 (index_y - proc2local[my_process][1][0])];
-      }
+    // Copy the data
+    for (int index_x = proc2local[my_process][0][0];
+         index_x <= proc2local[my_process][0][1]; index_x++) {
+      transposed[yz_ray * npts_global[0] + index_x] =
+          grid[(index_z - proc2local[my_process][2][0]) * my_original_sizes[0] *
+                   my_original_sizes[1] +
+               (index_x - proc2local[my_process][0][0]) * my_original_sizes[1] +
+               (index_y - proc2local[my_process][1][0])];
+      /*printf("%i %i %i: (%f %f)\n", index_x, index_y, index_z,
+             creal(transposed[yz_ray * npts_global[0] + index_x]),
+             cimag(transposed[yz_ray * npts_global[0] + index_x]));*/
     }
+    number_of_received_rays++;
   }
 
   for (int process_shift = 1; process_shift < number_of_processes;
@@ -771,12 +771,15 @@ void transpose_xz_to_yz_ray(const double complex *grid,
                               recv_sizes[1] +
                           (index_y - proc2local[recv_process][1][0])];
         }
+        number_of_received_rays++;
       }
     }
 
     // Wait for the send request
     grid_mpi_wait(&send_request);
   }
+
+  assert(number_of_received_rays == number_of_rays[my_process]);
 
   free(recv_buffer);
 }
@@ -789,26 +792,22 @@ void transpose_yz_to_xz_ray(const double complex *grid,
                             double complex *transposed,
                             const int npts_global[3], const int *yz_to_process,
                             const int (*proc2local_transposed)[3][2],
+                            const int *number_of_rays,
+                            const int (*ray_to_yz)[2],
                             const grid_mpi_comm comm) {
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
   (void)npts_global;
 
-  int number_of_rays_per_element[number_of_processes];
-  memset(number_of_rays_per_element, 0, number_of_processes * sizeof(int));
-  for (int yz_ray = 0; yz_ray < npts_global[1] * npts_global[2]; yz_ray++) {
-    number_of_rays_per_element[yz_to_process[yz_ray]]++;
-  }
   int max_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++)
     max_number_of_elements =
-        imax(max_number_of_elements, number_of_rays_per_element[process]);
+        imax(max_number_of_elements, number_of_rays[process]);
   double complex *recv_buffer =
       malloc(max_number_of_elements * npts_global[0] * sizeof(double complex));
   grid_mpi_request recv_request, send_request;
 
-  const int my_number_of_elements =
-      npts_global[0] * number_of_rays_per_element[my_process];
+  const int my_number_of_elements = npts_global[0] * number_of_rays[my_process];
 
   int my_transposed_sizes[3];
   for (int dir = 0; dir < 3; dir++)
@@ -819,37 +818,34 @@ void transpose_yz_to_xz_ray(const double complex *grid,
 
   // Copy and transpose the local data
   // int number_of_received_rays = 0;
-  int yz_index = -1;
-  for (int index_y = 0; index_y < npts_global[1]; index_y++) {
-    for (int index_z = 0; index_z < npts_global[2]; index_z++) {
-      // Check whether we have the given ray
-      if (yz_to_process[index_y * npts_global[2] + index_z] != my_process)
-        continue;
+  for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
+    const int index_y = ray_to_yz[yz_ray][0];
+    const int index_z = ray_to_yz[yz_ray][1];
 
-      yz_index++;
+    // Check whether we carry that ray after the transposition
+    if (index_y < proc2local_transposed[my_process][1][0] ||
+        index_y > proc2local_transposed[my_process][1][1])
+      continue;
+    if (index_z < proc2local_transposed[my_process][2][0] ||
+        index_z > proc2local_transposed[my_process][2][1])
+      continue;
 
-      // Check whether we carry that ray after the transposition
-      if (index_y < proc2local_transposed[my_process][1][0] ||
-          index_y > proc2local_transposed[my_process][1][1])
-        continue;
-      if (index_z < proc2local_transposed[my_process][2][0] ||
-          index_z > proc2local_transposed[my_process][2][1])
-        continue;
+    // printf("%i yz_ray %i: %i %i\n", my_process, yz_ray, index_y, index_z);
 
-      printf("%i yz_index %i: %i %i\n", my_process, yz_index, index_y, index_z);
-
-      // Copy the data
-      for (int index_x = proc2local_transposed[my_process][0][0];
-           index_x <= proc2local_transposed[my_process][0][1]; index_x++) {
-        transposed[(index_z - proc2local_transposed[my_process][2][0]) *
-                       my_transposed_sizes[0] * my_transposed_sizes[1] +
-                   (index_x - proc2local_transposed[my_process][0][0]) *
-                       my_transposed_sizes[1] +
-                   (index_y - proc2local_transposed[my_process][1][0])] =
-            grid[yz_index * npts_global[0] + index_x];
-      }
-      // number_of_received_rays++;
+    // Copy the data
+    for (int index_x = proc2local_transposed[my_process][0][0];
+         index_x <= proc2local_transposed[my_process][0][1]; index_x++) {
+      transposed[(index_z - proc2local_transposed[my_process][2][0]) *
+                     my_transposed_sizes[0] * my_transposed_sizes[1] +
+                 (index_x - proc2local_transposed[my_process][0][0]) *
+                     my_transposed_sizes[1] +
+                 (index_y - proc2local_transposed[my_process][1][0])] =
+          grid[yz_ray * npts_global[0] + index_x];
+      printf("Copy in yz_to_xz (%i) %i to %i %i: (%f %f)\n", index_x, yz_ray,
+             index_y, index_z, creal(grid[yz_ray * npts_global[0] + index_x]),
+             cimag(grid[yz_ray * npts_global[0] + index_x]));
     }
+    // number_of_received_rays++;
   }
 
   for (int process_shift = 1; process_shift < number_of_processes;
@@ -1047,6 +1043,9 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
   for (int i = 0; i < number_of_elements_rs; i++) {
     grid_rs[i] = creal(grid_buffer_1[i]);
   }
+  fflush(stdout);
+  fflush(stderr);
+  grid_mpi_barrier(comm);
 
   free(grid_buffer_1);
   free(grid_buffer_2);
@@ -1059,6 +1058,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
 void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
                    const int npts_global[3], const int (*proc2local_rs)[3][2],
                    const int (*proc2local_ms)[3][2], const int *yz_to_process,
+                   const int *rays_per_process, const int (*ray_to_yz)[2],
                    const grid_mpi_comm comm) {
   const int my_process = grid_mpi_comm_rank(comm);
 
@@ -1107,7 +1107,8 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
 
     // Perform second transpose
     transpose_xz_to_yz_ray(grid_buffer_2, grid_buffer_1, npts_global,
-                           proc2local_ms, yz_to_process, comm);
+                           proc2local_ms, yz_to_process, rays_per_process,
+                           ray_to_yz, comm);
 
     // Perform the third FFT
     fft_1d_fw(grid_buffer_1, grid_gs, npts_global[0], number_of_local_yz_rays);
@@ -1140,6 +1141,7 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
 void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
                    const int npts_global[3], const int (*proc2local_rs)[3][2],
                    const int (*proc2local_ms)[3][2], const int *yz_to_process,
+                   const int *rays_per_process, const int (*ray_to_yz)[2],
                    const grid_mpi_comm comm) {
   const int my_process = grid_mpi_comm_rank(comm);
 
@@ -1175,7 +1177,8 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
 
     // Perform transpose
     transpose_yz_to_xz_ray(grid_buffer_1, grid_buffer_2, npts_global,
-                           yz_to_process, proc2local_ms, comm);
+                           yz_to_process, proc2local_ms, rays_per_process,
+                           ray_to_yz, comm);
 
     // Perform the second FFT
     fft_1d_bw((const double complex *)grid_buffer_2, grid_buffer_1,
@@ -1192,17 +1195,14 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
     // Copy to the new format
     // Maybe, the order 1D FFT, redistribution to blocks and 2D FFT is faster
     memset(grid_buffer_1, 0, product3(npts_global));
-    int ray_index = 0;
-    for (int index_y = 0; index_y < npts_global[1]; index_y++) {
-      for (int index_z = 0; index_z < npts_global[2]; index_z++) {
-        if (yz_to_process[index_y * npts_global[2] + index_z] == 0) {
-          memcpy(&grid_buffer_1[index_y * npts_global[0] * npts_global[2] +
-                                index_z * npts_global[0]],
-                 &grid_gs[ray_index * npts_global[0]],
-                 npts_global[0] * sizeof(double complex));
-          ray_index++;
-        }
-      }
+    for (int yz_ray = 0; yz_ray < rays_per_process[my_process]; yz_ray++) {
+      const int index_y = ray_to_yz[yz_ray][0];
+      const int index_z = ray_to_yz[yz_ray][1];
+
+      memcpy(&grid_buffer_1[index_y * npts_global[0] * npts_global[2] +
+                            index_z * npts_global[0]],
+             &grid_gs[yz_ray * npts_global[0]],
+             npts_global[0] * sizeof(double complex));
     }
     fft_3d_bw(grid_buffer_1, grid_buffer_2, npts_global);
   }

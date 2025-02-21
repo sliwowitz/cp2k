@@ -198,12 +198,14 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
 
   transpose_xz_to_yz_ray(fft_grid_ray->grid_ms, fft_grid_ray->grid_gs,
                          fft_grid_ray->npts_global, fft_grid_ray->proc2local_ms,
-                         fft_grid_ray->yz_to_process, fft_grid_ray->comm);
+                         fft_grid_ray->yz_to_process,
+                         fft_grid_ray->rays_per_process,
+                         fft_grid_ray->ray_to_yz, fft_grid_ray->comm);
 
   for (int yz_ray = 0; yz_ray < fft_grid_ray->rays_per_process[my_process];
        yz_ray++) {
-    const int index_y = fft_grid_ray->ray_number_to_yz[yz_ray][0];
-    const int index_z = fft_grid_ray->ray_number_to_yz[yz_ray][1];
+    const int index_y = fft_grid_ray->ray_to_yz[yz_ray][0];
+    const int index_z = fft_grid_ray->ray_to_yz[yz_ray][1];
     for (int index_x = 0; index_x < fft_grid_ray->npts_global[0]; index_x++) {
       const double complex my_value =
           fft_grid_ray
@@ -212,28 +214,40 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
           (index_y * npts_global[2] + index_z) + I * index_x;
       double current_error = cabs(my_value - ref_value);
       if (current_error > 0.1)
-        fprintf(stderr, "%i %i %i: (%f, %f) (%f, %f)\n", index_x, index_y,
-                index_z, creal(my_value), cimag(my_value), creal(ref_value),
-                cimag(ref_value));
+        fprintf(stdout, "xz_to_yz_ray error (%i) %i %i %i: (%f, %f) (%f, %f)\n",
+                yz_ray, index_x, index_y, index_z, creal(my_value),
+                cimag(my_value), creal(ref_value), cimag(ref_value));
       max_error = fmax(max_error, current_error);
     }
   }
+  fflush(stdout);
+  grid_mpi_barrier(fft_grid_ray->comm);
 
   if (max_error > 1e-12) {
     grid_free_fft_grid(fft_grid_ray);
     if (my_process == 0)
-      printf("\nThe transpose xz_to_yz_blocked does not work properly: %f!\n",
+      printf("\nThe transpose xz_to_yz_ray does not work properly: %f!\n",
              max_error);
     return max_error;
+  } else {
+    if (my_process == 0) {
+      printf("\nThe transpose to the ray distribution works properly "
+             "(sizes: %i %i %i)!\n",
+             npts_global[0], npts_global[1], npts_global[2]);
+      fflush(stdout);
+    }
+    grid_mpi_barrier(fft_grid_ray->comm);
   }
 
   memset(fft_grid_ray->grid_gs, 0,
          product3(my_sizes_gs_ray) * sizeof(double complex));
+  memset(fft_grid_ray->grid_ms, 0,
+         product3(my_sizes_ms_ray) * sizeof(double complex));
 
   for (int yz_ray = 0; yz_ray < fft_grid_ray->rays_per_process[my_process];
        yz_ray++) {
-    const int index_y = fft_grid_ray->ray_number_to_yz[yz_ray][0];
-    const int index_z = fft_grid_ray->ray_number_to_yz[yz_ray][1];
+    const int index_y = fft_grid_ray->ray_to_yz[yz_ray][0];
+    const int index_z = fft_grid_ray->ray_to_yz[yz_ray][1];
     for (int index_x = 0; index_x < fft_grid_ray->npts_global[0]; index_x++) {
       fft_grid_ray->grid_gs[yz_ray * fft_grid_ray->npts_global[0] + index_x] =
           (index_y * fft_grid_ray->npts_global[2] + index_z) + I * index_x;
@@ -241,13 +255,17 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
   }
   transpose_yz_to_xz_ray(fft_grid_ray->grid_gs, fft_grid_ray->grid_ms,
                          fft_grid_ray->npts_global, fft_grid_ray->yz_to_process,
-                         fft_grid_ray->proc2local_ms, fft_grid_ray->comm);
+                         fft_grid_ray->proc2local_ms,
+                         fft_grid_ray->rays_per_process,
+                         fft_grid_ray->ray_to_yz, fft_grid_ray->comm);
 
   for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
     for (int index_z = 0; index_z < my_sizes_ms_ray[2]; index_z++) {
       // Check whether there is a ray with the given index pair
-      if (fft_grid_ray->yz_to_process[index_y * fft_grid_ray->npts_global[2] +
-                                      index_z] >= 0) {
+      if (fft_grid_ray->yz_to_process[(index_y + my_bounds_ms_ray[1][0]) *
+                                          fft_grid_ray->npts_global[2] +
+                                      (index_z + my_bounds_ms_ray[2][0])] >=
+          0) {
         for (int index_x = 0; index_x < my_sizes_ms_ray[0]; index_x++) {
           const double complex my_value =
               fft_grid_ray
@@ -260,9 +278,15 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
               I * (index_x + my_bounds_ms_ray[0][0]);
           double current_error = cabs(my_value - ref_value);
           if (current_error > 0.1)
-            fprintf(stderr, "yz_to_xz: %i %i %i: (%f, %f) (%f, %f)\n", index_x,
-                    index_y, index_z, creal(my_value), cimag(my_value),
-                    creal(ref_value), cimag(ref_value));
+            fprintf(
+                stdout,
+                "error yz_to_xz (proc %i) %i %i %i: (%f, %f) (%f, %f)\n",
+                fft_grid_ray->yz_to_process[(index_y + my_bounds_ms_ray[1][0]) *
+                                                fft_grid_ray->npts_global[2] +
+                                            (index_z + my_bounds_ms_ray[2][0])],
+                index_x, index_y + my_bounds_ms_ray[1][0],
+                index_z + my_bounds_ms_ray[2][0], creal(my_value),
+                cimag(my_value), creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       } else {
@@ -276,6 +300,15 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
           // The value is assumed to be zero if absent
           const double complex ref_value = 0.0;
           double current_error = cabs(my_value - ref_value);
+          if (current_error > 0.1)
+            fprintf(
+                stdout,
+                "error yz_to_xz (proc %i) %i %i %i: (%f, %f) (%f, %f)\n",
+                fft_grid_ray->yz_to_process[(index_y + my_bounds_ms_ray[1][0]) *
+                                                fft_grid_ray->npts_global[2] +
+                                            (index_z + my_bounds_ms_ray[2][0])],
+                index_x, index_y, index_z, creal(my_value), cimag(my_value),
+                creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       }
@@ -283,6 +316,23 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
   }
 
   grid_free_fft_grid(fft_grid_ray);
+
+  if (max_error > 1e-12) {
+    if (my_process == 0)
+      printf("\nThe transpose yz_to_xz_ray does not work properly: %f!\n",
+             max_error);
+    return max_error;
+  } else {
+    if (my_process == 0)
+      printf("\nThe transpose from the ray distribution works properly "
+             "(sizes: %i %i %i)!\n",
+             npts_global[0], npts_global[1], npts_global[2]);
+  }
+
+  printf("Current process: %i/%i\n", grid_mpi_comm_rank(ref_grid->comm) + 1,
+         grid_mpi_comm_size(ref_grid->comm));
+  fflush(stdout);
+  grid_mpi_barrier(ref_grid->comm);
 
   return max_error;
 }
@@ -362,6 +412,11 @@ int fft_test_transpose_parallel() {
       printf("\nThe transpose xy_to_xz_blocked does not work properly: %f!\n",
              max_error);
     return 1;
+  } else {
+    if (my_process == 0)
+      printf("\nThe transpose xy_to_xz_blocked does work properly (sizes: %i "
+             "%i %i)!\n",
+             npts_global[0], npts_global[1], npts_global[2]);
   }
 
   memset(fft_grid->grid_rs_complex, 0,
@@ -425,6 +480,11 @@ int fft_test_transpose_parallel() {
       printf("\nThe transpose xz_to_yz_blocked does not work properly: %f!\n",
              max_error);
     return 1;
+  } else {
+    if (my_process == 0)
+      printf("\nThe transpose xz_to_yz_blocked does work properly (sizes: %i "
+             "%i %i)!\n",
+             npts_global[0], npts_global[1], npts_global[2]);
   }
 
   memset(fft_grid->grid_ms, 0, my_number_of_elements_ms);
@@ -457,15 +517,34 @@ int fft_test_transpose_parallel() {
       printf("\nThe transpose yz_to_xz_blocked does not work properly: %f!\n",
              max_error);
     return 1;
+  } else {
+    if (my_process == 0)
+      printf("\nThe transpose yz_to_xz_blocked does work properly (sizes: %i "
+             "%i %i)!\n",
+             npts_global[0], npts_global[1], npts_global[2]);
   }
 
   max_error = fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global));
+
+  if (max_error > 1e-12) {
+    grid_free_fft_grid(fft_grid);
+    if (my_process == 0)
+      printf("\nThe ray transpositions on the same grid do not work properly: "
+             "%f!\n",
+             max_error);
+    return 1;
+  }
+
+  const int npts_global_2[3] = {2, 3, 5};
+  max_error = fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global_2));
 
   grid_free_fft_grid(fft_grid);
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("\nThe ray transpositions do not work properly: %f!\n", max_error);
+      printf("\nThe ray transpositions on a smaller grid do not work properly: "
+             "%f!\n",
+             max_error);
     return 1;
   }
 
