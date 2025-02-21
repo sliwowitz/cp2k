@@ -525,7 +525,7 @@ int fft_test_transpose_parallel() {
              npts_global[0], npts_global[1], npts_global[2]);
   }
 
-  // max_error = fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global));
+  max_error = fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global));
 
   if (max_error > 1e-12) {
     grid_free_fft_grid(fft_grid);
