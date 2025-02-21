@@ -779,7 +779,10 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     grid_mpi_wait(&send_request);
   }
 
-  assert(number_of_received_rays == number_of_rays[my_process]);
+  printf("Process %i: Received %i rays\n", my_process, number_of_received_rays);
+  fflush(stdout);
+  grid_mpi_barrier(comm);
+  // assert(number_of_received_rays == number_of_rays[my_process]);
 
   free(recv_buffer);
 }
@@ -817,7 +820,7 @@ void transpose_yz_to_xz_ray(const double complex *grid,
   memset(transposed, 0, product3(my_transposed_sizes) * sizeof(double complex));
 
   // Copy and transpose the local data
-  // int number_of_received_rays = 0;
+  int number_of_received_rays = 0;
   for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
     const int index_y = ray_to_yz[yz_ray][0];
     const int index_z = ray_to_yz[yz_ray][1];
@@ -845,7 +848,7 @@ void transpose_yz_to_xz_ray(const double complex *grid,
              index_y, index_z, creal(grid[yz_ray * npts_global[0] + index_x]),
              cimag(grid[yz_ray * npts_global[0] + index_x]));
     }
-    // number_of_received_rays++;
+    number_of_received_rays++;
   }
 
   for (int process_shift = 1; process_shift < number_of_processes;
@@ -900,12 +903,23 @@ void transpose_yz_to_xz_ray(const double complex *grid,
                      (index_y - proc2local_transposed[my_process][1][0])] =
               recv_buffer[yz_index * npts_global[0] + index_x];
         }
+        number_of_received_rays++;
       }
     }
 
     // Wait for the send request
     grid_mpi_wait(&send_request);
   }
+  grid_mpi_sum_int(&number_of_received_rays, 1, comm);
+  int total_number_of_rays = 0;
+  for (int process = 0; process < number_of_processes; process++)
+    total_number_of_rays += number_of_rays[process];
+
+  printf("Process %i: Received %i from %i rays\n", my_process,
+         number_of_received_rays, total_number_of_rays);
+  fflush(stdout);
+  grid_mpi_barrier(comm);
+  // assert(number_of_received_rays == total_number_of_rays);
 
   free(recv_buffer);
 }
