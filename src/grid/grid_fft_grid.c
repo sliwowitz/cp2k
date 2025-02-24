@@ -434,7 +434,7 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
     }
   }
   fflush(stdout);
-  /*for (int process = 0; process < number_of_processes; process++) {
+  for (int process = 0; process < number_of_processes; process++) {
     fprintf(stderr, "%i ray_index_per_process %i: %i %i\n", my_process, process,
             ray_index_per_process[process],
             my_fft_grid->rays_per_process[process]);
@@ -460,7 +460,7 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
                  npts_global[2] &&
              "The ray has to be assigned to a valid yz index!");
     }
-  }*/
+  }
 
   free(ray_offsets);
   free(ray_index_per_process);
