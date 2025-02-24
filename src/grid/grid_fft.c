@@ -700,7 +700,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
 
   // Copy and transpose the local data
   int number_of_received_rays = 0;
-  /*int my_ray_offset = 0;
+  int my_ray_offset = 0;
   for (int process = 0; process < my_process; process++)
     my_ray_offset += number_of_rays[process];
   for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
@@ -720,11 +720,11 @@ void transpose_xz_to_yz_ray(const double complex *grid,
       assert(yz_ray * npts_global[0] + index_x >= 0);
       assert(yz_ray * npts_global[0] + index_x <
              npts_global[0] * number_of_rays[my_process]);
-      transposed[yz_ray * npts_global[0] + index_x] =
+      /*transposed[yz_ray * npts_global[0] + index_x] =
           grid[(index_z - proc2local[my_process][2][0]) * my_original_sizes[0] *
                    my_original_sizes[1] +
                (index_x - proc2local[my_process][0][0]) * my_original_sizes[1] +
-               (index_y - proc2local[my_process][1][0])];
+               (index_y - proc2local[my_process][1][0])];*/
       printf("%i %i %i: (%f %f)\n", index_x, index_y, index_z,
              creal(transposed[yz_ray * npts_global[0] + index_x]),
              cimag(transposed[yz_ray * npts_global[0] + index_x]));
@@ -734,7 +734,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     number_of_received_rays++;
   }
 
-  for (int process_shift = 1; process_shift < number_of_processes;
+  /*for (int process_shift = 1; process_shift < number_of_processes;
        process_shift++) {
     const int send_process =
         modulo(my_process + process_shift, number_of_processes);
