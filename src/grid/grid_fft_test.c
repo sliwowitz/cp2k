@@ -228,7 +228,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
   fflush(stdout);
   grid_mpi_barrier(fft_grid_ray->comm);
 
-  if (false && max_error > 1e-12) {
+  if (max_error > 1e-12) {
     grid_free_fft_grid(fft_grid_ray);
     if (my_process == 0)
       printf("The transpose xz_to_yz_ray does not work properly: %f!\n",
@@ -322,7 +322,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
 
   grid_free_fft_grid(fft_grid_ray);
 
-  if (false && max_error > 1e-12) {
+  if (max_error > 1e-12) {
     if (my_process == 0)
       printf("The transpose yz_to_xz_ray does not work properly: %f!\n",
              max_error);
@@ -529,7 +529,7 @@ int fft_test_transpose_parallel() {
 
   max_error = fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global));
 
-  if (false && max_error > 1e-12) {
+  if (max_error > 1e-12) {
     grid_free_fft_grid(fft_grid);
     if (my_process == 0)
       printf("The ray transpositions on the same grid do not work properly: "
@@ -543,7 +543,7 @@ int fft_test_transpose_parallel() {
 
   grid_free_fft_grid(fft_grid);
 
-  if (false && max_error > 1e-12) {
+  if (max_error > 1e-12) {
     if (my_process == 0)
       printf("The ray transpositions on a smaller grid do not work properly: "
              "%f!\n",
