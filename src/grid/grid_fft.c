@@ -707,9 +707,6 @@ void transpose_xz_to_yz_ray(const double complex *grid,
         index_z > proc2local[my_process][2][1])
       continue;
 
-    /*printf("yz_ray = %i, index_y = %i, index_z = %i\n", yz_ray, index_y,
-           index_z);*/
-
     // Copy the data
     for (int index_x = proc2local[my_process][0][0];
          index_x <= proc2local[my_process][0][1]; index_x++) {
@@ -785,6 +782,8 @@ void transpose_xz_to_yz_ray(const double complex *grid,
 
     // Wait for the send request
     grid_mpi_wait(&send_request);
+    printf("%i sent %i elements to %i\n", my_process, my_number_of_elements,
+           send_process);
   }
 
   printf("Process %i: Received %i rays\n", my_process, number_of_received_rays);
