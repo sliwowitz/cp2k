@@ -671,6 +671,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
   (void)npts_global;
+  (void)yz_to_process;
 
   int max_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++) {
@@ -692,9 +693,12 @@ void transpose_xz_to_yz_ray(const double complex *grid,
 
   // Copy and transpose the local data
   int number_of_received_rays = 0;
+  int my_ray_offset = 0;
+  for (int process = 0; process < my_process; process++)
+    my_ray_offset += number_of_rays[process];
   for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
-    const int index_y = ray_to_yz[yz_ray][0];
-    const int index_z = ray_to_yz[yz_ray][1];
+    const int index_y = ray_to_yz[my_ray_offset + yz_ray][0];
+    const int index_z = ray_to_yz[my_ray_offset + yz_ray][1];
 
     if (index_y < proc2local[my_process][1][0] ||
         index_y > proc2local[my_process][1][1])
@@ -709,6 +713,9 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     // Copy the data
     for (int index_x = proc2local[my_process][0][0];
          index_x <= proc2local[my_process][0][1]; index_x++) {
+      assert(yz_ray * npts_global[0] + index_x >= 0);
+      assert(yz_ray * npts_global[0] + index_x <
+             npts_global[0] * number_of_rays[my_process]);
       transposed[yz_ray * npts_global[0] + index_x] =
           grid[(index_z - proc2local[my_process][2][0]) * my_original_sizes[0] *
                    my_original_sizes[1] +
@@ -718,6 +725,8 @@ void transpose_xz_to_yz_ray(const double complex *grid,
              creal(transposed[yz_ray * npts_global[0] + index_x]),
              cimag(transposed[yz_ray * npts_global[0] + index_x]));*/
     }
+    printf("%i Copy in xz_to_yz (process %i) %i %i to %i\n", my_process,
+           my_process, index_y, index_z, yz_ray);
     number_of_received_rays++;
   }
 
@@ -745,34 +754,33 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     grid_mpi_wait(&recv_request);
 
     // Copy and transpose the data
-    int yz_index = -1;
-    for (int index_y = 0; index_y < npts_global[1]; index_y++) {
-      for (int index_z = 0; index_z < npts_global[2]; index_z++) {
-        // Check whether we have the given ray
-        if (yz_to_process[index_y * npts_global[2] + index_z] != my_process)
-          continue;
+    for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
+      const int index_y = ray_to_yz[my_ray_offset + yz_ray][0];
+      const int index_z = ray_to_yz[my_ray_offset + yz_ray][1];
 
-        yz_index++;
+      if (index_y < proc2local[recv_process][1][0] ||
+          index_y > proc2local[recv_process][1][1])
+        continue;
+      if (index_z < proc2local[recv_process][2][0] ||
+          index_z > proc2local[recv_process][2][1])
+        continue;
 
-        if (index_y < proc2local[recv_process][1][0] ||
-            index_y > proc2local[recv_process][1][1])
-          continue;
-        if (index_z < proc2local[recv_process][2][0] ||
-            index_z > proc2local[recv_process][2][1])
-          continue;
-
-        // Copy the data
-        for (int index_x = proc2local[recv_process][0][0];
-             index_x <= proc2local[recv_process][0][1]; index_x++) {
-          transposed[yz_index * npts_global[0] + index_x] =
-              recv_buffer[(index_z - proc2local[recv_process][2][0]) *
-                              recv_sizes[0] * recv_sizes[1] +
-                          (index_x - proc2local[recv_process][0][0]) *
-                              recv_sizes[1] +
-                          (index_y - proc2local[recv_process][1][0])];
-        }
-        number_of_received_rays++;
+      // Copy the data
+      for (int index_x = proc2local[recv_process][0][0];
+           index_x <= proc2local[recv_process][0][1]; index_x++) {
+        assert(yz_ray * npts_global[0] + index_x >= 0);
+        assert(yz_ray * npts_global[0] + index_x <
+               npts_global[0] * number_of_rays[my_process]);
+        transposed[yz_ray * npts_global[0] + index_x] =
+            recv_buffer[(index_z - proc2local[recv_process][2][0]) *
+                            recv_sizes[0] * recv_sizes[1] +
+                        (index_x - proc2local[recv_process][0][0]) *
+                            recv_sizes[1] +
+                        (index_y - proc2local[recv_process][1][0])];
       }
+      printf("%i: Copy in xz_to_yz (process %i) %i %i to %i\n", my_process,
+             recv_process, index_y, index_z, yz_ray);
+      number_of_received_rays++;
     }
 
     // Wait for the send request
@@ -821,9 +829,12 @@ void transpose_yz_to_xz_ray(const double complex *grid,
 
   // Copy and transpose the local data
   int number_of_received_rays = 0;
+  int my_ray_offset = 0;
+  for (int process = 0; process < my_process; process++)
+    my_ray_offset += number_of_rays[process];
   for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
-    const int index_y = ray_to_yz[yz_ray][0];
-    const int index_z = ray_to_yz[yz_ray][1];
+    const int index_y = ray_to_yz[my_ray_offset + yz_ray][0];
+    const int index_z = ray_to_yz[my_ray_offset + yz_ray][1];
 
     // Check whether we carry that ray after the transposition
     if (index_y < proc2local_transposed[my_process][1][0] ||
@@ -873,38 +884,40 @@ void transpose_yz_to_xz_ray(const double complex *grid,
     grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
                                   comm, &send_request);
 
+    int recv_ray_offset = 0;
+    for (int process = 0; process < my_process; process++)
+      recv_ray_offset += number_of_rays[process];
+
     // Wait for the receive process and copy the data
     grid_mpi_wait(&recv_request);
 
     // Copy and transpose the data
-    int yz_index = -1;
-    for (int index_y = 0; index_y < npts_global[1]; index_y++) {
-      for (int index_z = 0; index_z < npts_global[2]; index_z++) {
-        // Check whether we have the given ray
-        if (yz_to_process[index_y * npts_global[2] + index_z] != recv_process)
-          continue;
+    for (int yz_ray = 0; yz_ray < number_of_rays[recv_process]; yz_ray++) {
+      const int index_y = ray_to_yz[recv_ray_offset + yz_ray][0];
+      const int index_z = ray_to_yz[recv_ray_offset + yz_ray][1];
 
-        yz_index++;
+      if (index_y < proc2local_transposed[my_process][1][0] ||
+          index_y > proc2local_transposed[my_process][1][1])
+        continue;
+      if (index_z < proc2local_transposed[my_process][2][0] ||
+          index_z > proc2local_transposed[my_process][2][1])
+        continue;
 
-        if (index_y < proc2local_transposed[my_process][1][0] ||
-            index_y > proc2local_transposed[my_process][1][1])
-          continue;
-        if (index_z < proc2local_transposed[my_process][2][0] ||
-            index_z > proc2local_transposed[my_process][2][1])
-          continue;
-
-        // Copy the data
-        for (int index_x = proc2local_transposed[my_process][0][0];
-             index_x <= proc2local_transposed[my_process][0][1]; index_x++) {
-          transposed[(index_z - proc2local_transposed[my_process][2][0]) *
-                         my_transposed_sizes[0] * my_transposed_sizes[1] +
-                     (index_x - proc2local_transposed[my_process][0][0]) *
-                         my_transposed_sizes[1] +
-                     (index_y - proc2local_transposed[my_process][1][0])] =
-              recv_buffer[yz_index * npts_global[0] + index_x];
-        }
-        number_of_received_rays++;
+      // Copy the data
+      for (int index_x = proc2local_transposed[my_process][0][0];
+           index_x <= proc2local_transposed[my_process][0][1]; index_x++) {
+        transposed[(index_z - proc2local_transposed[my_process][2][0]) *
+                       my_transposed_sizes[0] * my_transposed_sizes[1] +
+                   (index_x - proc2local_transposed[my_process][0][0]) *
+                       my_transposed_sizes[1] +
+                   (index_y - proc2local_transposed[my_process][1][0])] =
+            recv_buffer[yz_ray * npts_global[0] + index_x];
+        printf("Copy in yz_to_xz (%i) %i to %i %i: (%f %f)\n", index_x, yz_ray,
+               index_y, index_z,
+               creal(recv_buffer[yz_ray * npts_global[0] + index_x]),
+               cimag(recv_buffer[yz_ray * npts_global[0] + index_x]));
       }
+      number_of_received_rays++;
     }
 
     // Wait for the send request
