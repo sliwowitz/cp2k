@@ -724,11 +724,11 @@ void transpose_xz_to_yz_ray(const double complex *grid,
       assert(yz_ray * npts_global[0] + index_x >= 0);
       assert(yz_ray * npts_global[0] + index_x <
              npts_global[0] * number_of_rays[my_process]);
-      /*transposed[yz_ray * npts_global[0] + index_x] =
+      transposed[yz_ray * npts_global[0] + index_x] =
           grid[(index_z - proc2local[my_process][2][0]) * my_original_sizes[0] *
                    my_original_sizes[1] +
                (index_x - proc2local[my_process][0][0]) * my_original_sizes[1] +
-               (index_y - proc2local[my_process][1][0])];*/
+               (index_y - proc2local[my_process][1][0])];
       printf("%i %i %i: (%f %f)\n", index_x, index_y, index_z,
              creal(transposed[yz_ray * npts_global[0] + index_x]),
              cimag(transposed[yz_ray * npts_global[0] + index_x]));
@@ -738,7 +738,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     number_of_received_rays++;
   }
 
-  /*for (int process_shift = 1; process_shift < number_of_processes;
+  for (int process_shift = 1; process_shift < number_of_processes;
        process_shift++) {
     const int send_process =
         modulo(my_process + process_shift, number_of_processes);
@@ -795,7 +795,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     grid_mpi_wait(&send_request);
     printf("%i sent %i elements to %i\n", my_process, my_number_of_elements,
            send_process);
-  }*/
+  }
 
   printf("Process %i: Received %i rays\n", my_process, number_of_received_rays);
   fflush(stdout);

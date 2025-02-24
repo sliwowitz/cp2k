@@ -203,7 +203,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
                          fft_grid_ray->rays_per_process,
                          fft_grid_ray->ray_to_yz, fft_grid_ray->comm);
 
-  /*int ray_index_offset = 0;
+  int ray_index_offset = 0;
   for (int process = 0; process < my_process; process++)
     ray_index_offset += fft_grid_ray->rays_per_process[process];
   for (int yz_ray = 0; yz_ray < fft_grid_ray->rays_per_process[my_process];
@@ -244,7 +244,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
     grid_mpi_barrier(fft_grid_ray->comm);
   }
 
-  memset(fft_grid_ray->grid_gs, 0,
+  /*memset(fft_grid_ray->grid_gs, 0,
          product3(my_sizes_gs_ray) * sizeof(double complex));
   memset(fft_grid_ray->grid_ms, 0,
          product3(my_sizes_ms_ray) * sizeof(double complex));
