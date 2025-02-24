@@ -244,15 +244,15 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
     grid_mpi_barrier(fft_grid_ray->comm);
   }
 
-  /*memset(fft_grid_ray->grid_gs, 0,
+  memset(fft_grid_ray->grid_gs, 0,
          product3(my_sizes_gs_ray) * sizeof(double complex));
   memset(fft_grid_ray->grid_ms, 0,
          product3(my_sizes_ms_ray) * sizeof(double complex));
 
   for (int yz_ray = 0; yz_ray < fft_grid_ray->rays_per_process[my_process];
        yz_ray++) {
-    const int index_y = fft_grid_ray->ray_to_yz[yz_ray][0];
-    const int index_z = fft_grid_ray->ray_to_yz[yz_ray][1];
+    const int index_y = fft_grid_ray->ray_to_yz[ray_index_offset + yz_ray][0];
+    const int index_z = fft_grid_ray->ray_to_yz[ray_index_offset + yz_ray][1];
     for (int index_x = 0; index_x < fft_grid_ray->npts_global[0]; index_x++) {
       fft_grid_ray->grid_gs[yz_ray * fft_grid_ray->npts_global[0] + index_x] =
           (index_y * fft_grid_ray->npts_global[2] + index_z) + I * index_x;
@@ -318,7 +318,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
         }
       }
     }
-  }*/
+  }
 
   grid_free_fft_grid(fft_grid_ray);
 
@@ -334,8 +334,6 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
              npts_global[0], npts_global[1], npts_global[2]);
   }
 
-  printf("Current process: %i/%i\n", grid_mpi_comm_rank(ref_grid->comm) + 1,
-         grid_mpi_comm_size(ref_grid->comm));
   fflush(stdout);
   grid_mpi_barrier(ref_grid->comm);
 
@@ -541,8 +539,8 @@ int fft_test_transpose_parallel() {
   }
 
   // const int npts_global_2[3] = {2, 3, 5};
-  //  max_error = fmax(max_error, fft_test_transpose_ray(fft_grid,
-  //  npts_global_2));
+  // max_error = fmax(max_error, fft_test_transpose_ray(fft_grid,
+  // npts_global_2));
 
   grid_free_fft_grid(fft_grid);
 
