@@ -714,6 +714,10 @@ void transpose_xz_to_yz_ray(const double complex *grid,
         index_z > proc2local[my_process][2][1])
       continue;
 
+    printf("%i DEBUG %i %i\n", my_process, yz_ray, npts_global[0]);
+    assert(npts_global[0] >= 0);
+    transposed[yz_ray * npts_global[0]] = 0.0;
+
     // Copy the data
     for (int index_x = proc2local[my_process][0][0];
          index_x <= proc2local[my_process][0][1]; index_x++) {

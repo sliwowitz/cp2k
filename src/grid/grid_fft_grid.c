@@ -289,16 +289,6 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
                  (my_fft_grid->proc2local_ms[my_process][2][1] -
                   my_fft_grid->proc2local_ms[my_process][2][0] + 1),
              sizeof(double complex));
-  // Here, they need a different size then in the blocked case as we will only
-  // carry the data from our local rays
-  my_fft_grid->grid_gs =
-      calloc((my_fft_grid->proc2local_gs[my_process][0][1] -
-              my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_gs[my_process][1][1] -
-                  my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_gs[my_process][2][1] -
-                  my_fft_grid->proc2local_gs[my_process][2][0] + 1),
-             sizeof(double complex));
 
   my_fft_grid->ray_distribution = true;
 
@@ -464,6 +454,11 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
 
   free(ray_offsets);
   free(ray_index_per_process);
+
+  // Here, they need a different size then in the blocked case as we will only
+  // carry the data from our local rays
+  my_fft_grid->grid_gs =
+      calloc(my_fft_grid->npts_gs_local, sizeof(double complex));
 
   fflush(stdout);
   grid_mpi_barrier(my_fft_grid->comm);
