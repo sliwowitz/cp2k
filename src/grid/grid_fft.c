@@ -672,6 +672,10 @@ void transpose_xz_to_yz_ray(const double complex *grid,
   const int my_process = grid_mpi_comm_rank(comm);
   (void)npts_global;
   (void)yz_to_process;
+  (void)grid;
+  (void)transposed;
+  (void)number_of_rays;
+  (void)ray_to_yz;
 
   int max_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++) {
@@ -684,16 +688,19 @@ void transpose_xz_to_yz_ray(const double complex *grid,
   double complex *recv_buffer =
       malloc(max_number_of_elements * sizeof(double complex));
   grid_mpi_request recv_request, send_request;
+  (void)recv_request;
+  (void)send_request;
 
   int my_original_sizes[3];
   for (int dir = 0; dir < 3; dir++)
     my_original_sizes[dir] =
         proc2local[my_process][dir][1] - proc2local[my_process][dir][0] + 1;
   const int my_number_of_elements = product3(my_original_sizes);
+  (void)my_number_of_elements;
 
   // Copy and transpose the local data
   int number_of_received_rays = 0;
-  int my_ray_offset = 0;
+  /*int my_ray_offset = 0;
   for (int process = 0; process < my_process; process++)
     my_ray_offset += number_of_rays[process];
   for (int yz_ray = 0; yz_ray < number_of_rays[my_process]; yz_ray++) {
@@ -718,9 +725,9 @@ void transpose_xz_to_yz_ray(const double complex *grid,
                    my_original_sizes[1] +
                (index_x - proc2local[my_process][0][0]) * my_original_sizes[1] +
                (index_y - proc2local[my_process][1][0])];
-      /*printf("%i %i %i: (%f %f)\n", index_x, index_y, index_z,
+      printf("%i %i %i: (%f %f)\n", index_x, index_y, index_z,
              creal(transposed[yz_ray * npts_global[0] + index_x]),
-             cimag(transposed[yz_ray * npts_global[0] + index_x]));*/
+             cimag(transposed[yz_ray * npts_global[0] + index_x]));
     }
     printf("%i Copy in xz_to_yz (process %i) %i %i to %i\n", my_process,
            my_process, index_y, index_z, yz_ray);
@@ -784,7 +791,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     grid_mpi_wait(&send_request);
     printf("%i sent %i elements to %i\n", my_process, my_number_of_elements,
            send_process);
-  }
+  }*/
 
   printf("Process %i: Received %i rays\n", my_process, number_of_received_rays);
   fflush(stdout);
