@@ -237,11 +237,6 @@ double fft_test_transpose_ray(const int npts_global[3],
       const double complex ref_value =
           (index_y * npts_global[2] + index_z) + I * index_x;
       double current_error = cabs(my_value - ref_value);
-      if (current_error > 0.1)
-        fprintf(stdout, "xz_to_yz_ray error (%i) %i %i %i: (%f, %f) (%f, %f)\n",
-                ray_index_offset + yz_ray, index_x, index_y, index_z,
-                creal(my_value), cimag(my_value), creal(ref_value),
-                cimag(ref_value));
       max_error = fmax(max_error, current_error);
     }
   }
@@ -295,16 +290,6 @@ double fft_test_transpose_ray(const int npts_global[3],
                (index_z + my_bounds_ms_ray[2][0])) +
               I * (index_x + my_bounds_ms_ray[0][0]);
           double current_error = cabs(my_value - ref_value);
-          if (current_error > 0.1)
-            fprintf(
-                stdout,
-                "error yz_to_xz (proc %i) %i %i %i: (%f, %f) (%f, %f)\n",
-                fft_grid_ray->yz_to_process[(index_y + my_bounds_ms_ray[1][0]) *
-                                                fft_grid_ray->npts_global[2] +
-                                            (index_z + my_bounds_ms_ray[2][0])],
-                index_x, index_y + my_bounds_ms_ray[1][0],
-                index_z + my_bounds_ms_ray[2][0], creal(my_value),
-                cimag(my_value), creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       } else {
@@ -318,15 +303,6 @@ double fft_test_transpose_ray(const int npts_global[3],
           // The value is assumed to be zero if absent
           const double complex ref_value = 0.0;
           double current_error = cabs(my_value - ref_value);
-          if (current_error > 0.1)
-            fprintf(
-                stdout,
-                "error yz_to_xz (proc %i) %i %i %i: (%f, %f) (%f, %f)\n",
-                fft_grid_ray->yz_to_process[(index_y + my_bounds_ms_ray[1][0]) *
-                                                fft_grid_ray->npts_global[2] +
-                                            (index_z + my_bounds_ms_ray[2][0])],
-                index_x, index_y, index_z, creal(my_value), cimag(my_value),
-                creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       }
@@ -673,11 +649,11 @@ int fft_test_3d_blocked(const int npts_global[3]) {
               const double my_value =
                   fft_grid->grid_rs[mx * my_sizes_rs[1] * my_sizes_rs[2] +
                                     my * my_sizes_rs[2] + mz];
-              const double ref_value = creal(cexp(
-                  2.0 * I * pi *
+              const double ref_value = cos(
+                  2.0 * pi *
                   (((double)mx + my_bounds_rs[0][0]) * nx / npts_global[0] +
                    ((double)my + my_bounds_rs[1][0]) * ny / npts_global[1] +
-                   ((double)mz + my_bounds_rs[2][0]) * nz / npts_global[2])));
+                   ((double)mz + my_bounds_rs[2][0]) * nz / npts_global[2]));
               double current_error = fabs(my_value - ref_value);
               max_error = fmax(max_error, current_error);
             }
@@ -813,11 +789,11 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
             const double my_value =
                 fft_grid->grid_rs[mx * my_sizes_rs[1] * my_sizes_rs[2] +
                                   my * my_sizes_rs[2] + mz];
-            const double ref_value = creal(cexp(
-                2.0 * I * pi *
-                (((double)mx + my_bounds_rs[0][0]) * nx / npts_global[0] +
-                 ((double)my + my_bounds_rs[1][0]) * ny / npts_global[1] +
-                 ((double)mz + my_bounds_rs[2][0]) * nz / npts_global[2])));
+            const double ref_value =
+                cos(2.0 * pi *
+                    (((double)mx + my_bounds_rs[0][0]) * nx / npts_global[0] +
+                     ((double)my + my_bounds_rs[1][0]) * ny / npts_global[1] +
+                     ((double)mz + my_bounds_rs[2][0]) * nz / npts_global[2]));
             double current_error = fabs(my_value - ref_value);
             max_error = fmax(max_error, current_error);
           }
