@@ -178,11 +178,18 @@ int fft_test_transpose() {
   }
 }
 
-double fft_test_transpose_ray(grid_fft_grid *ref_grid,
-                              const int npts_global[3]) {
-  const int my_process = grid_mpi_comm_rank(ref_grid->comm);
+double fft_test_transpose_ray(const int npts_global[3],
+                              const int npts_global_ref[3]) {
+  const grid_mpi_comm comm = grid_mpi_comm_world;
+  const int my_process = grid_mpi_comm_rank(comm);
+
+  int errors = 0;
 
   double max_error = 0.0;
+
+  // Build the reference grid
+  grid_fft_grid *ref_grid = NULL;
+  grid_create_fft_grid(&ref_grid, comm, npts_global_ref);
 
   // Test ray transpositiond,
   grid_fft_grid *fft_grid_ray = NULL;
@@ -215,6 +222,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
                          fft_grid_ray->rays_per_process,
                          fft_grid_ray->ray_to_yz, fft_grid_ray->comm);
 
+  max_error = 0.0;
   int ray_index_offset = 0;
   for (int process = 0; process < my_process; process++)
     ray_index_offset += fft_grid_ray->rays_per_process[process];
@@ -239,22 +247,11 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
   }
 
   if (max_error > 1e-12) {
-    grid_free_fft_grid(fft_grid_ray);
     if (my_process == 0) {
       printf("The transpose xz_to_yz_ray does not work properly: %f!\n",
              max_error);
-      fflush(stdout);
     }
-    grid_mpi_barrier(fft_grid_ray->comm);
-    return max_error;
-  } else {
-    if (my_process == 0) {
-      printf("The transpose to the ray distribution works properly "
-             "(sizes: %i %i %i)!\n",
-             npts_global[0], npts_global[1], npts_global[2]);
-      fflush(stdout);
-    }
-    grid_mpi_barrier(fft_grid_ray->comm);
+    errors++;
   }
 
   memset(fft_grid_ray->grid_gs, 0,
@@ -279,6 +276,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
                          fft_grid_ray->rays_per_process,
                          fft_grid_ray->ray_to_yz, fft_grid_ray->comm);
 
+  max_error = 0.0;
   for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
     for (int index_z = 0; index_z < my_sizes_ms_ray[2]; index_z++) {
       // Check whether there is a ray with the given index pair
@@ -336,37 +334,32 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
   }
 
   grid_free_fft_grid(fft_grid_ray);
+  grid_free_fft_grid(ref_grid);
 
   if (max_error > 1e-12) {
     if (my_process == 0)
       printf("The transpose yz_to_xz_ray does not work properly: %f!\n",
              max_error);
-    return max_error;
-  } else {
-    if (my_process == 0)
-      printf("The transpose from the ray distribution works properly "
-             "(sizes: %i %i %i)!\n",
-             npts_global[0], npts_global[1], npts_global[2]);
+    errors++;
   }
 
-  fflush(stdout);
-  grid_mpi_barrier(ref_grid->comm);
+  if (errors == 0 && my_process == 0)
+    printf("The transpose from the ray distribution works properly "
+           "(sizes: %i %i %i)!\n",
+           npts_global[0], npts_global[1], npts_global[2]);
 
-  return max_error;
+  return errors;
 }
 
 /*******************************************************************************
  * \brief Function to test the parallel transposition operation.
  * \author Frederick Stein
  ******************************************************************************/
-int fft_test_transpose_parallel() {
+int fft_test_transpose_blocked(const int npts_global[3]) {
   const grid_mpi_comm comm = grid_mpi_comm_world;
   const int my_process = grid_mpi_comm_rank(comm);
 
   int errors = 0;
-
-  // Use an asymmetric cell to check correctness of indices
-  const int npts_global[3] = {2, 4, 8};
 
   grid_fft_grid *fft_grid = NULL;
   grid_create_fft_grid(&fft_grid, comm, npts_global);
@@ -427,8 +420,9 @@ int fft_test_transpose_parallel() {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose xy_to_xz_blocked does not work properly: %f!\n",
-             max_error);
+      printf("The transpose xy_to_xz_blocked does not work properly (%i %i "
+             "%i): %f!\n",
+             npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
   }
 
@@ -461,8 +455,9 @@ int fft_test_transpose_parallel() {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose xz_to_xy_blocked does not work properly: %f!\n",
-             max_error);
+      printf("The transpose xz_to_xy_blocked does not work properly (%i %i "
+             "%i): %f!\n",
+             npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
   }
 
@@ -492,8 +487,9 @@ int fft_test_transpose_parallel() {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose xz_to_yz_blocked does not work properly: %f!\n",
-             max_error);
+      printf("The transpose xz_to_yz_blocked does not work properly (%i %i "
+             "%i): %f!\n",
+             npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
   }
 
@@ -525,17 +521,49 @@ int fft_test_transpose_parallel() {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose yz_to_xz_blocked does not work properly: %f!\n",
-             max_error);
+      printf("The transpose yz_to_xz_blocked does not work properly (%i %i "
+             "%i): %f!\n",
+             npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
   }
 
-  errors += fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global));
-
-  const int npts_global_2[3] = {2, 3, 5};
-  errors += fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global_2));
-
   grid_free_fft_grid(fft_grid);
+  return errors;
+}
+
+/*******************************************************************************
+ * \brief Function to test the parallel transposition operation.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_transpose_parallel() {
+  const grid_mpi_comm comm = grid_mpi_comm_world;
+  const int my_process = grid_mpi_comm_rank(comm);
+
+  int errors = 0;
+
+  // Grid sizes to be checked
+  const int npts_global[3] = {2, 4, 8};
+  const int npts_global_small[3] = {2, 3, 5};
+  const int npts_global_reverse[3] = {8, 4, 2};
+  const int npts_global_small_reverse[3] = {5, 3, 2};
+
+  // Check the blocked layout
+  errors += fft_test_transpose_blocked(npts_global);
+  errors += fft_test_transpose_blocked(npts_global_small);
+  errors += fft_test_transpose_blocked(npts_global_reverse);
+  errors += fft_test_transpose_blocked(npts_global_small_reverse);
+
+  // Check the ray layout with the same grid sizes
+  errors += fft_test_transpose_ray(npts_global, npts_global);
+  errors += fft_test_transpose_ray(npts_global_small, npts_global_small);
+  errors += fft_test_transpose_ray(npts_global_reverse, npts_global_reverse);
+  errors += fft_test_transpose_ray(npts_global_small_reverse,
+                                   npts_global_small_reverse);
+
+  // Check the ray layout with different grid sizes
+  errors += fft_test_transpose_ray(npts_global_small, npts_global);
+  errors +=
+      fft_test_transpose_ray(npts_global_small_reverse, npts_global_reverse);
 
   if (errors == 0 && my_process == 0)
     printf("\n The parallel transposition routines work properly!\n");
