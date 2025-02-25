@@ -714,27 +714,15 @@ void transpose_xz_to_yz_ray(const double complex *grid,
         index_z > proc2local[my_process][2][1])
       continue;
 
-    printf("%i DEBUG %i %i\n", my_process, yz_ray, npts_global[0]);
-    assert(npts_global[0] >= 0);
-    transposed[yz_ray * npts_global[0]] = 0.0;
-
     // Copy the data
     for (int index_x = proc2local[my_process][0][0];
          index_x <= proc2local[my_process][0][1]; index_x++) {
-      assert(yz_ray * npts_global[0] + index_x >= 0);
-      assert(yz_ray * npts_global[0] + index_x <
-             npts_global[0] * number_of_rays[my_process]);
       transposed[yz_ray * npts_global[0] + index_x] =
           grid[(index_z - proc2local[my_process][2][0]) * my_original_sizes[0] *
                    my_original_sizes[1] +
                (index_x - proc2local[my_process][0][0]) * my_original_sizes[1] +
                (index_y - proc2local[my_process][1][0])];
-      printf("%i %i %i: (%f %f)\n", index_x, index_y, index_z,
-             creal(transposed[yz_ray * npts_global[0] + index_x]),
-             cimag(transposed[yz_ray * npts_global[0] + index_x]));
     }
-    printf("%i Copy in xz_to_yz (process %i) %i %i to %i\n", my_process,
-           my_process, index_y, index_z, yz_ray);
     number_of_received_rays++;
   }
 
@@ -776,9 +764,6 @@ void transpose_xz_to_yz_ray(const double complex *grid,
       // Copy the data
       for (int index_x = proc2local[recv_process][0][0];
            index_x <= proc2local[recv_process][0][1]; index_x++) {
-        assert(yz_ray * npts_global[0] + index_x >= 0);
-        assert(yz_ray * npts_global[0] + index_x <
-               npts_global[0] * number_of_rays[my_process]);
         transposed[yz_ray * npts_global[0] + index_x] =
             recv_buffer[(index_z - proc2local[recv_process][2][0]) *
                             recv_sizes[0] * recv_sizes[1] +
@@ -786,20 +771,13 @@ void transpose_xz_to_yz_ray(const double complex *grid,
                             recv_sizes[1] +
                         (index_y - proc2local[recv_process][1][0])];
       }
-      printf("%i: Copy in xz_to_yz (process %i) %i %i to %i\n", my_process,
-             recv_process, index_y, index_z, yz_ray);
       number_of_received_rays++;
     }
 
     // Wait for the send request
     grid_mpi_wait(&send_request);
-    printf("%i sent %i elements to %i\n", my_process, my_number_of_elements,
-           send_process);
   }
 
-  printf("Process %i: Received %i rays\n", my_process, number_of_received_rays);
-  fflush(stdout);
-  grid_mpi_barrier(comm);
   // assert(number_of_received_rays == number_of_rays[my_process]);
 
   free(recv_buffer);
@@ -864,10 +842,6 @@ void transpose_yz_to_xz_ray(const double complex *grid,
                      my_transposed_sizes[1] +
                  (index_y - proc2local_transposed[my_process][1][0])] =
           grid[yz_ray * npts_global[0] + index_x];
-      printf("Copy in yz_to_xz (%i) %i to %i %i: (%f %f)\n", index_x,
-             my_ray_offset + yz_ray, index_y, index_z,
-             creal(grid[yz_ray * npts_global[0] + index_x]),
-             cimag(grid[yz_ray * npts_global[0] + index_x]));
     }
     number_of_received_rays++;
   }
@@ -918,10 +892,6 @@ void transpose_yz_to_xz_ray(const double complex *grid,
                        my_transposed_sizes[1] +
                    (index_y - proc2local_transposed[my_process][1][0])] =
             recv_buffer[yz_ray * npts_global[0] + index_x];
-        printf("Copy in yz_to_xz (%i) %i to %i %i: (%f %f)\n", index_x,
-               recv_ray_offset + yz_ray, index_y, index_z,
-               creal(recv_buffer[yz_ray * npts_global[0] + index_x]),
-               cimag(recv_buffer[yz_ray * npts_global[0] + index_x]));
       }
       number_of_received_rays++;
     }
@@ -934,10 +904,6 @@ void transpose_yz_to_xz_ray(const double complex *grid,
   for (int process = 0; process < number_of_processes; process++)
     total_number_of_rays += number_of_rays[process];
 
-  printf("Process %i: Received %i from %i rays\n", my_process,
-         number_of_received_rays, total_number_of_rays);
-  fflush(stdout);
-  grid_mpi_barrier(comm);
   // assert(number_of_received_rays == total_number_of_rays);
 
   free(recv_buffer);
@@ -1076,9 +1042,6 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
   for (int i = 0; i < number_of_elements_rs; i++) {
     grid_rs[i] = creal(grid_buffer_1[i]);
   }
-  fflush(stdout);
-  fflush(stderr);
-  grid_mpi_barrier(comm);
 
   free(grid_buffer_1);
   free(grid_buffer_2);

@@ -244,24 +244,6 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
         proc_coords[1] * npts_global[2] / my_fft_grid->proc_grid[1];
     my_fft_grid->proc2local_gs[proc][2][1] =
         (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
-    if (my_process == 0)
-      printf("proc2local_gs_ref %i: %i %i %i %i %i %i\n", proc,
-             fft_grid_ref->proc2local_gs[proc][0][0],
-             fft_grid_ref->proc2local_gs[proc][0][1],
-             fft_grid_ref->proc2local_gs[proc][1][0],
-             fft_grid_ref->proc2local_gs[proc][1][1],
-             fft_grid_ref->proc2local_gs[proc][2][0],
-             fft_grid_ref->proc2local_gs[proc][2][1]);
-  }
-  for (int proc = 0; proc < number_of_processes; proc++) {
-    if (my_process == 0)
-      printf("proc2local_ms %i: %i %i %i %i %i %i\n", proc,
-             my_fft_grid->proc2local_ms[proc][0][0],
-             my_fft_grid->proc2local_ms[proc][0][1],
-             my_fft_grid->proc2local_ms[proc][1][0],
-             my_fft_grid->proc2local_ms[proc][1][1],
-             my_fft_grid->proc2local_ms[proc][2][0],
-             my_fft_grid->proc2local_ms[proc][2][1]);
   }
 
   my_fft_grid->grid_rs =
@@ -324,9 +306,6 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
           continue;
         const int index_z_new =
             convert_shifted_index_to_c_index(index_z_shifted, npts_global[2]);
-        if (my_process == 0)
-          printf("yz_to_process %i %i: %i\n", index_y_new, index_z_new,
-                 process);
         assert(index_y_new * npts_global[2] + index_z_new >= 0);
         assert(npts_global[1] * npts_global[2] >
                index_y_new * npts_global[2] + index_z_new);
@@ -336,14 +315,6 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
             process;
         my_fft_grid->rays_per_process[process]++;
         total_number_of_rays++;
-      }
-    }
-  }
-  if (my_process == 0) {
-    for (int index_y = 0; index_y < npts_global[1]; index_y++) {
-      for (int index_z = 0; index_z < npts_global[2]; index_z++) {
-        printf("yz_to_process 2 %i %i: %i\n", index_y, index_z,
-               my_fft_grid->yz_to_process[index_y * npts_global[2] + index_z]);
       }
     }
   }
@@ -395,16 +366,8 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
              my_fft_grid->rays_per_process[current_process]);
       const int current_ray_offset = ray_offsets[current_process];
       assert(current_ray_offset < total_number_of_rays);
-      if (my_process == 0)
-        printf("%i ray_to_yz %i: %i %i %i/%i %i %i\n", current_process,
-               current_ray_index, index_y, index_y_shifted, index_y_new,
-               index_z, index_z_shifted, index_z_new);
       assert(current_ray_index <
              my_fft_grid->rays_per_process[current_process]);
-      if (my_process == 0) {
-        printf("ray_to_yz (%i) %i: %i %i\n", current_process, current_ray_index,
-               index_y_new, index_z_new);
-      }
       assert(current_ray_offset + current_ray_index >= 0);
       assert(current_ray_offset + current_ray_index < total_number_of_rays);
       assert(my_fft_grid->ray_to_yz[current_ray_offset + current_ray_index][0] <
@@ -415,32 +378,18 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
              0);
       my_fft_grid->ray_to_yz[current_ray_offset + current_ray_index][1] =
           index_z_new;
-      if (my_process == 0)
-        printf("%i ray_to_yz %i: %i %i\n", my_process, current_ray_index,
-               index_y_new, index_z_new);
       ray_index_per_process[current_process]++;
       assert(ray_index_per_process[current_process] <=
              my_fft_grid->rays_per_process[current_process]);
     }
   }
-  fflush(stdout);
   for (int process = 0; process < number_of_processes; process++) {
-    fprintf(stderr, "%i ray_index_per_process %i: %i %i\n", my_process, process,
-            ray_index_per_process[process],
-            my_fft_grid->rays_per_process[process]);
-    grid_mpi_barrier(fft_grid_ref->comm);
     assert(ray_index_per_process[process] ==
                my_fft_grid->rays_per_process[process] &&
            "The number of rays does not match the expected number of rays!");
-    grid_mpi_barrier(fft_grid_ref->comm);
     const int current_ray_offset = ray_offsets[process];
     for (int ray_index = 0; ray_index < my_fft_grid->rays_per_process[process];
          ray_index++) {
-      fprintf(stderr, "%i ray_to_yz (%i) %i+%i: %i %i\n", my_process, process,
-              current_ray_offset, ray_index,
-              my_fft_grid->ray_to_yz[current_ray_offset + ray_index][0],
-              my_fft_grid->ray_to_yz[current_ray_offset + ray_index][1]);
-      grid_mpi_barrier(fft_grid_ref->comm);
       assert(my_fft_grid->ray_to_yz[current_ray_offset + ray_index][0] >= 0 &&
              my_fft_grid->ray_to_yz[current_ray_offset + ray_index][1] >= 0 &&
              "The ray has to be assigned to a valid yz index!");
@@ -459,9 +408,6 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
   // carry the data from our local rays
   my_fft_grid->grid_gs =
       calloc(my_fft_grid->npts_gs_local, sizeof(double complex));
-
-  fflush(stdout);
-  grid_mpi_barrier(my_fft_grid->comm);
 
   *fft_grid = my_fft_grid;
 }

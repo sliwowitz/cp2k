@@ -216,14 +216,15 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
       max_error = fmax(max_error, current_error);
     }
   }
-  fflush(stdout);
-  grid_mpi_barrier(fft_grid_ray->comm);
 
   if (max_error > 1e-12) {
     grid_free_fft_grid(fft_grid_ray);
-    if (my_process == 0)
+    if (my_process == 0) {
       printf("The transpose xz_to_yz_ray does not work properly: %f!\n",
              max_error);
+      fflush(stdout);
+    }
+    grid_mpi_barrier(fft_grid_ray->comm);
     return max_error;
   } else {
     if (my_process == 0) {
