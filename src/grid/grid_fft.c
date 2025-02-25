@@ -123,14 +123,14 @@ void fft_3d_bw(double complex *grid_gs, double complex *grid_rs,
                   npts_global[1]);
 
   // Perform the second FFT along y
-  fft_1d_fw(grid_gs, grid_rs, npts_global[1], npts_global[0] * npts_global[2]);
+  fft_1d_bw(grid_gs, grid_rs, npts_global[1], npts_global[0] * npts_global[2]);
 
   // Perform second transpose (z, x, y) -> (x, y, z)
   transpose_local(grid_rs, grid_gs, npts_global[0] * npts_global[1],
                   npts_global[2]);
 
   // Perform the third FFT along z
-  fft_1d_fw(grid_gs, grid_rs, npts_global[2], npts_global[0] * npts_global[1]);
+  fft_1d_bw(grid_gs, grid_rs, npts_global[2], npts_global[0] * npts_global[1]);
 }
 
 /*******************************************************************************
@@ -1190,17 +1190,20 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
   } else {
     // Copy to the new format
     // Maybe, the order 1D FFT, redistribution to blocks and 2D FFT is faster
-    memset(grid_buffer_1, 0, product3(npts_global));
+    memset(grid_buffer_2, 0, product3(npts_global));
+    int my_ray_offset = 0;
+    for (int process = 0; process < my_process; process++)
+      my_ray_offset += rays_per_process[process];
     for (int yz_ray = 0; yz_ray < rays_per_process[my_process]; yz_ray++) {
-      const int index_y = ray_to_yz[yz_ray][0];
-      const int index_z = ray_to_yz[yz_ray][1];
+      const int index_y = ray_to_yz[my_ray_offset + yz_ray][0];
+      const int index_z = ray_to_yz[my_ray_offset + yz_ray][1];
 
-      memcpy(&grid_buffer_1[index_y * npts_global[0] * npts_global[2] +
+      memcpy(&grid_buffer_2[index_y * npts_global[0] * npts_global[2] +
                             index_z * npts_global[0]],
              &grid_gs[yz_ray * npts_global[0]],
              npts_global[0] * sizeof(double complex));
     }
-    fft_3d_bw(grid_buffer_1, grid_buffer_2, npts_global);
+    fft_3d_bw(grid_buffer_2, grid_buffer_1, npts_global);
   }
 
   // Copy real array to complex buffer
