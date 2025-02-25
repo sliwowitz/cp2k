@@ -175,15 +175,6 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
     my_sizes_ms_ray[dir] =
         my_bounds_ms_ray[dir][1] - my_bounds_ms_ray[dir][0] + 1;
 
-  int my_bounds_gs_ray[3][2];
-  memcpy(my_bounds_gs_ray, fft_grid_ray->proc2local_gs[my_process],
-         sizeof(int[3][2]));
-  int my_sizes_gs_ray[3];
-  for (int dir = 0; dir < 3; dir++)
-    my_sizes_gs_ray[dir] =
-        my_bounds_gs_ray[dir][1] - my_bounds_gs_ray[dir][0] + 1;
-  (void)my_sizes_gs_ray;
-
   for (int index_x = 0; index_x < my_sizes_ms_ray[0]; index_x++) {
     for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
       for (int index_z = 0; index_z < my_sizes_ms_ray[2]; index_z++) {
@@ -244,8 +235,10 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
     grid_mpi_barrier(fft_grid_ray->comm);
   }
 
-  /*memset(fft_grid_ray->grid_gs, 0,
-         product3(my_sizes_gs_ray) * sizeof(double complex));
+  memset(fft_grid_ray->grid_gs, 0,
+         fft_grid_ray->npts_global[0] *
+             fft_grid_ray->rays_per_process[my_process] *
+             sizeof(double complex));
   memset(fft_grid_ray->grid_ms, 0,
          product3(my_sizes_ms_ray) * sizeof(double complex));
 
@@ -318,7 +311,7 @@ double fft_test_transpose_ray(grid_fft_grid *ref_grid,
         }
       }
     }
-  }*/
+  }
 
   grid_free_fft_grid(fft_grid_ray);
 
