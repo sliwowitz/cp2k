@@ -363,6 +363,8 @@ int fft_test_transpose_parallel() {
   const grid_mpi_comm comm = grid_mpi_comm_world;
   const int my_process = grid_mpi_comm_rank(comm);
 
+  int errors = 0;
+
   // Use an asymmetric cell to check correctness of indices
   const int npts_global[3] = {2, 4, 8};
 
@@ -385,8 +387,6 @@ int fft_test_transpose_parallel() {
   int my_sizes_gs[3];
   for (int dir = 0; dir < 3; dir++)
     my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
-  const int my_number_of_elements_gs = product3(my_sizes_gs);
-  (void)my_number_of_elements_gs;
 
   // Collect the maximum error
   double max_error = 0.0;
@@ -423,18 +423,13 @@ int fft_test_transpose_parallel() {
       }
     }
   }
+  grid_mpi_max_double(&max_error, 1, comm);
 
   if (max_error > 1e-12) {
-    grid_free_fft_grid(fft_grid);
     if (my_process == 0)
       printf("The transpose xy_to_xz_blocked does not work properly: %f!\n",
              max_error);
-    return 1;
-  } else {
-    if (my_process == 0)
-      printf("The transpose xy_to_xz_blocked does work properly (sizes: %i "
-             "%i %i)!\n",
-             npts_global[0], npts_global[1], npts_global[2]);
+    errors++;
   }
 
   memset(fft_grid->grid_rs_complex, 0,
@@ -446,6 +441,7 @@ int fft_test_transpose_parallel() {
                              fft_grid->proc2local_rs, fft_grid->comm);
 
   // Check forward RS->MS FFTs
+  max_error = 0.0;
   for (int nx = 0; nx < my_sizes_rs[0]; nx++) {
     for (int ny = 0; ny < my_sizes_rs[1]; ny++) {
       for (int nz = 0; nz < my_sizes_rs[2]; nz++) {
@@ -461,13 +457,13 @@ int fft_test_transpose_parallel() {
       }
     }
   }
+  grid_mpi_max_double(&max_error, 1, comm);
 
   if (max_error > 1e-12) {
-    grid_free_fft_grid(fft_grid);
     if (my_process == 0)
       printf("The transpose xz_to_xy_blocked does not work properly: %f!\n",
              max_error);
-    return 1;
+    errors++;
   }
 
   // Check the MS/GS direction
@@ -476,6 +472,7 @@ int fft_test_transpose_parallel() {
                              fft_grid->comm);
 
   // Check forward RS->MS FFTs
+  max_error = 0.0;
   for (int nx = 0; nx < my_sizes_gs[0]; nx++) {
     for (int ny = 0; ny < my_sizes_gs[1]; ny++) {
       for (int nz = 0; nz < my_sizes_gs[2]; nz++) {
@@ -491,18 +488,13 @@ int fft_test_transpose_parallel() {
       }
     }
   }
+  grid_mpi_max_double(&max_error, 1, comm);
 
   if (max_error > 1e-12) {
-    grid_free_fft_grid(fft_grid);
     if (my_process == 0)
       printf("The transpose xz_to_yz_blocked does not work properly: %f!\n",
              max_error);
-    return 1;
-  } else {
-    if (my_process == 0)
-      printf("The transpose xz_to_yz_blocked does work properly (sizes: %i "
-             "%i %i)!\n",
-             npts_global[0], npts_global[1], npts_global[2]);
+    errors++;
   }
 
   memset(fft_grid->grid_ms, 0, my_number_of_elements_ms);
@@ -513,6 +505,7 @@ int fft_test_transpose_parallel() {
                              fft_grid->comm);
 
   // Check forward RS->MS FFTs
+  max_error = 0.0;
   for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
       for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
@@ -528,47 +521,25 @@ int fft_test_transpose_parallel() {
       }
     }
   }
+  grid_mpi_max_double(&max_error, 1, comm);
 
   if (max_error > 1e-12) {
-    grid_free_fft_grid(fft_grid);
     if (my_process == 0)
       printf("The transpose yz_to_xz_blocked does not work properly: %f!\n",
              max_error);
-    return 1;
-  } else {
-    if (my_process == 0)
-      printf("The transpose yz_to_xz_blocked does work properly (sizes: %i "
-             "%i %i)!\n",
-             npts_global[0], npts_global[1], npts_global[2]);
+    errors++;
   }
 
-  max_error = fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global));
-
-  if (max_error > 1e-12) {
-    grid_free_fft_grid(fft_grid);
-    if (my_process == 0)
-      printf("The ray transpositions on the same grid do not work properly: "
-             "%f!\n",
-             max_error);
-    return 1;
-  }
+  errors += fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global));
 
   const int npts_global_2[3] = {2, 3, 5};
-  max_error = fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global_2));
+  errors += fmax(max_error, fft_test_transpose_ray(fft_grid, npts_global_2));
 
   grid_free_fft_grid(fft_grid);
 
-  if (max_error > 1e-12) {
-    if (my_process == 0)
-      printf("The ray transpositions on a smaller grid do not work properly: "
-             "%f!\n",
-             max_error);
-    return 1;
-  }
-
-  if (my_process == 0)
+  if (errors == 0 && my_process == 0)
     printf("\n The parallel transposition routines work properly!\n");
-  return 0;
+  return errors;
 }
 
 /*******************************************************************************
@@ -583,7 +554,6 @@ int fft_test_parallel() {
   const int npts_global[3] = {2, 4, 8};
 
   const double pi = acos(-1);
-  (void)pi;
 
   grid_fft_grid *fft_grid = NULL;
   grid_create_fft_grid(&fft_grid, comm, npts_global);
