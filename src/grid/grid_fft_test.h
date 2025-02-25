@@ -26,10 +26,10 @@ int fft_test_transpose();
 int fft_test_transpose_parallel();
 
 /*******************************************************************************
- * \brief Function to test the parallel FFT backend.
+ * \brief Function to test the 3D FFT backend.
  * \author Frederick Stein
  ******************************************************************************/
-int fft_test_parallel();
+int fft_test_3d();
 
 #endif /* GRID_FFT_TEST_H */
 
