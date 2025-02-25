@@ -35,80 +35,101 @@ inline double norm_vector_double(const double *vector, const int size) {
  * \brief Function to test the local FFT backend.
  * \author Frederick Stein
  ******************************************************************************/
-int fft_test_local() {
+int fft_test_local_low(const int fft_size, const int number_of_ffts) {
   const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
 
-  // Check a few fft sizes
-  const int fft_sizes[3] = {16, 18, 20};
+  int errors = 0;
 
   const double pi = acos(-1);
 
-  int max_size = fft_sizes[0];
-  for (int dir = 1; dir < 3; dir++)
-    max_size = imax(max_size, fft_sizes[dir]);
-
   double complex *input_array =
-      malloc(max_size * max_size * sizeof(double complex));
+      calloc(fft_size * number_of_ffts, sizeof(double complex));
   double complex *output_array =
-      malloc(max_size * max_size * sizeof(double complex));
+      calloc(fft_size * number_of_ffts, sizeof(double complex));
 
-  double error = 0.0;
+  double max_error = 0.0;
   // Check the forward FFT
-  for (int dir = 0; dir < 3; dir++) {
-    const int current_size = fft_sizes[dir];
-    memset(input_array, 0,
-           current_size * current_size * sizeof(double complex));
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    input_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
+  }
 
-    for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
-      input_array[number_of_fft * current_size + number_of_fft] = 1.0;
-    }
+  fft_1d_fw(input_array, output_array, fft_size, number_of_ffts);
 
-    fft_1d_fw(input_array, output_array, current_size, current_size);
-
-    for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
-      for (int index = 0; index < current_size; index++) {
-        error = fmax(
-            error,
-            cabs(output_array[number_of_fft * current_size + index] -
-                 cexp(-2.0 * I * pi * number_of_fft * index / current_size)));
-      }
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    for (int index = 0; index < fft_size; index++) {
+      max_error =
+          fmax(max_error, cabs(output_array[number_of_fft * fft_size + index] -
+                               cexp(-2.0 * I * pi * (number_of_fft % fft_size) *
+                                    index / fft_size)));
     }
   }
 
+  if (max_error > 1.0e-12) {
+    if (my_process == 0)
+      printf("The 1D-FFT does not work properly (%i %i): %f!\n", fft_size,
+             number_of_ffts, max_error);
+    errors++;
+  }
+
   // Check the backward FFT
-  for (int dir = 0; dir < 3; dir++) {
-    const int current_size = fft_sizes[dir];
-    memset(input_array, 0,
-           current_size * current_size * sizeof(double complex));
+  memset(input_array, 0, fft_size * number_of_ffts * sizeof(double complex));
 
-    for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
-      input_array[number_of_fft * current_size + number_of_fft] = 1.0;
-    }
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    input_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
+  }
 
-    fft_1d_bw(input_array, output_array, current_size, current_size);
+  fft_1d_bw(input_array, output_array, fft_size, number_of_ffts);
 
-    for (int number_of_fft = 0; number_of_fft < current_size; number_of_fft++) {
-      for (int index = 0; index < current_size; index++) {
-        error = fmax(
-            error,
-            cabs(output_array[number_of_fft * current_size + index] -
-                 cexp(2.0 * I * pi * number_of_fft * index / current_size)));
-      }
+  max_error = 0.0;
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    for (int index = 0; index < fft_size; index++) {
+      max_error =
+          fmax(max_error, cabs(output_array[number_of_fft * fft_size + index] -
+                               cexp(2.0 * I * pi * (number_of_fft % fft_size) *
+                                    index / fft_size)));
     }
   }
 
   free(input_array);
   free(output_array);
 
-  if (error > 1e-12) {
+  if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The low-level FFTs do not work properly: %f!\n", error);
-    return 1;
-  } else {
-    if (my_process == 0)
-      printf("The 1D FFTs do work properly!\n");
-    return 0;
+      printf("The low-level FFTs do not work properly (%i %i): %f!\n", fft_size,
+             number_of_ffts, max_error);
+    errors++;
   }
+
+  if (errors == 0 && my_process == 0)
+    printf("The 1D FFT does work properly (%i %i)!\n", fft_size,
+           number_of_ffts);
+  return errors;
+}
+
+int fft_test_local() {
+  int errors = 0;
+
+  errors += fft_test_local_low(1, 1);
+  errors += fft_test_local_low(2, 1);
+  errors += fft_test_local_low(3, 1);
+  errors += fft_test_local_low(4, 1);
+  errors += fft_test_local_low(5, 1);
+  errors += fft_test_local_low(16, 1);
+  errors += fft_test_local_low(18, 1);
+  errors += fft_test_local_low(20, 1);
+  errors += fft_test_local_low(1, 1);
+  errors += fft_test_local_low(2, 2);
+  errors += fft_test_local_low(3, 3);
+  errors += fft_test_local_low(4, 4);
+  errors += fft_test_local_low(5, 5);
+  errors += fft_test_local_low(16, 16);
+  errors += fft_test_local_low(18, 18);
+  errors += fft_test_local_low(20, 20);
+  errors += fft_test_local_low(16, 360);
+  errors += fft_test_local_low(18, 320);
+  errors += fft_test_local_low(20, 288);
+
+  return errors;
 }
 
 /*******************************************************************************
