@@ -36,8 +36,8 @@ inline double norm_vector_double(const double *vector, const int size,
 }
 
 /*******************************************************************************
- * \brief Naive implementation of FFT. To be replaced by a real FFT library
- *later. \author Frederick Stein
+ * \brief Naive implementation of FFT from transposed format (for easier
+ *transposition). \author Frederick Stein
  ******************************************************************************/
 void fft_1d_fw(const double complex *grid_rs, double complex *grid_gs,
                const int fft_size, const int number_of_ffts) {
@@ -48,7 +48,7 @@ void fft_1d_fw(const double complex *grid_rs, double complex *grid_gs,
     for (int index_out = 0; index_out < fft_size; index_out++) {
       double complex tmp = 0.0;
       for (int index_in = 0; index_in < fft_size; index_in++) {
-        tmp += grid_rs[fft * fft_size + index_in] *
+        tmp += grid_rs[index_in * number_of_ffts + fft] *
                cexp(-2.0 * I * pi * index_out * index_in / fft_size);
       }
       grid_gs[fft * fft_size + index_out] = tmp;
@@ -57,8 +57,8 @@ void fft_1d_fw(const double complex *grid_rs, double complex *grid_gs,
 }
 
 /*******************************************************************************
- * \brief Naive implementation of FFT. To be replaced by a real FFT library
- *later. \author Frederick Stein
+ * \brief Naive implementation of backwards FFT to transposed format (for easier
+ *transposition). \author Frederick Stein
  ******************************************************************************/
 void fft_1d_bw(const double complex *grid_gs, double complex *grid_rs,
                const int fft_size, const int number_of_ffts) {
@@ -72,7 +72,7 @@ void fft_1d_bw(const double complex *grid_gs, double complex *grid_rs,
         tmp += grid_gs[fft * fft_size + index_in] *
                cexp(2.0 * I * pi * index_out * index_in / fft_size);
       }
-      grid_rs[fft * fft_size + index_out] = tmp;
+      grid_rs[index_out * number_of_ffts + fft] = tmp;
     }
   }
 }

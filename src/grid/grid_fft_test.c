@@ -50,7 +50,8 @@ int fft_test_local_low(const int fft_size, const int number_of_ffts) {
   double max_error = 0.0;
   // Check the forward FFT
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
-    input_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
+    input_array[(number_of_fft % fft_size) * number_of_ffts + number_of_fft] =
+        1.0;
   }
 
   fft_1d_fw(input_array, output_array, fft_size, number_of_ffts);
@@ -83,10 +84,10 @@ int fft_test_local_low(const int fft_size, const int number_of_ffts) {
   max_error = 0.0;
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index = 0; index < fft_size; index++) {
-      max_error =
-          fmax(max_error, cabs(output_array[number_of_fft * fft_size + index] -
-                               cexp(2.0 * I * pi * (number_of_fft % fft_size) *
-                                    index / fft_size)));
+      max_error = fmax(
+          max_error, cabs(output_array[index * number_of_ffts + number_of_fft] -
+                          cexp(2.0 * I * pi * (number_of_fft % fft_size) *
+                               index / fft_size)));
     }
   }
 
