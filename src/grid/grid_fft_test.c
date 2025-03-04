@@ -385,8 +385,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
       for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
         const double complex my_value =
-            fft_grid->grid_ms[nz * my_sizes_ms[0] * my_sizes_ms[1] +
-                              nx * my_sizes_ms[1] + ny];
+            fft_grid->grid_ms[ny * my_sizes_ms[0] * my_sizes_ms[2] +
+                              nz * my_sizes_ms[0] + nx];
         const double complex ref_value =
             ((nx + my_bounds_ms[0][0]) * npts_global[1] +
              (ny + my_bounds_ms[1][0])) +
@@ -406,6 +406,17 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     errors++;
   }
 
+  for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
+        fft_grid->grid_ms[ny * my_sizes_ms[0] * my_sizes_ms[2] +
+                          nz * my_sizes_ms[0] + nx] =
+            ((nx + my_bounds_ms[0][0]) * npts_global[1] +
+             (ny + my_bounds_ms[1][0])) +
+            I * (nz + my_bounds_ms[2][0]);
+      }
+    }
+  }
   memset(fft_grid->grid_rs_complex, 0,
          my_number_of_elements_rs * sizeof(double complex));
 
@@ -441,6 +452,18 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     errors++;
   }
 
+  for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
+        fft_grid->grid_ms[nz * my_sizes_ms[0] * my_sizes_ms[1] +
+                          nx * my_sizes_ms[1] + ny] =
+            ((nx + my_bounds_ms[0][0]) * npts_global[1] +
+             (ny + my_bounds_ms[1][0])) +
+            I * (nz + my_bounds_ms[2][0]);
+      }
+    }
+  }
+
   // Check the MS/GS direction
   transpose_xz_to_yz_blocked(fft_grid->grid_ms, fft_grid->grid_gs, npts_global,
                              fft_grid->proc2local_ms, fft_grid->proc2local_gs,
@@ -452,8 +475,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     for (int ny = 0; ny < my_sizes_gs[1]; ny++) {
       for (int nz = 0; nz < my_sizes_gs[2]; nz++) {
         const double complex my_value =
-            fft_grid->grid_gs[ny * my_sizes_gs[0] * my_sizes_gs[2] +
-                              nz * my_sizes_gs[0] + nx];
+            fft_grid->grid_gs[nx * my_sizes_gs[1] * my_sizes_gs[2] +
+                              ny * my_sizes_gs[2] + nz];
         const double complex ref_value =
             ((nx + my_bounds_gs[0][0]) * npts_global[1] +
              (ny + my_bounds_gs[1][0])) +
@@ -473,6 +496,17 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     errors++;
   }
 
+  for (int nx = 0; nx < my_sizes_gs[0]; nx++) {
+    for (int ny = 0; ny < my_sizes_gs[1]; ny++) {
+      for (int nz = 0; nz < my_sizes_gs[2]; nz++) {
+        fft_grid->grid_gs[nx * my_sizes_gs[1] * my_sizes_gs[2] +
+                          ny * my_sizes_gs[2] + nz] =
+            ((nx + my_bounds_gs[0][0]) * npts_global[1] +
+             (ny + my_bounds_gs[1][0])) +
+            I * (nz + my_bounds_gs[2][0]);
+      }
+    }
+  }
   memset(fft_grid->grid_ms, 0, my_number_of_elements_ms);
 
   // Check the MS/GS direction

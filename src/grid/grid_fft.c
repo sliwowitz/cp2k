@@ -190,11 +190,11 @@ void transpose_xy_to_xz_blocked(const double complex *grid,
            index_z <= imin(proc2local[my_process][2][1],
                            proc2local_transposed[my_process][2][1]);
            index_z++) {
-        transposed[(index_z - proc2local_transposed[my_process][2][0]) *
-                       my_transposed_sizes[0] * my_transposed_sizes[1] +
-                   (index_x - proc2local_transposed[my_process][0][0]) *
-                       my_transposed_sizes[1] +
-                   (index_y - proc2local_transposed[my_process][1][0])] =
+        transposed[(index_y - proc2local_transposed[my_process][1][0]) *
+                       my_transposed_sizes[0] * my_transposed_sizes[2] +
+                   (index_z - proc2local_transposed[my_process][2][0]) *
+                       my_transposed_sizes[0] +
+                   (index_x - proc2local_transposed[my_process][0][0])] =
             grid[(index_x - proc2local[my_process][0][0]) *
                      my_original_sizes[1] * my_original_sizes[2] +
                  (index_y - proc2local[my_process][1][0]) *
@@ -243,11 +243,11 @@ void transpose_xy_to_xz_blocked(const double complex *grid,
              index_z <= imin(proc2local[recv_process][2][1],
                              proc2local_transposed[my_process][2][1]);
              index_z++) {
-          transposed[(index_z - proc2local_transposed[my_process][2][0]) *
-                         my_transposed_sizes[0] * my_transposed_sizes[1] +
-                     (index_x - proc2local_transposed[my_process][0][0]) *
-                         my_transposed_sizes[1] +
-                     (index_y - proc2local_transposed[my_process][1][0])] =
+          transposed[(index_y - proc2local_transposed[my_process][1][0]) *
+                         my_transposed_sizes[0] * my_transposed_sizes[2] +
+                     (index_z - proc2local_transposed[my_process][2][0]) *
+                         my_transposed_sizes[0] +
+                     (index_x - proc2local_transposed[my_process][0][0])] =
               recv_buffer[(index_x - proc2local[recv_process][0][0]) *
                               recv_sizes[1] * recv_sizes[2] +
                           (index_y - proc2local[recv_process][1][0]) *
@@ -269,6 +269,137 @@ void transpose_xy_to_xz_blocked(const double complex *grid,
  * \author Frederick Stein
  ******************************************************************************/
 void transpose_xz_to_xy_blocked(const double complex *grid,
+                                double complex *transposed,
+                                const int npts_global[3],
+                                const int (*proc2local)[3][2],
+                                const int (*proc2local_transposed)[3][2],
+                                const grid_mpi_comm comm) {
+  const int number_of_processes = grid_mpi_comm_size(comm);
+  const int my_process = grid_mpi_comm_rank(comm);
+  (void)npts_global;
+
+  int max_number_of_elements = 0;
+  for (int process = 0; process < number_of_processes; process++) {
+    max_number_of_elements =
+        imax(max_number_of_elements,
+             (proc2local[process][0][1] - proc2local[process][0][0] + 1) *
+                 (proc2local[process][1][1] - proc2local[process][1][0] + 1) *
+                 (proc2local[process][2][1] - proc2local[process][2][0] + 1));
+  }
+  double complex *recv_buffer =
+      malloc(max_number_of_elements * sizeof(double complex));
+  grid_mpi_request recv_request, send_request;
+
+  const int my_number_of_elements =
+      (proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1) *
+      (proc2local[my_process][1][1] - proc2local[my_process][1][0] + 1) *
+      (proc2local[my_process][2][1] - proc2local[my_process][2][0] + 1);
+
+  int my_original_sizes[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_original_sizes[dir] =
+        proc2local[my_process][dir][1] - proc2local[my_process][dir][0] + 1;
+
+  int my_transposed_sizes[3];
+  for (int dir = 0; dir < 3; dir++)
+    my_transposed_sizes[dir] = proc2local_transposed[my_process][dir][1] -
+                               proc2local_transposed[my_process][dir][0] + 1;
+
+  // Copy and transpose the data
+  for (int index_x = imax(proc2local[my_process][0][0],
+                          proc2local_transposed[my_process][0][0]);
+       index_x <= imin(proc2local[my_process][0][1],
+                       proc2local_transposed[my_process][0][1]);
+       index_x++) {
+    for (int index_y = imax(proc2local[my_process][1][0],
+                            proc2local_transposed[my_process][1][0]);
+         index_y <= imin(proc2local[my_process][1][1],
+                         proc2local_transposed[my_process][1][1]);
+         index_y++) {
+      for (int index_z = imax(proc2local[my_process][2][0],
+                              proc2local_transposed[my_process][2][0]);
+           index_z <= imin(proc2local[my_process][2][1],
+                           proc2local_transposed[my_process][2][1]);
+           index_z++) {
+        transposed[(index_x - proc2local_transposed[my_process][0][0]) *
+                       my_transposed_sizes[1] * my_transposed_sizes[2] +
+                   (index_y - proc2local_transposed[my_process][1][0]) *
+                       my_transposed_sizes[2] +
+                   (index_z - proc2local_transposed[my_process][2][0])] =
+            grid[(index_y - proc2local[my_process][1][0]) *
+                     my_original_sizes[0] * my_original_sizes[2] +
+                 (index_z - proc2local[my_process][2][0]) *
+                     my_original_sizes[0] +
+                 (index_x - proc2local[my_process][0][0])];
+      }
+    }
+  }
+
+  for (int process_shift = 1; process_shift < number_of_processes;
+       process_shift++) {
+    const int send_process =
+        modulo(my_process + process_shift, number_of_processes);
+    const int recv_process =
+        modulo(my_process - process_shift, number_of_processes);
+
+    int recv_sizes[3];
+    for (int dir = 0; dir < 3; dir++)
+      recv_sizes[dir] = proc2local[recv_process][dir][1] -
+                        proc2local[recv_process][dir][0] + 1;
+
+    // Post receive request
+    grid_mpi_irecv_double_complex(recv_buffer, product3(recv_sizes),
+                                  recv_process, 1, comm, &recv_request);
+
+    // Post send request
+    grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
+                                  comm, &send_request);
+
+    // Wait for the receive process and copy the data
+    grid_mpi_wait(&recv_request);
+
+    // Copy and transpose the data
+    for (int index_x = imax(proc2local[recv_process][0][0],
+                            proc2local_transposed[my_process][0][0]);
+         index_x <= imin(proc2local[recv_process][0][1],
+                         proc2local_transposed[my_process][0][1]);
+         index_x++) {
+      for (int index_y = imax(proc2local[recv_process][1][0],
+                              proc2local_transposed[my_process][1][0]);
+           index_y <= imin(proc2local[recv_process][1][1],
+                           proc2local_transposed[my_process][1][1]);
+           index_y++) {
+        for (int index_z = imax(proc2local[recv_process][2][0],
+                                proc2local_transposed[my_process][2][0]);
+             index_z <= imin(proc2local[recv_process][2][1],
+                             proc2local_transposed[my_process][2][1]);
+             index_z++) {
+          transposed[(index_x - proc2local_transposed[my_process][0][0]) *
+                         my_transposed_sizes[1] * my_transposed_sizes[2] +
+                     (index_y - proc2local_transposed[my_process][1][0]) *
+                         my_transposed_sizes[2] +
+                     (index_z - proc2local_transposed[my_process][2][0])] =
+              recv_buffer[(index_y - proc2local[recv_process][1][0]) *
+                              recv_sizes[0] * recv_sizes[2] +
+                          (index_z - proc2local[recv_process][2][0]) *
+                              recv_sizes[0] +
+                          (index_x - proc2local[recv_process][0][0])];
+        }
+      }
+    }
+
+    // Wait for the send request
+    grid_mpi_wait(&send_request);
+  }
+
+  free(recv_buffer);
+}
+
+/*******************************************************************************
+ * \brief Performs a transposition of (z,x,y)->(y,z,x).
+ * \author Frederick Stein
+ ******************************************************************************/
+void transpose_xz_to_yz_blocked(const double complex *grid,
                                 double complex *transposed,
                                 const int npts_global[3],
                                 const int (*proc2local)[3][2],
@@ -399,137 +530,6 @@ void transpose_xz_to_xy_blocked(const double complex *grid,
  * \brief Performs a transposition of (z,x,y)->(y,z,x).
  * \author Frederick Stein
  ******************************************************************************/
-void transpose_xz_to_yz_blocked(const double complex *grid,
-                                double complex *transposed,
-                                const int npts_global[3],
-                                const int (*proc2local)[3][2],
-                                const int (*proc2local_transposed)[3][2],
-                                const grid_mpi_comm comm) {
-  const int number_of_processes = grid_mpi_comm_size(comm);
-  const int my_process = grid_mpi_comm_rank(comm);
-  (void)npts_global;
-
-  int max_number_of_elements = 0;
-  for (int process = 0; process < number_of_processes; process++) {
-    max_number_of_elements =
-        imax(max_number_of_elements,
-             (proc2local[process][0][1] - proc2local[process][0][0] + 1) *
-                 (proc2local[process][1][1] - proc2local[process][1][0] + 1) *
-                 (proc2local[process][2][1] - proc2local[process][2][0] + 1));
-  }
-  double complex *recv_buffer =
-      malloc(max_number_of_elements * sizeof(double complex));
-  grid_mpi_request recv_request, send_request;
-
-  const int my_number_of_elements =
-      (proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1) *
-      (proc2local[my_process][1][1] - proc2local[my_process][1][0] + 1) *
-      (proc2local[my_process][2][1] - proc2local[my_process][2][0] + 1);
-
-  int my_original_sizes[3];
-  for (int dir = 0; dir < 3; dir++)
-    my_original_sizes[dir] =
-        proc2local[my_process][dir][1] - proc2local[my_process][dir][0] + 1;
-
-  int my_transposed_sizes[3];
-  for (int dir = 0; dir < 3; dir++)
-    my_transposed_sizes[dir] = proc2local_transposed[my_process][dir][1] -
-                               proc2local_transposed[my_process][dir][0] + 1;
-
-  // Copy and transpose the data
-  for (int index_x = imax(proc2local[my_process][0][0],
-                          proc2local_transposed[my_process][0][0]);
-       index_x <= imin(proc2local[my_process][0][1],
-                       proc2local_transposed[my_process][0][1]);
-       index_x++) {
-    for (int index_y = imax(proc2local[my_process][1][0],
-                            proc2local_transposed[my_process][1][0]);
-         index_y <= imin(proc2local[my_process][1][1],
-                         proc2local_transposed[my_process][1][1]);
-         index_y++) {
-      for (int index_z = imax(proc2local[my_process][2][0],
-                              proc2local_transposed[my_process][2][0]);
-           index_z <= imin(proc2local[my_process][2][1],
-                           proc2local_transposed[my_process][2][1]);
-           index_z++) {
-        transposed[(index_y - proc2local_transposed[my_process][1][0]) *
-                       my_transposed_sizes[0] * my_transposed_sizes[2] +
-                   (index_z - proc2local_transposed[my_process][2][0]) *
-                       my_transposed_sizes[0] +
-                   (index_x - proc2local_transposed[my_process][0][0])] =
-            grid[(index_z - proc2local[my_process][2][0]) *
-                     my_original_sizes[0] * my_original_sizes[1] +
-                 (index_x - proc2local[my_process][0][0]) *
-                     my_original_sizes[1] +
-                 (index_y - proc2local[my_process][1][0])];
-      }
-    }
-  }
-
-  for (int process_shift = 1; process_shift < number_of_processes;
-       process_shift++) {
-    const int send_process =
-        modulo(my_process + process_shift, number_of_processes);
-    const int recv_process =
-        modulo(my_process - process_shift, number_of_processes);
-
-    int recv_sizes[3];
-    for (int dir = 0; dir < 3; dir++)
-      recv_sizes[dir] = proc2local[recv_process][dir][1] -
-                        proc2local[recv_process][dir][0] + 1;
-
-    // Post receive request
-    grid_mpi_irecv_double_complex(recv_buffer, product3(recv_sizes),
-                                  recv_process, 1, comm, &recv_request);
-
-    // Post send request
-    grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
-                                  comm, &send_request);
-
-    // Wait for the receive process and copy the data
-    grid_mpi_wait(&recv_request);
-
-    // Copy and transpose the data
-    for (int index_x = imax(proc2local[recv_process][0][0],
-                            proc2local_transposed[my_process][0][0]);
-         index_x <= imin(proc2local[recv_process][0][1],
-                         proc2local_transposed[my_process][0][1]);
-         index_x++) {
-      for (int index_y = imax(proc2local[recv_process][1][0],
-                              proc2local_transposed[my_process][1][0]);
-           index_y <= imin(proc2local[recv_process][1][1],
-                           proc2local_transposed[my_process][1][1]);
-           index_y++) {
-        for (int index_z = imax(proc2local[recv_process][2][0],
-                                proc2local_transposed[my_process][2][0]);
-             index_z <= imin(proc2local[recv_process][2][1],
-                             proc2local_transposed[my_process][2][1]);
-             index_z++) {
-          transposed[(index_y - proc2local_transposed[my_process][1][0]) *
-                         my_transposed_sizes[0] * my_transposed_sizes[2] +
-                     (index_z - proc2local_transposed[my_process][2][0]) *
-                         my_transposed_sizes[0] +
-                     (index_x - proc2local_transposed[my_process][0][0])] =
-              recv_buffer[(index_z - proc2local[recv_process][2][0]) *
-                              recv_sizes[0] * recv_sizes[1] +
-                          (index_x - proc2local[recv_process][0][0]) *
-                              recv_sizes[1] +
-                          (index_y - proc2local[recv_process][1][0])];
-        }
-      }
-    }
-
-    // Wait for the send request
-    grid_mpi_wait(&send_request);
-  }
-
-  free(recv_buffer);
-}
-
-/*******************************************************************************
- * \brief Performs a transposition of (z,x,y)->(y,z,x).
- * \author Frederick Stein
- ******************************************************************************/
 void transpose_yz_to_xz_blocked(const double complex *grid,
                                 double complex *transposed,
                                 const int npts_global[3],
@@ -588,11 +588,11 @@ void transpose_yz_to_xz_blocked(const double complex *grid,
                    (index_x - proc2local_transposed[my_process][0][0]) *
                        my_transposed_sizes[1] +
                    (index_y - proc2local_transposed[my_process][1][0])] =
-            grid[(index_y - proc2local[my_process][1][0]) *
-                     my_original_sizes[0] * my_original_sizes[2] +
-                 (index_z - proc2local[my_process][2][0]) *
-                     my_original_sizes[0] +
-                 (index_x - proc2local[my_process][0][0])];
+            grid[(index_x - proc2local[my_process][0][0]) *
+                     my_original_sizes[1] * my_original_sizes[2] +
+                 (index_y - proc2local[my_process][1][0]) *
+                     my_original_sizes[2] +
+                 (index_z - proc2local[my_process][2][0])];
       }
     }
   }
@@ -641,11 +641,11 @@ void transpose_yz_to_xz_blocked(const double complex *grid,
                      (index_x - proc2local_transposed[my_process][0][0]) *
                          my_transposed_sizes[1] +
                      (index_y - proc2local_transposed[my_process][1][0])] =
-              recv_buffer[(index_y - proc2local[recv_process][1][0]) *
-                              recv_sizes[0] * recv_sizes[2] +
-                          (index_z - proc2local[recv_process][2][0]) *
-                              recv_sizes[0] +
-                          (index_x - proc2local[recv_process][0][0])];
+              recv_buffer[(index_x - proc2local[recv_process][0][0]) *
+                              recv_sizes[1] * recv_sizes[2] +
+                          (index_y - proc2local[recv_process][1][0]) *
+                              recv_sizes[2] +
+                          (index_z - proc2local[recv_process][2][0])];
         }
       }
     }
