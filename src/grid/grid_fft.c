@@ -98,15 +98,15 @@ void fft_3d_fw(double complex *grid_rs, double complex *grid_gs,
   fft_1d_fw(grid_rs, grid_gs, npts_global[2], npts_global[0] * npts_global[1]);
 
   // Perform first transposition (x, y, z) -> (z, x, y)
-  transpose_local(grid_gs, grid_rs, npts_global[2],
-                  npts_global[0] * npts_global[1]);
+  // transpose_local(grid_gs, grid_rs, npts_global[2],
+  // npts_global[0] * npts_global[1]);
 
   // Perform the second FFT along y
-  fft_1d_fw(grid_rs, grid_gs, npts_global[1], npts_global[0] * npts_global[2]);
+  fft_1d_fw(grid_gs, grid_rs, npts_global[1], npts_global[0] * npts_global[2]);
 
   // Perform second transpose (z, x, y) -> (y, z, x)
-  transpose_local(grid_gs, grid_rs, npts_global[1],
-                  npts_global[0] * npts_global[2]);
+  // transpose_local(grid_gs, grid_rs, npts_global[1],
+  // npts_global[0] * npts_global[2]);
 
   // Perform the third FFT along x
   fft_1d_fw(grid_rs, grid_gs, npts_global[0], npts_global[1] * npts_global[2]);
@@ -119,15 +119,15 @@ void fft_3d_bw(double complex *grid_gs, double complex *grid_rs,
   fft_1d_bw(grid_gs, grid_rs, npts_global[0], npts_global[1] * npts_global[2]);
 
   // Perform first transposition (y, z, x) -> (z, x, y)
-  transpose_local(grid_rs, grid_gs, npts_global[0] * npts_global[2],
-                  npts_global[1]);
+  // transpose_local(grid_rs, grid_gs, npts_global[0] * npts_global[2],
+  // npts_global[1]);
 
   // Perform the second FFT along y
-  fft_1d_bw(grid_gs, grid_rs, npts_global[1], npts_global[0] * npts_global[2]);
+  fft_1d_bw(grid_rs, grid_gs, npts_global[1], npts_global[0] * npts_global[2]);
 
   // Perform second transpose (z, x, y) -> (x, y, z)
-  transpose_local(grid_rs, grid_gs, npts_global[0] * npts_global[1],
-                  npts_global[2]);
+  // transpose_local(grid_rs, grid_gs, npts_global[0] * npts_global[1],
+  // npts_global[2]);
 
   // Perform the third FFT along z
   fft_1d_bw(grid_gs, grid_rs, npts_global[2], npts_global[0] * npts_global[1]);
@@ -321,16 +321,16 @@ void transpose_xz_to_xy_blocked(const double complex *grid,
            index_z <= imin(proc2local[my_process][2][1],
                            proc2local_transposed[my_process][2][1]);
            index_z++) {
-        transposed[(index_x - proc2local_transposed[my_process][0][0]) *
-                       my_transposed_sizes[1] * my_transposed_sizes[2] +
-                   (index_z - proc2local_transposed[my_process][2][0]) *
-                       my_transposed_sizes[1] +
-                   (index_y - proc2local_transposed[my_process][1][0])] =
-            grid[(index_x - proc2local[my_process][0][0]) *
-                     my_original_sizes[1] * my_original_sizes[2] +
-                 (index_z - proc2local[my_process][2][0]) *
-                     my_original_sizes[1] +
-                 (index_y - proc2local[my_process][1][0])];
+        transposed[(index_y - proc2local_transposed[my_process][1][0]) *
+                       my_transposed_sizes[0] * my_transposed_sizes[2] +
+                   (index_x - proc2local_transposed[my_process][0][0]) *
+                       my_transposed_sizes[2] +
+                   (index_z - proc2local_transposed[my_process][2][0])] =
+            grid[(index_y - proc2local[my_process][1][0]) *
+                     my_original_sizes[0] * my_original_sizes[2] +
+                 (index_x - proc2local[my_process][0][0]) *
+                     my_original_sizes[2] +
+                 (index_z - proc2local[my_process][2][0])];
       }
     }
   }
@@ -374,16 +374,16 @@ void transpose_xz_to_xy_blocked(const double complex *grid,
              index_z <= imin(proc2local[recv_process][2][1],
                              proc2local_transposed[my_process][2][1]);
              index_z++) {
-          transposed[(index_x - proc2local_transposed[my_process][0][0]) *
-                         my_transposed_sizes[1] * my_transposed_sizes[2] +
-                     (index_z - proc2local_transposed[my_process][2][0]) *
-                         my_transposed_sizes[1] +
-                     (index_y - proc2local_transposed[my_process][1][0])] =
-              recv_buffer[(index_x - proc2local[recv_process][0][0]) *
-                              recv_sizes[1] * recv_sizes[2] +
-                          (index_z - proc2local[recv_process][2][0]) *
-                              recv_sizes[1] +
-                          (index_y - proc2local[recv_process][1][0])];
+          transposed[(index_y - proc2local_transposed[my_process][1][0]) *
+                         my_transposed_sizes[0] * my_transposed_sizes[2] +
+                     (index_x - proc2local_transposed[my_process][0][0]) *
+                         my_transposed_sizes[2] +
+                     (index_z - proc2local_transposed[my_process][2][0])] =
+              recv_buffer[(index_y - proc2local[recv_process][1][0]) *
+                              recv_sizes[0] * recv_sizes[2] +
+                          (index_x - proc2local[recv_process][0][0]) *
+                              recv_sizes[2] +
+                          (index_z - proc2local[recv_process][2][0])];
         }
       }
     }
@@ -1015,23 +1015,23 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
       (double complex *)malloc(size_of_buffer * sizeof(double complex));
 
   if (grid_mpi_comm_size(comm) > 1) {
-    // Perform the first FFT
+    // Perform the first FFT and one transposition (z,y,x)->(x,z,y)
     fft_1d_bw((const double complex *)grid_gs, grid_buffer_1, fft_sizes_gs[0],
               fft_sizes_gs[1] * fft_sizes_gs[2]);
 
-    // Perform transpose
+    // Collect data in y-direction and distribute x-direction
     transpose_yz_to_xz_blocked(grid_buffer_1, grid_buffer_2, npts_global,
                                proc2local_gs, proc2local_ms, comm);
 
-    // Perform the second FFT
+    // Perform the second FFT and one transposition (x,z,y)->(y,x,z)
     fft_1d_bw((const double complex *)grid_buffer_2, grid_buffer_1,
               fft_sizes_ms[1], fft_sizes_ms[0] * fft_sizes_ms[2]);
 
-    // Perform second transpose
+    // Collect data in z-direction and distribute y-direction
     transpose_xz_to_xy_blocked(grid_buffer_1, grid_buffer_2, npts_global,
                                proc2local_ms, proc2local_rs, comm);
 
-    // Perform the third FFT
+    // Perform the third FFT and one transposition (y,x,z)->(z,y,x)
     fft_1d_bw((const double complex *)grid_buffer_2, grid_buffer_1,
               fft_sizes_rs[2], fft_sizes_rs[0] * fft_sizes_rs[1]);
   } else {
@@ -1117,8 +1117,8 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
       for (int index_z = 0; index_z < npts_global[2]; index_z++) {
         if (yz_to_process[index_y * npts_global[2] + index_z] == 0) {
           memcpy(&grid_gs[ray_index * npts_global[0]],
-                 &grid_buffer_2[index_y * npts_global[0] * npts_global[2] +
-                                index_z * npts_global[0]],
+                 &grid_buffer_2[index_z * npts_global[0] * npts_global[1] +
+                                index_y * npts_global[0]],
                  npts_global[0] * sizeof(double complex));
           ray_index++;
         }
@@ -1198,8 +1198,8 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
       const int index_y = ray_to_yz[my_ray_offset + yz_ray][0];
       const int index_z = ray_to_yz[my_ray_offset + yz_ray][1];
 
-      memcpy(&grid_buffer_2[index_y * npts_global[0] * npts_global[2] +
-                            index_z * npts_global[0]],
+      memcpy(&grid_buffer_2[index_z * npts_global[0] * npts_global[1] +
+                            index_y * npts_global[0]],
              &grid_gs[yz_ray * npts_global[0]],
              npts_global[0] * sizeof(double complex));
     }
