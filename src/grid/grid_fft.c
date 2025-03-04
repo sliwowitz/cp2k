@@ -717,7 +717,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
     // Copy the data
     for (int index_x = proc2local[my_process][0][0];
          index_x <= proc2local[my_process][0][1]; index_x++) {
-      transposed[yz_ray * npts_global[0] + index_x] =
+      transposed[index_x * number_of_rays[my_process] + yz_ray] =
           grid[(index_z - proc2local[my_process][2][0]) * my_original_sizes[0] *
                    my_original_sizes[1] +
                (index_x - proc2local[my_process][0][0]) * my_original_sizes[1] +
@@ -764,7 +764,7 @@ void transpose_xz_to_yz_ray(const double complex *grid,
       // Copy the data
       for (int index_x = proc2local[recv_process][0][0];
            index_x <= proc2local[recv_process][0][1]; index_x++) {
-        transposed[yz_ray * npts_global[0] + index_x] =
+        transposed[index_x * number_of_rays[my_process] + yz_ray] =
             recv_buffer[(index_z - proc2local[recv_process][2][0]) *
                             recv_sizes[0] * recv_sizes[1] +
                         (index_x - proc2local[recv_process][0][0]) *
@@ -841,7 +841,7 @@ void transpose_yz_to_xz_ray(const double complex *grid,
                  (index_x - proc2local_transposed[my_process][0][0]) *
                      my_transposed_sizes[1] +
                  (index_y - proc2local_transposed[my_process][1][0])] =
-          grid[yz_ray * npts_global[0] + index_x];
+          grid[index_x * number_of_rays[my_process] + yz_ray];
     }
     number_of_received_rays++;
   }
@@ -891,7 +891,7 @@ void transpose_yz_to_xz_ray(const double complex *grid,
                    (index_x - proc2local_transposed[my_process][0][0]) *
                        my_transposed_sizes[1] +
                    (index_y - proc2local_transposed[my_process][1][0])] =
-            recv_buffer[yz_ray * npts_global[0] + index_x];
+            recv_buffer[index_x * number_of_rays[recv_process] + yz_ray];
       }
       number_of_received_rays++;
     }

@@ -234,7 +234,8 @@ double fft_test_transpose_ray(const int npts_global[3],
     for (int index_x = 0; index_x < fft_grid_ray->npts_global[0]; index_x++) {
       const double complex my_value =
           fft_grid_ray
-              ->grid_gs[yz_ray * fft_grid_ray->npts_global[0] + index_x];
+              ->grid_gs[index_x * fft_grid_ray->rays_per_process[my_process] +
+                        yz_ray];
       const double complex ref_value =
           (index_y * npts_global[2] + index_z) + I * index_x;
       double current_error = cabs(my_value - ref_value);
@@ -262,7 +263,9 @@ double fft_test_transpose_ray(const int npts_global[3],
     const int index_y = fft_grid_ray->ray_to_yz[ray_index_offset + yz_ray][0];
     const int index_z = fft_grid_ray->ray_to_yz[ray_index_offset + yz_ray][1];
     for (int index_x = 0; index_x < fft_grid_ray->npts_global[0]; index_x++) {
-      fft_grid_ray->grid_gs[yz_ray * fft_grid_ray->npts_global[0] + index_x] =
+      fft_grid_ray
+          ->grid_gs[index_x * fft_grid_ray->rays_per_process[my_process] +
+                    yz_ray] =
           (index_y * fft_grid_ray->npts_global[2] + index_z) + I * index_x;
     }
   }
