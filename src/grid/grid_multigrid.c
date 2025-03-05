@@ -2328,6 +2328,7 @@ void grid_create_multigrid(
 
       for (int level = 0; level < multigrid->nlevels; level++) {
         offload_free_buffer(multigrid->grids[level]);
+        grid_free_fft_grid(multigrid->fft_grids[level]);
       }
       multigrid->grids =
           realloc(multigrid->grids, nlevels * sizeof(offload_buffer *));
@@ -2354,6 +2355,7 @@ void grid_create_multigrid(
     multigrid->proc2local =
         calloc(nlevels * grid_mpi_comm_size(comm) * 6, sizeof(int));
     multigrid->redistribute = calloc(nlevels, sizeof(grid_redistribute));
+    multigrid->fft_grids = calloc(nlevels, sizeof(grid_fft_grid *));
 
     // Resolve AUTO to a concrete backend.
     if (config.backend == GRID_BACKEND_AUTO) {
@@ -2402,6 +2404,14 @@ void grid_create_multigrid(
         (const int(*)[3][2]) &
             multigrid->proc2local[level * 6 * grid_mpi_comm_size(comm)],
         multigrid->border_width[level], &(multigrid->redistribute[level]));
+  }
+
+  grid_create_fft_grid(&multigrid->fft_grids[0], multigrid->comm,
+                       multigrid->npts_global[0]);
+  for (int level = 1; level < nlevels; level++) {
+    grid_create_fft_grid_from_reference(&multigrid->fft_grids[level],
+                                        multigrid->npts_global[level],
+                                        multigrid->fft_grids[0]);
   }
 
   grid_ref_create_multigrid(orthorhombic, nlevels, npts_global, npts_local,
@@ -2464,6 +2474,12 @@ void grid_free_multigrid(grid_multigrid *multigrid) {
         grid_free_redistribute(&multigrid->redistribute[level]);
       }
       free(multigrid->redistribute);
+    }
+    if (multigrid->fft_grids != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_fft_grid(multigrid->fft_grids[level]);
+      }
+      free(multigrid->fft_grids);
     }
     grid_mpi_comm_free(&multigrid->comm);
     grid_ref_free_multigrid(multigrid->ref);
