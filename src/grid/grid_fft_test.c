@@ -54,7 +54,7 @@ int fft_test_local_low(const int fft_size, const int number_of_ffts) {
         1.0;
   }
 
-  fft_1d_fw(input_array, output_array, fft_size, number_of_ffts);
+  fft_1d_fw_local(input_array, output_array, fft_size, number_of_ffts);
 
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index = 0; index < fft_size; index++) {
@@ -79,7 +79,7 @@ int fft_test_local_low(const int fft_size, const int number_of_ffts) {
     input_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
   }
 
-  fft_1d_bw(input_array, output_array, fft_size, number_of_ffts);
+  fft_1d_bw_local(input_array, output_array, fft_size, number_of_ffts);
 
   max_error = 0.0;
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
@@ -217,11 +217,11 @@ double fft_test_transpose_ray(const int npts_global[3],
     }
   }
 
-  transpose_xz_to_yz_ray(fft_grid_ray->grid_ms, fft_grid_ray->grid_gs,
-                         fft_grid_ray->npts_global, fft_grid_ray->proc2local_ms,
-                         fft_grid_ray->yz_to_process,
-                         fft_grid_ray->rays_per_process,
-                         fft_grid_ray->ray_to_yz, fft_grid_ray->comm);
+  collect_x_and_distribute_y_ray(
+      fft_grid_ray->grid_ms, fft_grid_ray->grid_gs, fft_grid_ray->npts_global,
+      fft_grid_ray->proc2local_ms, fft_grid_ray->yz_to_process,
+      fft_grid_ray->rays_per_process, fft_grid_ray->ray_to_yz,
+      fft_grid_ray->comm);
 
   max_error = 0.0;
   int ray_index_offset = 0;
@@ -269,11 +269,11 @@ double fft_test_transpose_ray(const int npts_global[3],
           (index_y * fft_grid_ray->npts_global[2] + index_z) + I * index_x;
     }
   }
-  transpose_yz_to_xz_ray(fft_grid_ray->grid_gs, fft_grid_ray->grid_ms,
-                         fft_grid_ray->npts_global, fft_grid_ray->yz_to_process,
-                         fft_grid_ray->proc2local_ms,
-                         fft_grid_ray->rays_per_process,
-                         fft_grid_ray->ray_to_yz, fft_grid_ray->comm);
+  collect_y_and_distribute_x_ray(
+      fft_grid_ray->grid_gs, fft_grid_ray->grid_ms, fft_grid_ray->npts_global,
+      fft_grid_ray->yz_to_process, fft_grid_ray->proc2local_ms,
+      fft_grid_ray->rays_per_process, fft_grid_ray->ray_to_yz,
+      fft_grid_ray->comm);
 
   max_error = 0.0;
   for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
@@ -377,9 +377,9 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     }
   }
 
-  transpose_xy_to_xz_blocked(fft_grid->grid_rs_complex, fft_grid->grid_ms,
-                             npts_global, fft_grid->proc2local_rs,
-                             fft_grid->proc2local_ms, fft_grid->comm);
+  collect_y_and_distribute_z_blocked(
+      fft_grid->grid_rs_complex, fft_grid->grid_ms, npts_global,
+      fft_grid->proc2local_rs, fft_grid->proc2local_ms, fft_grid->comm);
 
   for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
@@ -421,9 +421,9 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
          my_number_of_elements_rs * sizeof(double complex));
 
   // Check the reverse direction
-  transpose_xz_to_xy_blocked(fft_grid->grid_ms, fft_grid->grid_rs_complex,
-                             npts_global, fft_grid->proc2local_ms,
-                             fft_grid->proc2local_rs, fft_grid->comm);
+  collect_z_and_distribute_y_blocked(
+      fft_grid->grid_ms, fft_grid->grid_rs_complex, npts_global,
+      fft_grid->proc2local_ms, fft_grid->proc2local_rs, fft_grid->comm);
 
   // Check forward RS->MS FFTs
   max_error = 0.0;
@@ -465,9 +465,9 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   }
 
   // Check the MS/GS direction
-  transpose_xz_to_yz_blocked(fft_grid->grid_ms, fft_grid->grid_gs, npts_global,
-                             fft_grid->proc2local_ms, fft_grid->proc2local_gs,
-                             fft_grid->comm);
+  collect_y_and_distribute_x_blocked(fft_grid->grid_ms, fft_grid->grid_gs,
+                                     npts_global, fft_grid->proc2local_ms,
+                                     fft_grid->proc2local_gs, fft_grid->comm);
 
   // Check forward RS->MS FFTs
   max_error = 0.0;
@@ -510,9 +510,9 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   memset(fft_grid->grid_ms, 0, my_number_of_elements_ms);
 
   // Check the MS/GS direction
-  transpose_yz_to_xz_blocked(fft_grid->grid_gs, fft_grid->grid_ms, npts_global,
-                             fft_grid->proc2local_gs, fft_grid->proc2local_ms,
-                             fft_grid->comm);
+  collect_y_and_distribute_x_blocked(fft_grid->grid_gs, fft_grid->grid_ms,
+                                     npts_global, fft_grid->proc2local_gs,
+                                     fft_grid->proc2local_ms, fft_grid->comm);
 
   // Check forward RS->MS FFTs
   max_error = 0.0;
