@@ -19,12 +19,17 @@
 typedef struct {
   // Global number of points
   int npts_global[3];
+  // Grid spacing in reciprocal space
+  double dh_inv[3][3];
   // Number of local points in g-space (relevant with ray-distribution)
   int npts_gs_local;
   bool ray_distribution;
   int (*ray_to_yz)[2];
   int *yz_to_process;
   int *rays_per_process;
+  // maps of index in g-space to g-space vectors
+  int (*index_to_g)[3];
+  int *own_index_to_ref_grid;
   // New communicator
   grid_mpi_comm comm;
   int proc_grid[2];
@@ -59,7 +64,7 @@ void grid_free_fft_grid(grid_fft_grid *fft_grid);
  * \author Frederick Stein
  ******************************************************************************/
 void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
-                          const int npts_global[3]);
+                          const int npts_global[3], const double dh_inv[3][3]);
 
 /*******************************************************************************
  * \brief Create a FFT grid using a reference grid to interact with this grid.

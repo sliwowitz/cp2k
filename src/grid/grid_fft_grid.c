@@ -32,7 +32,7 @@ void grid_free_fft_grid(grid_fft_grid *fft_grid) {
 }
 
 void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
-                          const int npts_global[3]) {
+                          const int npts_global[3], const double dh_inv[3][3]) {
   grid_fft_grid *my_fft_grid = NULL;
   if (*fft_grid != NULL) {
     my_fft_grid = *fft_grid;
@@ -52,6 +52,7 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
   }
 
   memcpy(my_fft_grid->npts_global, npts_global, 3 * sizeof(int));
+  memcpy(my_fft_grid->dh_inv, dh_inv, 3 * 3 * sizeof(double));
 
   my_fft_grid->periodic[0] = 1;
   my_fft_grid->periodic[1] = 1;
@@ -152,6 +153,8 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
   my_fft_grid->yz_to_process = NULL;
   my_fft_grid->ray_to_yz = NULL;
   my_fft_grid->rays_per_process = NULL;
+  my_fft_grid->index_to_g = NULL;
+  my_fft_grid->own_index_to_ref_grid = NULL;
 
   *fft_grid = my_fft_grid;
 }

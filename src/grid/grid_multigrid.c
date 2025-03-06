@@ -2410,7 +2410,7 @@ void grid_create_multigrid(
   //int current_npts_global[3] ;
 //  memcpy(current_npts_global, multigrid->npts_global[0], 3 * sizeof(int));
   //grid_create_fft_grid(&multigrid->fft_grids[0], multigrid->comm,
-//    current_npts_global);
+//    current_npts_global, dh_inv);
   for (int level = 1; level < nlevels; level++) {
     //memcpy(current_npts_global, multigrid->npts_global[level], 3 * sizeof(int));
     //grid_create_fft_grid_from_reference(&multigrid->fft_grids[level],
