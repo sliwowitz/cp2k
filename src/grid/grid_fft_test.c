@@ -885,10 +885,6 @@ int fft_test_3d() {
   errors +=
       fft_test_3d_ray(npts_global_small_reverse, npts_global_small_reverse);
 
-  // Check the ray layout with different grid sizes
-  // errors += fft_test_3d_ray(npts_global_small, npts_global);
-  // errors += fft_test_3d_ray(npts_global_small_reverse, npts_global_reverse);
-
   if (errors == 0 && my_process == 0)
     printf("\n The 3D FFT routines work properly!\n");
   return errors;

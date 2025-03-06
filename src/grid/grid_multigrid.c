@@ -2329,6 +2329,7 @@ void grid_create_multigrid(
       for (int level = 0; level < multigrid->nlevels; level++) {
         offload_free_buffer(multigrid->grids[level]);
         grid_free_fft_grid(multigrid->fft_grids[level]);
+        multigrid->fft_grids[level] = NULL;
       }
       multigrid->grids =
           realloc(multigrid->grids, nlevels * sizeof(offload_buffer *));
@@ -2406,12 +2407,15 @@ void grid_create_multigrid(
         multigrid->border_width[level], &(multigrid->redistribute[level]));
   }
 
-  grid_create_fft_grid(&multigrid->fft_grids[0], multigrid->comm,
-                       multigrid->npts_global[0]);
+  //int current_npts_global[3] ;
+//  memcpy(current_npts_global, multigrid->npts_global[0], 3 * sizeof(int));
+  //grid_create_fft_grid(&multigrid->fft_grids[0], multigrid->comm,
+//    current_npts_global);
   for (int level = 1; level < nlevels; level++) {
-    grid_create_fft_grid_from_reference(&multigrid->fft_grids[level],
-                                        multigrid->npts_global[level],
-                                        multigrid->fft_grids[0]);
+    //memcpy(current_npts_global, multigrid->npts_global[level], 3 * sizeof(int));
+    //grid_create_fft_grid_from_reference(&multigrid->fft_grids[level],
+                                        //multigrid->npts_global[level],
+                                        //multigrid->fft_grids[0]);
   }
 
   grid_ref_create_multigrid(orthorhombic, nlevels, npts_global, npts_local,
