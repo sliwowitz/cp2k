@@ -113,6 +113,44 @@ void grid_copy_from_multigrid_local_single(const grid_multigrid *multigrid,
              multigrid->npts_local[level][1] * multigrid->npts_local[level][2]);
 }
 
+void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
+  const double *grid) {
+  // Create a matching reference grid where all data is collected
+  grid_fft_grid *fft_grid = NULL;
+  grid_create_fft_grid(&fft_grid, multigrid->comm, multigrid->npts_global[0],
+                        multigrid->dh_inv[0]);
+                        memcpy(fft_grid->grid_rs, grid, sizeof(double) * multigrid->npts_global[0][0] * multigrid->npts_global[0][1] * multigrid->npts_global[0][2]);
+  grid_copy_to_multigrid_general_single(multigrid, 0, fft_grid->grid_rs, fft_grid->comm, (const int *)fft_grid->proc2local_rs);
+  // Create grids referencing the large one
+  for (int level = 1; level < multigrid->nlevels; level++) {
+    grid_fft_grid *fft_grid_level = NULL;
+    //grid_fft_grid_copy_grids(fft_grid_level, fft_grid);
+    grid_create_fft_grid_from_reference(&fft_grid_level, multigrid->npts_local[level], fft_grid);
+    grid_copy_from_multigrid_general_single(multigrid, level, fft_grid_level->grid_rs, fft_grid_level->comm, (const int *)&fft_grid_level->proc2local_rs[level * grid_mpi_comm_size(multigrid->comm)]);
+    grid_free_fft_grid(fft_grid_level);
+  }
+  grid_free_fft_grid(fft_grid);
+}
+
+void grid_copy_from_multigrid_single(const grid_multigrid *multigrid,
+  double *grid) {
+  // Create a matching reference grid where all data is collected
+  grid_fft_grid *fft_grid = NULL;
+  grid_create_fft_grid(&fft_grid, multigrid->comm, multigrid->npts_global[0],
+                       multigrid->dh_inv[0]);
+  grid_copy_from_multigrid_general_single(multigrid, 0, fft_grid->grid_rs, fft_grid->comm, (const int*)fft_grid->proc2local_rs);
+  // Create grids referencing the large one
+  for (int level = 1; level < multigrid->nlevels; level++) {
+    grid_fft_grid *fft_grid_level = NULL;
+    grid_create_fft_grid_from_reference(&fft_grid_level, multigrid->npts_local[level], fft_grid);
+    grid_copy_from_multigrid_general_single(multigrid, level, fft_grid_level->grid_rs, fft_grid_level->comm, (const int*)&fft_grid_level->proc2local_rs[level * grid_mpi_comm_size(multigrid->comm)]);
+    //grid_fft_grid_add_grids(fft_grid, fft_grid_level);
+    grid_free_fft_grid(fft_grid_level);
+  }
+  memcpy(grid, fft_grid->grid_rs, sizeof(double) * fft_grid->npts_global[0] * fft_grid->npts_global[1] * fft_grid->npts_global[2]);
+  grid_free_fft_grid(fft_grid);
+}
+
 void grid_copy_to_multigrid_local_single_f(const grid_multigrid *multigrid,
                                      const double *grid, const int level) {
   grid_copy_to_multigrid_local_single(multigrid, grid, level - 1);

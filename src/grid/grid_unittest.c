@@ -12,6 +12,7 @@
 #include "../offload/offload_library.h"
 #include "common/grid_library.h"
 #include "grid_fft_test.h"
+#include "grid_multigrid_test.h"
 #include "grid_replay.h"
 
 // Only used to call MPI_Init and MPI_Finalize to avoid spurious MPI error.
@@ -103,6 +104,8 @@ int main(int argc, char *argv[]) {
   errors += fft_test_transpose();
   errors += fft_test_transpose_parallel();
   errors += fft_test_3d();
+
+  errors += multigrid_test();
 
   grid_library_print_stats(&mpi_sum_func, 0, &print_func, 0);
   grid_library_finalize();

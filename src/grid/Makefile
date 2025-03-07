@@ -17,6 +17,7 @@ ALL_OBJECTS := ../offload/offload_buffer.o \
         grid_collocate.o \
         grid_integrate.o \
         grid_multigrid.o \
+        grid_multigrid_test.o \
         grid_fft.o \
         grid_fft_test.o \
         grid_fft_grid.o \

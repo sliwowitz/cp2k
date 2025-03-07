@@ -19,6 +19,7 @@ typedef MPI_Fint grid_mpi_fint;
 
 static const grid_mpi_comm grid_mpi_comm_world = MPI_COMM_WORLD;
 static const grid_mpi_comm grid_mpi_comm_null = MPI_COMM_NULL;
+static const grid_mpi_comm grid_mpi_comm_self = MPI_COMM_SELF;
 static const grid_mpi_request grid_mpi_request_null = MPI_REQUEST_NULL;
 static const int grid_mpi_any_source = MPI_ANY_SOURCE;
 static const int grid_mpi_proc_null = MPI_PROC_NULL;
@@ -30,10 +31,11 @@ typedef int grid_mpi_fint;
 
 static const grid_mpi_comm grid_mpi_comm_world = -2;
 static const grid_mpi_comm grid_mpi_comm_null = -3;
-static const grid_mpi_request grid_mpi_request_null = -5;
-static const int grid_mpi_any_source = -7;
-static const int grid_mpi_proc_null = -11;
-static const int grid_mpi_any_tag = -13;
+static const grid_mpi_comm grid_mpi_comm_self = -5;
+static const grid_mpi_request grid_mpi_request_null = -7;
+static const int grid_mpi_any_source = -11;
+static const int grid_mpi_proc_null = -13;
+static const int grid_mpi_any_tag = -17;
 #endif
 
 int grid_mpi_comm_size(const grid_mpi_comm comm);
