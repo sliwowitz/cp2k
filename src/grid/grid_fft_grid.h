@@ -29,7 +29,7 @@ typedef struct {
   int *rays_per_process;
   // maps of index in g-space to g-space vectors
   int (*index_to_g)[3];
-  int *own_index_to_ref_grid;
+  int *local_index_to_ref_grid;
   // New communicator
   grid_mpi_comm comm;
   int proc_grid[2];
