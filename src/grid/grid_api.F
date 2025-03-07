@@ -78,8 +78,8 @@ MODULE grid_api
    PUBLIC :: grid_task_list_type, grid_create_task_list, grid_free_task_list
    PUBLIC :: grid_collocate_task_list, grid_integrate_task_list
    PUBLIC :: grid_multigrid_type, grid_create_multigrid, grid_free_multigrid
-   PUBLIC :: grid_copy_from_multigrid, grid_copy_to_multigrid
-   PUBLIC :: grid_copy_from_multigrid_single, grid_copy_to_multigrid_single
+   PUBLIC :: grid_copy_from_multigrid_local, grid_copy_to_multigrid_local
+   PUBLIC :: grid_copy_from_multigrid_local_single, grid_copy_to_multigrid_local_single
    PUBLIC :: grid_copy_from_multigrid_general, grid_copy_to_multigrid_general
    PUBLIC :: grid_copy_to_multigrid_general_single, grid_copy_from_multigrid_general_single
    PUBLIC :: grid_get_multigrid_borderwidth, grid_get_multigrid_dh
@@ -1251,7 +1251,7 @@ CONTAINS
 !> \return ...
 !> \author Frederick Stein
 ! **************************************************************************************************
-   SUBROUTINE grid_copy_to_multigrid(multigrid, grids)
+   SUBROUTINE grid_copy_to_multigrid_local(multigrid, grids)
 
       TYPE(grid_multigrid_type), INTENT(IN)              :: multigrid
       TYPE(realspace_grid_type), DIMENSION(:), &
@@ -1261,12 +1261,12 @@ CONTAINS
       INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_local
       TYPE(C_PTR), ALLOCATABLE, DIMENSION(:), TARGET     :: grids_c
       INTERFACE
-         SUBROUTINE grid_copy_to_multigrid_c(multigrid, grids) &
-            BIND(C, name="grid_copy_to_multigrid")
+         SUBROUTINE grid_copy_to_multigrid_local_c(multigrid, grids) &
+            BIND(C, name="grid_copy_to_multigrid_local")
             IMPORT :: C_PTR, C_INT
             TYPE(C_PTR), VALUE                        :: multigrid
             TYPE(C_PTR), VALUE                        :: grids
-         END SUBROUTINE grid_copy_to_multigrid_c
+         END SUBROUTINE grid_copy_to_multigrid_local_c
       END INTERFACE
 
       CPASSERT(C_ASSOCIATED(multigrid%c_ptr))
@@ -1280,9 +1280,9 @@ CONTAINS
          grids_c(ilevel) = grids(ilevel)%buffer%c_ptr
       END DO
 
-      CALL grid_copy_to_multigrid_c(multigrid%c_ptr, C_LOC(grids_c))
+      CALL grid_copy_to_multigrid_local_c(multigrid%c_ptr, C_LOC(grids_c))
 
-   END SUBROUTINE grid_copy_to_multigrid
+   END SUBROUTINE grid_copy_to_multigrid_local
 
 ! **************************************************************************************************
 !> \brief Returns the respective info on the multigrid.
@@ -1291,7 +1291,7 @@ CONTAINS
 !> \return ...
 !> \author Frederick Stein
 ! **************************************************************************************************
-   SUBROUTINE grid_copy_from_multigrid(multigrid, grids)
+   SUBROUTINE grid_copy_from_multigrid_local(multigrid, grids)
 
       TYPE(grid_multigrid_type), INTENT(IN)              :: multigrid
       TYPE(realspace_grid_type), DIMENSION(:), &
@@ -1301,12 +1301,12 @@ CONTAINS
       INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_local
       TYPE(C_PTR), ALLOCATABLE, DIMENSION(:), TARGET     :: grids_c
       INTERFACE
-         SUBROUTINE grid_copy_from_multigrid_c(multigrid, grids) &
-            BIND(C, name="grid_copy_from_multigrid")
+         SUBROUTINE grid_copy_from_multigrid_local_c(multigrid, grids) &
+            BIND(C, name="grid_copy_from_multigrid_local")
             IMPORT :: C_PTR, C_INT
             TYPE(C_PTR), VALUE                        :: multigrid
             TYPE(C_PTR), VALUE                        :: grids
-         END SUBROUTINE grid_copy_from_multigrid_c
+         END SUBROUTINE grid_copy_from_multigrid_local_c
       END INTERFACE
 
       CPASSERT(C_ASSOCIATED(multigrid%c_ptr))
@@ -1320,9 +1320,9 @@ CONTAINS
          grids_c(ilevel) = grids(ilevel)%buffer%c_ptr
       END DO
 
-      CALL grid_copy_from_multigrid_c(multigrid%c_ptr, C_LOC(grids_c))
+      CALL grid_copy_from_multigrid_local_c(multigrid%c_ptr, C_LOC(grids_c))
 
-   END SUBROUTINE grid_copy_from_multigrid
+   END SUBROUTINE grid_copy_from_multigrid_local
 
 ! **************************************************************************************************
 !> \brief Returns the respective info on the multigrid.
@@ -1516,7 +1516,7 @@ CONTAINS
 !> \return ...
 !> \author Frederick Stein
 ! **************************************************************************************************
-   SUBROUTINE grid_copy_to_multigrid_single(multigrid, grid, ilevel)
+   SUBROUTINE grid_copy_to_multigrid_local_single(multigrid, grid, ilevel)
 
       TYPE(grid_multigrid_type), INTENT(IN)              :: multigrid
       TYPE(realspace_grid_type), INTENT(IN)              :: grid
@@ -1524,13 +1524,13 @@ CONTAINS
 
       INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_local
       INTERFACE
-         SUBROUTINE grid_copy_to_multigrid_single_c(multigrid, grid, ilevel) &
-            BIND(C, name="grid_copy_to_multigrid_single_f")
+         SUBROUTINE grid_copy_to_multigrid_local_single_c(multigrid, grid, ilevel) &
+            BIND(C, name="grid_copy_to_multigrid_local_single_f")
             IMPORT :: C_PTR, C_INT
             TYPE(C_PTR), VALUE                        :: multigrid
             TYPE(C_PTR), VALUE                        :: grid
             INTEGER(C_INT), VALUE                     :: ilevel
-         END SUBROUTINE grid_copy_to_multigrid_single_c
+         END SUBROUTINE grid_copy_to_multigrid_local_single_c
       END INTERFACE
 
       CPASSERT(C_ASSOCIATED(multigrid%c_ptr))
@@ -1539,9 +1539,9 @@ CONTAINS
       IF (ANY(SHAPE(grid%r) /= npts_local(:, ilevel))) &
          CPABORT("Grid sizes do not match!")
 
-      CALL grid_copy_to_multigrid_single_c(multigrid%c_ptr, C_LOC(grid%buffer%host_buffer(1)), ilevel)
+      CALL grid_copy_to_multigrid_local_single_c(multigrid%c_ptr, C_LOC(grid%buffer%host_buffer(1)), ilevel)
 
-   END SUBROUTINE grid_copy_to_multigrid_single
+   END SUBROUTINE grid_copy_to_multigrid_local_single
 
 ! **************************************************************************************************
 !> \brief Returns the respective info on the multigrid.
@@ -1551,7 +1551,7 @@ CONTAINS
 !> \return ...
 !> \author Frederick Stein
 ! **************************************************************************************************
-   SUBROUTINE grid_copy_from_multigrid_single(multigrid, grid, ilevel)
+   SUBROUTINE grid_copy_from_multigrid_local_single(multigrid, grid, ilevel)
 
       TYPE(grid_multigrid_type), INTENT(IN)              :: multigrid
       TYPE(realspace_grid_type), INTENT(INOUT)           :: grid
@@ -1559,13 +1559,13 @@ CONTAINS
 
       INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_local
       INTERFACE
-         SUBROUTINE grid_copy_from_multigrid_single_c(multigrid, grid, ilevel) &
-            BIND(C, name="grid_copy_from_multigrid_single_f")
+         SUBROUTINE grid_copy_from_multigrid_local_single_c(multigrid, grid, ilevel) &
+            BIND(C, name="grid_copy_from_multigrid_local_single_f")
             IMPORT :: C_PTR, C_INT
             TYPE(C_PTR), VALUE                        :: multigrid
             TYPE(C_PTR), VALUE                        :: grid
             INTEGER(C_INT), VALUE                     :: ilevel
-         END SUBROUTINE grid_copy_from_multigrid_single_c
+         END SUBROUTINE grid_copy_from_multigrid_local_single_c
       END INTERFACE
 
       CPASSERT(C_ASSOCIATED(multigrid%c_ptr))
@@ -1574,9 +1574,9 @@ CONTAINS
       IF (ANY(SHAPE(grid%r) /= npts_local(:, ilevel))) &
          CPABORT("Grid sizes do not match!")
 
-      CALL grid_copy_from_multigrid_single_c(multigrid%c_ptr, C_LOC(grid%buffer%host_buffer(1)), ilevel)
+      CALL grid_copy_from_multigrid_local_single_c(multigrid%c_ptr, C_LOC(grid%buffer%host_buffer(1)), ilevel)
 
-   END SUBROUTINE grid_copy_from_multigrid_single
+   END SUBROUTINE grid_copy_from_multigrid_local_single
 
 ! **************************************************************************************************
 !> \brief Deallocates given task list, basis_sets have to be freed separately.

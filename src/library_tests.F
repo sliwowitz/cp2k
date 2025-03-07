@@ -61,7 +61,7 @@ MODULE library_tests
    USE global_types,                    ONLY: global_environment_type
    USE grid_api,                        ONLY: grid_copy_from_multigrid_general_single,&
                                               grid_copy_to_multigrid_general_single,&
-                                              grid_copy_to_multigrid_single,&
+                                              grid_copy_to_multigrid_local_single,&
                                               grid_create_multigrid,&
                                               grid_free_multigrid,&
                                               grid_multigrid_type
@@ -760,7 +760,7 @@ CONTAINS
       CALL grid_create_multigrid([rs_grid], multigrid)
       CALL rs_grid_print(rs_grid, iw)
       CALL rs_grid_zero(rs_grid)
-      CALL grid_copy_to_multigrid_single(multigrid, rs_grid, 1)
+      CALL grid_copy_to_multigrid_local_single(multigrid, rs_grid, 1)
 
       ! Put random values on the grid, so summation check will pick up errors
       CALL RANDOM_NUMBER(rs_grid%r)

@@ -61,8 +61,8 @@ MODULE qs_linres_current
         GRID_FUNC_ARDBmDARB_XX, GRID_FUNC_ARDBmDARB_XY, GRID_FUNC_ARDBmDARB_XZ, &
         GRID_FUNC_ARDBmDARB_YX, GRID_FUNC_ARDBmDARB_YY, GRID_FUNC_ARDBmDARB_YZ, &
         GRID_FUNC_ARDBmDARB_ZX, GRID_FUNC_ARDBmDARB_ZY, GRID_FUNC_ARDBmDARB_ZZ, &
-        collocate_pgf_product, grid_copy_from_multigrid, grid_copy_from_multigrid_single, &
-        grid_copy_to_multigrid, grid_copy_to_multigrid_single, grid_create_multigrid, &
+        collocate_pgf_product, grid_copy_from_multigrid_local, grid_copy_from_multigrid_local_single, &
+        grid_copy_to_multigrid_local, grid_copy_to_multigrid_local_single, grid_create_multigrid, &
         grid_free_multigrid, grid_multigrid_type
    USE input_constants,                 ONLY: current_gauge_atom
    USE input_section_types,             ONLY: section_get_ivals,&
@@ -896,9 +896,9 @@ CONTAINS
          CALL rs_grid_zero(rs_current(igrid_level))
       END DO
       CALL grid_create_multigrid(rs_current, multigrid_current)
-      CALL grid_copy_to_multigrid(multigrid_current, rs_current)
+      CALL grid_copy_to_multigrid_local(multigrid_current, rs_current)
       CALL grid_create_multigrid(rs_rho, multigrid)
-      CALL grid_copy_to_multigrid(multigrid, rs_rho)
+      CALL grid_copy_to_multigrid_local(multigrid, rs_rho)
 
       !
       ! we need to build the gauge here
@@ -1163,15 +1163,15 @@ CONTAINS
             !             (dg_{a}/dr)_{idir} (d(r) - R_{b})_{iiB} g_{b}
             scale = 1.0_dp
             current_env%rs_buf(igrid_level)%r(:, :, :) = 0.0_dp
-            CALL grid_copy_to_multigrid_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
+            CALL grid_copy_to_multigrid_local_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
             CALL collocate_pgf_product(la_max(iset), zeta(ipgf, iset), &
                                        la_min(iset), lb_max(jset), zetb(jpgf, jset), lb_min(jset), &
                                        ra, rab, scale, jpab_b, na1 - 1, nb1 - 1, &
                                        radius=radius, &
                                        ga_gb_function=adbmdab_func, &
                                        multigrid=current_env%multigrid_buf, ilevel=igrid_level)
-            CALL grid_copy_from_multigrid_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
-            CALL grid_copy_from_multigrid_single(multigrid_current, rs_current(igrid_level), igrid_level)
+            CALL grid_copy_from_multigrid_local_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
+            CALL grid_copy_from_multigrid_local_single(multigrid_current, rs_current(igrid_level), igrid_level)
             CALL collocate_gauge_ortho(rsgrid=current_env%rs_buf(igrid_level), &
                                        rsbuf=rs_current(igrid_level), &
                                        rsgauge=rs_gauge(iiiB, igrid_level), &
@@ -1184,21 +1184,21 @@ CONTAINS
             !             (dg_{a}/dr)_{idir} (d(r) - R_{b})_{iiB} g_{b}
             scale = -1.0_dp
             current_env%rs_buf(igrid_level)%r(:, :, :) = 0.0_dp
-            CALL grid_copy_to_multigrid_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
+            CALL grid_copy_to_multigrid_local_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
             CALL collocate_pgf_product(la_max(iset), zeta(ipgf, iset), &
                                        la_min(iset), lb_max(jset), zetb(jpgf, jset), lb_min(jset), &
                                        ra, rab, scale, jpab_c, na1 - 1, nb1 - 1, &
                                        radius=radius, &
                                        ga_gb_function=adbmdab_func, &
                                        multigrid=current_env%multigrid_buf, ilevel=igrid_level)
-            CALL grid_copy_from_multigrid_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
+            CALL grid_copy_from_multigrid_local_single(current_env%multigrid_buf, current_env%rs_buf(igrid_level), igrid_level)
             CALL collocate_gauge_ortho(rsgrid=current_env%rs_buf(igrid_level), &
                                        rsbuf=rs_current(igrid_level), &
                                        rsgauge=rs_gauge(iiB, igrid_level), &
                                        cube_info=cube_info(igrid_level), radius=radius, &
                                        zeta=zeta(ipgf, iset), zetb=zetb(jpgf, jset), &
                                        ra=ra, rab=rab, ir=iiB)
-            CALL grid_copy_to_multigrid_single(multigrid_current, rs_current(igrid_level), igrid_level)
+            CALL grid_copy_to_multigrid_local_single(multigrid_current, rs_current(igrid_level), igrid_level)
          ELSE
             ! here the decontracted mat_jp_rii{ab} is multiplied by
             !     f_{ab} = g_{a} (r - R_{b})_{iiB} (dg_{b}/dr)_{idir} -
@@ -1225,8 +1225,8 @@ CONTAINS
       END DO loop_tasks
       !
       ! Scale the density with the gauge rho * ( r - d(r) ) if needed
-      CALL grid_copy_from_multigrid(multigrid, rs_rho)
-      CALL grid_copy_from_multigrid(multigrid_current, rs_current)
+      CALL grid_copy_from_multigrid_local(multigrid, rs_rho)
+      CALL grid_copy_from_multigrid_local(multigrid_current, rs_current)
       IF (do_igaim) THEN
          DO igrid_level = 1, gridlevel_info%ngrid_levels
             CALL rs_grid_mult_and_add(rs_current(igrid_level), rs_rho(igrid_level), &
@@ -1248,7 +1248,7 @@ CONTAINS
       IF (ASSOCIATED(atom_pair_send)) DEALLOCATE (atom_pair_send)
       IF (ASSOCIATED(atom_pair_recv)) DEALLOCATE (atom_pair_recv)
 
-      CALL grid_copy_to_multigrid(multigrid_current, rs_current)
+      CALL grid_copy_to_multigrid_local(multigrid_current, rs_current)
       CALL density_rs2pw(pw_env, rs_current, current_rs, current_gs, multigrid_current)
       DO i = 1, SIZE(rs_current)
          CALL rs_grid_release(rs_current(i))

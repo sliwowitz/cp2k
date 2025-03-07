@@ -33,8 +33,8 @@ MODULE qs_cdft_utils
    USE grid_api,                        ONLY: GRID_FUNC_AB,&
                                               collocate_pgf_product,&
                                               grid_copy_from_multigrid_general_single,&
-                                              grid_copy_from_multigrid_single,&
-                                              grid_copy_to_multigrid_single,&
+                                              grid_copy_from_multigrid_local_single,&
+                                              grid_copy_to_multigrid_local_single,&
                                               grid_multigrid_type
    USE hirshfeld_methods,               ONLY: create_shape_function
    USE hirshfeld_types,                 ONLY: create_hirshfeld_type,&
@@ -342,7 +342,7 @@ CONTAINS
          CALL pw_env_get(pw_env, auxbas_rs_grid=rs_cavity, auxbas_pw_pool=auxbas_pw_pool, &
                          multigrid=multigrid, auxbas_grid=auxbas_grid)
          CALL rs_grid_zero(rs_cavity)
-         CALL grid_copy_to_multigrid_single(multigrid, rs_cavity, auxbas_grid)
+         CALL grid_copy_to_multigrid_local_single(multigrid, rs_cavity, auxbas_grid)
          ALLOCATE (pab(1, 1))
          nthread = 1
          ithread = 0
@@ -396,7 +396,7 @@ CONTAINS
          END DO
          DEALLOCATE (pab)
          CALL auxbas_pw_pool%create_pw(becke_control%cavity)
-         CALL grid_copy_from_multigrid_single(multigrid, rs_cavity, auxbas_grid)
+         CALL grid_copy_from_multigrid_local_single(multigrid, rs_cavity, auxbas_grid)
          CALL transfer_rs2pw(rs_cavity, becke_control%cavity)
          CALL grid_copy_from_multigrid_general_single(multigrid, becke_control%cavity, auxbas_grid)
          ! Grid points where the Gaussian density falls below eps_cavity are ignored

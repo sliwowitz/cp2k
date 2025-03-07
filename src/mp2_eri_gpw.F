@@ -20,7 +20,7 @@ MODULE mp2_eri_gpw
    USE cp_dbcsr_api,                    ONLY: dbcsr_p_type,&
                                               dbcsr_set
    USE gaussian_gridlevels,             ONLY: gaussian_gridlevel
-   USE grid_api,                        ONLY: grid_copy_to_multigrid,&
+   USE grid_api,                        ONLY: grid_copy_to_multigrid_local,&
                                               grid_multigrid_type
    USE input_constants,                 ONLY: do_potential_coulomb,&
                                               do_potential_id,&
@@ -229,7 +229,7 @@ CONTAINS
          NULLIFY (rs_v)
          CALL pw_env_get(pw_env_sub, rs_grids=rs_v, multigrid=multigrid)
          CALL potential_pw2rs(rs_v, rho_r, pw_env_sub)
-         CALL grid_copy_to_multigrid(multigrid, rs_v)
+         CALL grid_copy_to_multigrid_local(multigrid, rs_v)
 
          CALL timestop(handle2)
 
@@ -586,7 +586,7 @@ CONTAINS
       NULLIFY (rs_v)
       CALL pw_env_get(pw_env_sub, rs_grids=rs_v, multigrid=multigrid)
       CALL potential_pw2rs(rs_v, rho_r, pw_env_sub)
-      CALL grid_copy_to_multigrid(multigrid, rs_v)
+      CALL grid_copy_to_multigrid_local(multigrid, rs_v)
 
       offset = 0
       DO iatom = 1, SIZE(kind_of)
@@ -833,7 +833,7 @@ CONTAINS
       NULLIFY (rs_v)
       CALL pw_env_get(pw_env_sub, rs_grids=rs_v, multigrid=multigrid)
       CALL potential_pw2rs(rs_v, pot_r, pw_env_sub)
-      CALL grid_copy_to_multigrid(multigrid, rs_v)
+      CALL grid_copy_to_multigrid_local(multigrid, rs_v)
 
       offset = 0
       DO iatom = 1, SIZE(kind_of)

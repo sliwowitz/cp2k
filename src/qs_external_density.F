@@ -15,7 +15,7 @@ MODULE qs_external_density
    USE cp_files,                        ONLY: close_file,&
                                               open_file
    USE gaussian_gridlevels,             ONLY: gridlevel_info_type
-   USE grid_api,                        ONLY: grid_copy_to_multigrid,&
+   USE grid_api,                        ONLY: grid_copy_to_multigrid_local,&
                                               grid_create_multigrid,&
                                               grid_free_multigrid,&
                                               grid_multigrid_type
@@ -183,7 +183,7 @@ CONTAINS
                IF (my_rank == 0) CALL close_file(unit_number=extunit)
             END IF
 
-            CALL grid_copy_to_multigrid(multigrid_ext, rs_rho_ext)
+            CALL grid_copy_to_multigrid_local(multigrid_ext, rs_rho_ext)
             CALL density_rs2pw(pw_env, rs_rho_ext, rho=rho_ext_r(1), rho_gspace=rho_ext_g(1), multigrid_ext=multigrid_ext)
             DO igrid_level = 1, SIZE(rs_rho_ext)
                CALL rs_grid_release(rs_rho_ext(igrid_level))

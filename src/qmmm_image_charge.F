@@ -28,7 +28,7 @@ MODULE qmmm_image_charge
                                               cp_print_key_should_output,&
                                               cp_print_key_unit_nr
    USE eri_mme_integrate,               ONLY: eri_mme_2c_integrate
-   USE grid_api,                        ONLY: grid_copy_to_multigrid_single,&
+   USE grid_api,                        ONLY: grid_copy_to_multigrid_local_single,&
                                               grid_multigrid_type
    USE input_constants,                 ONLY: calc_always,&
                                               calc_once,&
@@ -365,7 +365,7 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v, multigrid=multigrid, auxbas_grid=auxbas_grid)
       CALL transfer_pw2rs(rs_v, potential)
-      CALL grid_copy_to_multigrid_single(multigrid, rs_v, auxbas_grid)
+      CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, auxbas_grid)
 
       CALL get_qs_env(qs_env=qs_env, &
                       cell=cell, &
@@ -486,7 +486,7 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v, multigrid=multigrid, auxbas_grid=auxbas_grid)
       CALL transfer_pw2rs(rs_v, potential)
-      CALL grid_copy_to_multigrid_single(multigrid, rs_v, auxbas_grid)
+      CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, auxbas_grid)
 
       CALL get_qs_env(qs_env=qs_env, &
                       cell=cell, &

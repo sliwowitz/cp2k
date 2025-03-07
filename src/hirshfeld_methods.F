@@ -26,9 +26,9 @@ MODULE hirshfeld_methods
    USE grid_api,                        ONLY: GRID_FUNC_AB,&
                                               collocate_pgf_product,&
                                               grid_copy_from_multigrid_general_single,&
-                                              grid_copy_from_multigrid_single,&
+                                              grid_copy_from_multigrid_local_single,&
                                               grid_copy_to_multigrid_general_single,&
-                                              grid_copy_to_multigrid_single,&
+                                              grid_copy_to_multigrid_local_single,&
                                               grid_multigrid_type,&
                                               integrate_pgf_product
    USE hirshfeld_types,                 ONLY: get_hirshfeld_info,&
@@ -462,7 +462,7 @@ CONTAINS
                       auxbas_pw_pool=auxbas_pw_pool)
       ! be careful in parallel nsmax is chosen with multigrid in mind!
       CALL rs_grid_zero(rs_rho)
-      CALL grid_copy_to_multigrid_single(multigrid, rs_rho, auxbas_grid)
+      CALL grid_copy_to_multigrid_local_single(multigrid, rs_rho, auxbas_grid)
 
       eps_rho_rspace = dft_control%qs_control%eps_rho_rspace
       ALLOCATE (pab(1, 1))
@@ -528,7 +528,7 @@ CONTAINS
       CALL auxbas_pw_pool%create_pw(fnorm)
       CALL set_hirshfeld_info(hirshfeld_env, fnorm=fnorm)
 
-      CALL grid_copy_from_multigrid_single(multigrid, rs_rho, auxbas_grid)
+      CALL grid_copy_from_multigrid_local_single(multigrid, rs_rho, auxbas_grid)
       CALL transfer_rs2pw(rs_rho, fnorm)
       CALL grid_copy_from_multigrid_general_single(multigrid, fnorm, auxbas_grid)
 
@@ -583,7 +583,7 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v, multigrid=multigrid, auxbas_grid=auxbas_grid)
       CALL transfer_pw2rs(rs_v, rfun)
-      CALL grid_copy_to_multigrid_single(multigrid, rs_v, auxbas_grid)
+      CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, auxbas_grid)
       CALL grid_copy_to_multigrid_general_single(multigrid, rfun, auxbas_grid)
 
       CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, cell=cell, &

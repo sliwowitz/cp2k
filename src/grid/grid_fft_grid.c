@@ -63,9 +63,10 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
         length_g_dir +=
           my_fft_grid->index_to_g[index][dir] * my_fft_grid->dh_inv[dir2][dir];
       }
+      length_g_dir *= two_pi;
       length_g_squared += length_g_dir * length_g_dir;
     }
-    local_index2g_squared[index] = length_g_squared*two_pi;
+    local_index2g_squared[index] = length_g_squared;
   }
 
   // Sort the indices according to the length of the vectors

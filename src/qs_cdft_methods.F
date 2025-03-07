@@ -27,8 +27,8 @@ MODULE qs_cdft_methods
    USE grid_api,                        ONLY: GRID_FUNC_AB,&
                                               collocate_pgf_product,&
                                               grid_copy_from_multigrid_general_single,&
-                                              grid_copy_from_multigrid_single,&
-                                              grid_copy_to_multigrid_single,&
+                                              grid_copy_from_multigrid_local_single,&
+                                              grid_copy_to_multigrid_local_single,&
                                               grid_create_multigrid,&
                                               grid_free_multigrid,&
                                               grid_multigrid_type
@@ -735,7 +735,7 @@ CONTAINS
 
          IF (igroup == 2 .AND. .NOT. cdft_control%in_memory) THEN
             CALL rs_grid_zero(rs_rho_all)
-            CALL grid_copy_to_multigrid_single(multigrid_all, rs_rho_all, 1)
+            CALL grid_copy_to_multigrid_local_single(multigrid_all, rs_rho_all, 1)
          END IF
          bo = cdft_control%group(igroup)%weight%pw_grid%bounds_local
 
@@ -751,7 +751,7 @@ CONTAINS
          CALL rs_grid_create(rs_rho_constr, auxbas_rs_desc)
          CALL rs_grid_zero(rs_rho_constr)
          CALL grid_create_multigrid([rs_rho_constr], multigrid_constr)
-         CALL grid_copy_to_multigrid_single(multigrid_constr, rs_rho_constr, 1)
+         CALL grid_copy_to_multigrid_local_single(multigrid_constr, rs_rho_constr, 1)
 
          ! rs_single: Gaussian density over single atoms when required
          IF (hirshfeld_control%print_density .AND. igroup == 1) THEN
@@ -762,7 +762,7 @@ CONTAINS
                CALL rs_grid_create(rs_single(i), auxbas_rs_desc)
                CALL rs_grid_zero(rs_single(i))
                CALL grid_create_multigrid([rs_single(i)], multigrid_single(i))
-               CALL grid_copy_to_multigrid_single(multigrid_single(i), rs_single(i), 1)
+               CALL grid_copy_to_multigrid_local_single(multigrid_single(i), rs_single(i), 1)
             END DO
          END IF
 
@@ -796,7 +796,7 @@ CONTAINS
                CALL rs_grid_zero(rs_single_charge(i))
                compute_charge(cdft_control%atoms(i)) = .TRUE.
                CALL grid_create_multigrid([rs_single_charge(i)], multigrid_single_charge(i))
-               CALL grid_copy_to_multigrid_single(multigrid_single_charge(i), rs_single_charge(i), 1)
+               CALL grid_copy_to_multigrid_local_single(multigrid_single_charge(i), rs_single_charge(i), 1)
             END DO
 
             DO iatom = 1, cdft_control%natoms
@@ -899,12 +899,12 @@ CONTAINS
          DEALLOCATE (pab)
 
          IF (igroup == 1) THEN
-            CALL grid_copy_from_multigrid_single(multigrid_all, rs_rho_all, 1)
+            CALL grid_copy_from_multigrid_local_single(multigrid_all, rs_rho_all, 1)
             CALL transfer_rs2pw(rs_rho_all, cdft_control%hw_rho_total)
             CALL grid_copy_from_multigrid_general_single(multigrid_all, cdft_control%hw_rho_total, 1)
          END IF
 
-         CALL grid_copy_from_multigrid_single(multigrid_constr, rs_rho_constr, 1)
+         CALL grid_copy_from_multigrid_local_single(multigrid_constr, rs_rho_constr, 1)
          CALL transfer_rs2pw(rs_rho_constr, cdft_control%group(igroup)%hw_rho_total_constraint)
          CALL grid_copy_from_multigrid_general_single(multigrid_constr, cdft_control%group(igroup)%hw_rho_total_constraint, 1)
          CALL rs_grid_release(rs_rho_constr)
@@ -919,7 +919,7 @@ CONTAINS
          ! Calculate charges
          IF (cdft_control%atomic_charges .AND. igroup == 1) THEN
             DO i = 1, cdft_control%natoms
-               CALL grid_copy_from_multigrid_single(multigrid_single_charge(i), rs_single_charge(i), 1)
+               CALL grid_copy_from_multigrid_local_single(multigrid_single_charge(i), rs_single_charge(i), 1)
                CALL transfer_rs2pw(rs_single_charge(i), cdft_control%group(igroup)%hw_rho_atomic_charge(i))
      CALL grid_copy_from_multigrid_general_single(multigrid_single_charge(i), cdft_control%group(igroup)%hw_rho_atomic_charge(i), 1)
                CALL hfun_scale(cdft_control%charge(i)%array, &
@@ -932,7 +932,7 @@ CONTAINS
          ! Print atomic densities if requested
          IF (hirshfeld_control%print_density .AND. igroup == 1) THEN
             DO i = 1, cdft_control%natoms
-               CALL grid_copy_from_multigrid_single(multigrid_single(i), rs_single(i), 1)
+               CALL grid_copy_from_multigrid_local_single(multigrid_single(i), rs_single(i), 1)
                CALL transfer_rs2pw(rs_single(i), cdft_control%group(igroup)%hw_rho_atomic(i))
                CALL grid_copy_from_multigrid_general_single(multigrid_single(i), &
                                                             cdft_control%group(igroup)%hw_rho_atomic(i), 1)
@@ -1029,7 +1029,7 @@ CONTAINS
                      CALL rs_grid_create(rs_single_dr(i), auxbas_rs_desc)
                      CALL rs_grid_zero(rs_single_dr(i))
                      CALL grid_create_multigrid([rs_single_dr(i)], multigrid_single_dr(i))
-                     CALL grid_copy_to_multigrid_single(multigrid_single_dr(i), rs_single_dr(i), 1)
+                     CALL grid_copy_to_multigrid_local_single(multigrid_single_dr(i), rs_single_dr(i), 1)
                   END DO
                   DO iex = 1, numexp
 
@@ -1081,7 +1081,7 @@ CONTAINS
                   END DO
 
                   DO iatom = num_species_small(k), num_species_small(k + 1)
-                     CALL grid_copy_from_multigrid_single(multigrid_single_dr(iatom), rs_single_dr(iatom), 1)
+                     CALL grid_copy_from_multigrid_local_single(multigrid_single_dr(iatom), rs_single_dr(iatom), 1)
                      CALL transfer_rs2pw(rs_single_dr(iatom), pw_single_dr(iatom))
                      CALL grid_copy_from_multigrid_general_single(multigrid_single_dr(iatom), pw_single_dr(iatom), 1)
                      CALL rs_grid_release(rs_single_dr(iatom))

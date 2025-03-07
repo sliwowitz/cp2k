@@ -17,8 +17,8 @@ MODULE qs_rho0_ggrid
    USE grid_api,                        ONLY: GRID_FUNC_AB,&
                                               collocate_pgf_product,&
                                               grid_copy_from_multigrid_general_single,&
-                                              grid_copy_from_multigrid_single,&
-                                              grid_copy_to_multigrid_single,&
+                                              grid_copy_from_multigrid_local_single,&
+                                              grid_copy_to_multigrid_local_single,&
                                               grid_create_multigrid,&
                                               grid_free_multigrid,&
                                               grid_multigrid_type
@@ -161,7 +161,7 @@ CONTAINS
          CALL pw_pool%create_pw(coeff_gspace)
       END IF
       CALL rs_grid_zero(rs_grid)
-      CALL grid_copy_to_multigrid_single(multigrid, rs_grid, igrid)
+      CALL grid_copy_to_multigrid_local_single(multigrid, rs_grid, igrid)
 
       nch_max = ncoset(lmax0)
 
@@ -227,7 +227,7 @@ CONTAINS
 
       DEALLOCATE (pab)
 
-      CALL grid_copy_from_multigrid_single(multigrid, rs_grid, igrid)
+      CALL grid_copy_from_multigrid_local_single(multigrid, rs_grid, igrid)
 
       IF (igrid /= auxbas_grid) THEN
          CALL transfer_rs2pw(rs_grid, coeff_rspace)
@@ -468,7 +468,7 @@ CONTAINS
       CALL rs_grid_zero(rs_v)
       CALL grid_create_multigrid([rs_v], multigrid)
       CALL transfer_pw2rs(rs_v, coeff_rspace)
-      CALL grid_copy_to_multigrid_single(multigrid, rs_v, 1)
+      CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, 1)
 
       CALL pw_pool%give_back_pw(coeff_rspace)
 

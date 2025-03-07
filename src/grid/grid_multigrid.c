@@ -77,7 +77,7 @@ grid_mpi_comm grid_get_multigrid_comm(const grid_multigrid *multigrid) {
   return multigrid->comm;
 }
 
-void grid_copy_to_multigrid(const grid_multigrid *multigrid,
+void grid_copy_to_multigrid_local(const grid_multigrid *multigrid,
                             const offload_buffer **grids) {
   for (int level = 0; level < multigrid->nlevels; level++) {
     memcpy(offload_get_buffer_host_pointer(multigrid->grids[level]),
@@ -88,7 +88,7 @@ void grid_copy_to_multigrid(const grid_multigrid *multigrid,
   }
 }
 
-void grid_copy_from_multigrid(const grid_multigrid *multigrid,
+void grid_copy_from_multigrid_local(const grid_multigrid *multigrid,
                               offload_buffer **grids) {
   for (int level = 0; level < multigrid->nlevels; level++) {
     memcpy(offload_get_buffer_host_pointer(grids[level]),
@@ -99,28 +99,28 @@ void grid_copy_from_multigrid(const grid_multigrid *multigrid,
   }
 }
 
-void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
+void grid_copy_to_multigrid_local_single(const grid_multigrid *multigrid,
                                    const double *grid, const int level) {
   memcpy(offload_get_buffer_host_pointer(multigrid->grids[level]), grid,
          sizeof(double) * multigrid->npts_local[level][0] *
              multigrid->npts_local[level][1] * multigrid->npts_local[level][2]);
 }
 
-void grid_copy_from_multigrid_single(const grid_multigrid *multigrid,
+void grid_copy_from_multigrid_local_single(const grid_multigrid *multigrid,
                                      double *grid, const int level) {
   memcpy(grid, offload_get_buffer_host_pointer(multigrid->grids[level]),
          sizeof(double) * multigrid->npts_local[level][0] *
              multigrid->npts_local[level][1] * multigrid->npts_local[level][2]);
 }
 
-void grid_copy_to_multigrid_single_f(const grid_multigrid *multigrid,
+void grid_copy_to_multigrid_local_single_f(const grid_multigrid *multigrid,
                                      const double *grid, const int level) {
-  grid_copy_to_multigrid_single(multigrid, grid, level - 1);
+  grid_copy_to_multigrid_local_single(multigrid, grid, level - 1);
 }
 
-void grid_copy_from_multigrid_single_f(const grid_multigrid *multigrid,
+void grid_copy_from_multigrid_local_single_f(const grid_multigrid *multigrid,
                                        double *grid, const int level) {
-  grid_copy_from_multigrid_single(multigrid, grid, level - 1);
+  grid_copy_from_multigrid_local_single(multigrid, grid, level - 1);
 }
 
 void grid_copy_to_multigrid_serial(double *grid_rs, const double *grid_pw,
