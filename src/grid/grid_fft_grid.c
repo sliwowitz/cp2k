@@ -25,6 +25,23 @@ typedef struct {
     int index;
 } double_index_pair;
 
+double squared_length_of_g_vector(const int g[3], const double h_inv[3][3]) {
+  if (g[0] == 0 && g[1] == 0 && g[2] == 0) {
+    return 0.0;
+  }
+  const double two_pi = 2.0*acos(-1.0);
+  double length_g_squared = 0.0;
+  for (int dir = 0; dir < 3; dir++) {
+    double length_g_dir = 0.0;
+    for (int dir2 = 0; dir2 < 3; dir2++) {
+      length_g_dir += g[dir] * h_inv[dir2][dir];
+    }
+    length_g_dir *= two_pi;
+    length_g_squared += length_g_dir * length_g_dir;
+  }
+  return length_g_squared;
+}
+
 int compare_double(const void *a, const void *b) {
   const double a_value = ((const double_index_pair*)a)->value;
   const double b_value = ((const double_index_pair*)b)->value;
@@ -52,21 +69,9 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
   assert(my_fft_grid != NULL);
   assert(my_fft_grid->npts_gs_local >= 0);
 
-  const double two_pi = 2.0*acos(-1.0);
-
   int local_index2g_squared[my_fft_grid->npts_gs_local];
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    double length_g_squared = 0.0;
-    for (int dir = 0; dir < 3; dir++) {
-      double length_g_dir = 0.0;
-      for (int dir2 = 0; dir2 < 3; dir2++) {
-        length_g_dir +=
-          my_fft_grid->index_to_g[index][dir] * my_fft_grid->dh_inv[dir2][dir];
-      }
-      length_g_dir *= two_pi;
-      length_g_squared += length_g_dir * length_g_dir;
-    }
-    local_index2g_squared[index] = length_g_squared;
+    local_index2g_squared[index] = squared_length_of_g_vector(my_fft_grid->index_to_g[index], my_fft_grid->h_inv);
   }
 
   // Sort the indices according to the length of the vectors
@@ -145,7 +150,11 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
   }
 
   memcpy(my_fft_grid->npts_global, npts_global, 3 * sizeof(int));
-  memcpy(my_fft_grid->dh_inv, dh_inv, 3 * 3 * sizeof(double));
+  for (int dir = 0; dir < 3; dir++) {
+    for (int dir2 = 0; dir2 < 3; dir2++) {
+      my_fft_grid->h_inv[dir][dir2] = dh_inv[dir][dir2]/((double)npts_global[dir2]);
+    }
+  }
 
   my_fft_grid->periodic[0] = 1;
   my_fft_grid->periodic[1] = 1;

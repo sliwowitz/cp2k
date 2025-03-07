@@ -20,7 +20,7 @@ typedef struct {
   // Global number of points
   int npts_global[3];
   // Grid spacing in reciprocal space
-  double dh_inv[3][3];
+  double h_inv[3][3];
   // Number of local points in g-space (relevant with ray-distribution)
   int npts_gs_local;
   bool ray_distribution;
