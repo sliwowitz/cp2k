@@ -61,9 +61,10 @@ MODULE qs_linres_current
         GRID_FUNC_ARDBmDARB_XX, GRID_FUNC_ARDBmDARB_XY, GRID_FUNC_ARDBmDARB_XZ, &
         GRID_FUNC_ARDBmDARB_YX, GRID_FUNC_ARDBmDARB_YY, GRID_FUNC_ARDBmDARB_YZ, &
         GRID_FUNC_ARDBmDARB_ZX, GRID_FUNC_ARDBmDARB_ZY, GRID_FUNC_ARDBmDARB_ZZ, &
-        collocate_pgf_product, grid_copy_from_multigrid_local, grid_copy_from_multigrid_local_single, &
-        grid_copy_to_multigrid_local, grid_copy_to_multigrid_local_single, grid_create_multigrid, &
-        grid_free_multigrid, grid_multigrid_type
+        collocate_pgf_product, grid_copy_from_multigrid_local, &
+        grid_copy_from_multigrid_local_single, grid_copy_to_multigrid_local, &
+        grid_copy_to_multigrid_local_single, grid_create_multigrid, grid_free_multigrid, &
+        grid_multigrid_type
    USE input_constants,                 ONLY: current_gauge_atom
    USE input_section_types,             ONLY: section_get_ivals,&
                                               section_get_lval,&

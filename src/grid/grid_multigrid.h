@@ -121,28 +121,28 @@ grid_mpi_fint grid_get_multigrid_fortran_comm(const grid_multigrid *multigrid);
 grid_mpi_comm grid_get_multigrid_comm(const grid_multigrid *multigrid);
 
 void grid_copy_to_multigrid_local(const grid_multigrid *multigrid,
-                            const offload_buffer **grids);
+                                  const offload_buffer **grids);
 
 void grid_copy_from_multigrid_local(const grid_multigrid *multigrid,
-                              offload_buffer **grids);
+                                    offload_buffer **grids);
 
 void grid_copy_to_multigrid_local_single(const grid_multigrid *multigrid,
-                                   const double *grid, const int level);
+                                         const double *grid, const int level);
 
 void grid_copy_from_multigrid_local_single(const grid_multigrid *multigrid,
-                                     double *grid, const int level);
+                                           double *grid, const int level);
 
 void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
-                        const double *grid);
+                                   const double *grid);
 
 void grid_copy_from_multigrid_single(const grid_multigrid *multigrid,
-                            double *grid);
+                                     double *grid);
 
 void grid_copy_to_multigrid_local_single_f(const grid_multigrid *multigrid,
-                                    const double *grid, const int level);
+                                           const double *grid, const int level);
 
 void grid_copy_from_multigrid_local_single_f(const grid_multigrid *multigrid,
-                                    double *grid, const int level);
+                                             double *grid, const int level);
 
 void grid_copy_to_multigrid_general(
     const grid_multigrid *multigrid, const double *grids[multigrid->nlevels],

@@ -187,7 +187,8 @@ double fft_test_transpose_ray(const int npts_global[3],
   int errors = 0;
 
   double max_error = 0.0;
-  const double dh_inv[3][3] = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+  const double dh_inv[3][3] = {
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
 
   // Build the reference grid
   grid_fft_grid *ref_grid = NULL;
@@ -341,7 +342,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   const int my_process = grid_mpi_comm_rank(comm);
 
   int errors = 0;
-  const double dh_inv[3][3] = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+  const double dh_inv[3][3] = {
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
 
   grid_fft_grid *fft_grid = NULL;
   grid_create_fft_grid(&fft_grid, comm, npts_global, dh_inv);
@@ -597,7 +599,8 @@ int fft_test_3d_blocked(const int npts_global[3]) {
   int errors = 0;
 
   const double pi = acos(-1);
-  const double dh_inv[3][3] = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+  const double dh_inv[3][3] = {
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
 
   grid_fft_grid *fft_grid = NULL;
   grid_create_fft_grid(&fft_grid, comm, npts_global, dh_inv);
@@ -731,7 +734,8 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
   int errors = 0;
 
   const double pi = acos(-1);
-  const double dh_inv[3][3] = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+  const double dh_inv[3][3] = {
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
 
   grid_fft_grid *ref_grid = NULL;
   grid_create_fft_grid(&ref_grid, comm, npts_global_ref, dh_inv);

@@ -23,22 +23,24 @@
  * \author Frederick Stein
  ******************************************************************************/
 int multigrid_test() {
-      const int npts_global[2][3] = {{4, 4, 4}, {2, 2, 2}};
-      const int npts_local[2][3] = {{4, 4, 4}, {2, 2, 2}};
-      const int shift_local[2][3] = {{-2, -2, -2}, {-1, -1, -1}};
-      const int border_width[2][3] = {{2, 2, 2}, {1, 1, 1}};
-      const double dh[2][3][3] = {{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
-                        {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
-                        const double dh_inv[2][3][3] = {{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
-                            {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
-                            const int pgrid_dims[2][3] = {{1, 1, 1}, {1, 1, 1}};
+  const int npts_global[2][3] = {{4, 4, 4}, {2, 2, 2}};
+  const int npts_local[2][3] = {{4, 4, 4}, {2, 2, 2}};
+  const int shift_local[2][3] = {{-2, -2, -2}, {-1, -1, -1}};
+  const int border_width[2][3] = {{2, 2, 2}, {1, 1, 1}};
+  const double dh[2][3][3] = {
+      {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
+      {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
+  const double dh_inv[2][3][3] = {
+      {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
+      {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
+  const int pgrid_dims[2][3] = {{1, 1, 1}, {1, 1, 1}};
   grid_multigrid *multigrid = NULL;
   grid_create_multigrid(true, 2, npts_global, npts_local, shift_local,
-                         border_width, dh, dh_inv, pgrid_dims, grid_mpi_comm_self,
-                         &multigrid);
+                        border_width, dh, dh_inv, pgrid_dims,
+                        grid_mpi_comm_self, &multigrid);
 
   double grid[64];
-  memset(grid, 0, 64*sizeof(double));
+  memset(grid, 0, 64 * sizeof(double));
 
   grid_copy_to_multigrid_single(multigrid, grid);
   grid_copy_from_multigrid_single(multigrid, grid);

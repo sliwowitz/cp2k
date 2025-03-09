@@ -16,20 +16,21 @@
 #include <string.h>
 
 // Could be reformulated with Lapack or calculated
-// For orthorhombic cells, this is at the order of 3*eps(multiplication)+6*eps(addition)
-// For non-orthorhombic cells, this depends on the cell shape
+// For orthorhombic cells, this is at the order of
+// 3*eps(multiplication)+6*eps(addition) For non-orthorhombic cells, this
+// depends on the cell shape
 const double max_rel_error_for_equivalence_g_squared = 1e-12;
 
 typedef struct {
-    double value;
-    int index;
+  double value;
+  int index;
 } double_index_pair;
 
 double squared_length_of_g_vector(const int g[3], const double h_inv[3][3]) {
   if (g[0] == 0 && g[1] == 0 && g[2] == 0) {
     return 0.0;
   }
-  const double two_pi = 2.0*acos(-1.0);
+  const double two_pi = 2.0 * acos(-1.0);
   double length_g_squared = 0.0;
   for (int dir = 0; dir < 3; dir++) {
     double length_g_dir = 0.0;
@@ -43,15 +44,15 @@ double squared_length_of_g_vector(const int g[3], const double h_inv[3][3]) {
 }
 
 int compare_double(const void *a, const void *b) {
-  const double a_value = ((const double_index_pair*)a)->value;
-  const double b_value = ((const double_index_pair*)b)->value;
+  const double a_value = ((const double_index_pair *)a)->value;
+  const double b_value = ((const double_index_pair *)b)->value;
   return (a_value > b_value ? 1 : (a_value < b_value ? -1 : 0));
 }
 
 int compare_shell(const void *a, const void *b) {
   for (int index = 0; index < 3; index++) {
-    const int a_value = ((const int*)a)[index];
-    const int b_value = ((const int*)b)[index];
+    const int a_value = ((const int *)a)[index];
+    const int b_value = ((const int *)b)[index];
     if (a_value > b_value + max_rel_error_for_equivalence_g_squared) {
       return 1;
     } else if (a_value + max_rel_error_for_equivalence_g_squared < b_value) {
@@ -71,7 +72,8 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
 
   int local_index2g_squared[my_fft_grid->npts_gs_local];
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    local_index2g_squared[index] = squared_length_of_g_vector(my_fft_grid->index_to_g[index], my_fft_grid->h_inv);
+    local_index2g_squared[index] = squared_length_of_g_vector(
+        my_fft_grid->index_to_g[index], my_fft_grid->h_inv);
   }
 
   // Sort the indices according to the length of the vectors
@@ -80,33 +82,44 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
     g_square_index_pair[index].value = local_index2g_squared[index];
     g_square_index_pair[index].index = index;
   }
-  qsort(g_square_index_pair, my_fft_grid->npts_gs_local, sizeof(double_index_pair), compare_double);
+  qsort(g_square_index_pair, my_fft_grid->npts_gs_local,
+        sizeof(double_index_pair), compare_double);
 
   // Apply the sorting to the index_to_g array
   {
     int index_to_g_sorted[my_fft_grid->npts_gs_local][3];
     for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-        memcpy(index_to_g_sorted[index], my_fft_grid->index_to_g[g_square_index_pair[index].index], 3 * sizeof(int));
-        local_index2g_squared[index] = g_square_index_pair[index].value;
+      memcpy(index_to_g_sorted[index],
+             my_fft_grid->index_to_g[g_square_index_pair[index].index],
+             3 * sizeof(int));
+      local_index2g_squared[index] = g_square_index_pair[index].value;
     }
-    memcpy(my_fft_grid->index_to_g, &index_to_g_sorted[0][0], my_fft_grid->npts_gs_local * sizeof(int[3]));
+    memcpy(my_fft_grid->index_to_g, &index_to_g_sorted[0][0],
+           my_fft_grid->npts_gs_local * sizeof(int[3]));
   }
 
-  // Sort the vectors with the same length according to the x-, then y-, then z-coordinate
+  // Sort the vectors with the same length according to the x-, then y-, then
+  // z-coordinate
   {
     double last_g_squared = g_square_index_pair[0].value;
     int start_index = 0;
-    for (int end_index = 1; end_index < my_fft_grid->npts_gs_local; end_index++) {
-      if (fabs(g_square_index_pair[end_index].value - last_g_squared) > fmax(g_square_index_pair[end_index].value, last_g_squared)*max_rel_error_for_equivalence_g_squared) {
-        // If the length of the current vector is different from the previous one, sort the vectors with the same length
-        // according to the x-, then y-, then z-coordinate
-        sort_shell(my_fft_grid->index_to_g + start_index, end_index - start_index);
+    for (int end_index = 1; end_index < my_fft_grid->npts_gs_local;
+         end_index++) {
+      if (fabs(g_square_index_pair[end_index].value - last_g_squared) >
+          fmax(g_square_index_pair[end_index].value, last_g_squared) *
+              max_rel_error_for_equivalence_g_squared) {
+        // If the length of the current vector is different from the previous
+        // one, sort the vectors with the same length according to the x-, then
+        // y-, then z-coordinate
+        sort_shell(my_fft_grid->index_to_g + start_index,
+                   end_index - start_index);
         start_index = end_index;
         last_g_squared = g_square_index_pair[end_index].value;
       }
     }
     // At the end, we need to sort the last shell
-    sort_shell(my_fft_grid->index_to_g + start_index, my_fft_grid->npts_gs_local - start_index);
+    sort_shell(my_fft_grid->index_to_g + start_index,
+               my_fft_grid->npts_gs_local - start_index);
   }
 }
 
@@ -152,7 +165,8 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
   memcpy(my_fft_grid->npts_global, npts_global, 3 * sizeof(int));
   for (int dir = 0; dir < 3; dir++) {
     for (int dir2 = 0; dir2 < 3; dir2++) {
-      my_fft_grid->h_inv[dir][dir2] = dh_inv[dir][dir2]/((double)npts_global[dir2]);
+      my_fft_grid->h_inv[dir][dir2] =
+          dh_inv[dir][dir2] / ((double)npts_global[dir2]);
     }
   }
 
@@ -264,18 +278,17 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
                            my_fft_grid->proc2local_gs[my_process][0][0] + 1)) %
                  (my_fft_grid->proc2local_gs[my_process][1][1] -
                   my_fft_grid->proc2local_gs[my_process][1][0] + 1);
-    index_g[2] = index /
-                 ((my_fft_grid->proc2local_gs[my_process][0][1] -
-                   my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
-                  (my_fft_grid->proc2local_gs[my_process][1][1] -
-                   my_fft_grid->proc2local_gs[my_process][1][0] + 1));
+    index_g[2] = index / ((my_fft_grid->proc2local_gs[my_process][0][1] -
+                           my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
+                          (my_fft_grid->proc2local_gs[my_process][1][1] -
+                           my_fft_grid->proc2local_gs[my_process][1][0] + 1));
     for (int dir = 0; dir < 3; dir++)
       my_fft_grid->index_to_g[index][dir] =
           index_g[dir] + my_fft_grid->proc2local_gs[my_process][dir][0];
   }
 
-  my_fft_grid->local_index_to_ref_grid = calloc(
-      my_fft_grid->npts_gs_local, sizeof(int));
+  my_fft_grid->local_index_to_ref_grid =
+      calloc(my_fft_grid->npts_gs_local, sizeof(int));
 
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
     my_fft_grid->local_index_to_ref_grid[index] = index;
@@ -539,11 +552,11 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
   my_fft_grid->grid_gs =
       calloc(my_fft_grid->npts_gs_local, sizeof(double complex));
 
-      my_fft_grid->index_to_g = calloc(my_fft_grid->npts_gs_local, sizeof(int[3]));
-      my_fft_grid->local_index_to_ref_grid = calloc(
-          my_fft_grid->npts_gs_local, sizeof(int));
+  my_fft_grid->index_to_g = calloc(my_fft_grid->npts_gs_local, sizeof(int[3]));
+  my_fft_grid->local_index_to_ref_grid =
+      calloc(my_fft_grid->npts_gs_local, sizeof(int));
 
-    sort_g_vectors(my_fft_grid);
+  sort_g_vectors(my_fft_grid);
 
   *fft_grid = my_fft_grid;
 }

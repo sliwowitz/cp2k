@@ -398,7 +398,8 @@ bool grid_replay(const char *filename, const int cycles, const bool collocate,
                                    la_min, lb_max, lb_min, zeta, zetb, rscale,
                                    ra, rab, radius, o1, o2, n1, n2, pab);
       }
-      grid_copy_from_multigrid_local_single(multigrid, grid_test->host_buffer, 0);
+      grid_copy_from_multigrid_local_single(multigrid, grid_test->host_buffer,
+                                            0);
     } else {
       // integrate
       memset(hab_test, 0, n2 * n1 * sizeof(double));

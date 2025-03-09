@@ -45,8 +45,8 @@ MODULE qs_integrate_potential_single
                                               gth_potential_type
    USE gaussian_gridlevels,             ONLY: gaussian_gridlevel,&
                                               gridlevel_info_type
-   USE grid_api,                        ONLY: grid_copy_to_multigrid_local,&
-                                              grid_copy_to_multigrid_general_single,&
+   USE grid_api,                        ONLY: grid_copy_to_multigrid_general_single,&
+                                              grid_copy_to_multigrid_local,&
                                               grid_copy_to_multigrid_local_single,&
                                               grid_multigrid_type,&
                                               integrate_pgf_product
