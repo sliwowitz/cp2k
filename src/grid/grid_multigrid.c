@@ -713,11 +713,16 @@ void grid_copy_to_multigrid_distributed(
   }
 
   // Prepare the intermediate buffer
+  int my_sizes_rs[3];
   int my_sizes_rs_inner[3];
   for (int dir = 0; dir < 3; dir++) {
+    my_sizes_rs[dir] = proc2local_rs[my_process_rs][dir][1] -
+                       proc2local_rs[my_process_rs][dir][0] + 1;
     my_sizes_rs_inner[dir] = proc2local_rs[my_process_rs][dir][1] -
-                             proc2local_rs[my_process_rs][dir][0] + 1;
+                             proc2local_rs[my_process_rs][dir][0] + 1 -
+                             2 * border_width[dir];
   }
+  const int my_number_of_elements_rs = product3(my_sizes_rs);
   const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
 
   double *grid_rs_inner =
@@ -750,7 +755,7 @@ void grid_copy_to_multigrid_distributed(
     double *output_data = malloc(size_of_output_buffer * sizeof(double));
 
     // We start with the own data
-    memcpy(input_data, grid_rs,
+    memcpy(input_data, grid_rs_inner,
            my_number_of_inner_elements_rs * sizeof(double));
 
     double *memory_pool = calloc(redistribute_rs->size_of_buffer_to_halo +
@@ -951,8 +956,7 @@ void grid_copy_to_multigrid_distributed(
       output_data = tmp;
     }
 
-    memcpy(grid_rs_inner, input_data,
-           my_number_of_inner_elements_rs * sizeof(double));
+    memcpy(grid_rs, input_data, my_number_of_elements_rs * sizeof(double));
 
     free(recv_buffer);
     free(send_buffer);
