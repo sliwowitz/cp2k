@@ -1573,17 +1573,17 @@ void collect_boundary_to_inner(
     free(output_data);
 }
 
-void grid_copy_from_multigrid_distributed(
-    const double *grid_rs, double *grid_pw, const grid_mpi_comm comm_pw,
+void distribute_inner_to_pw(
+    const double *grid_rs_inner, double *grid_pw, const grid_mpi_comm comm_pw,
     const grid_mpi_comm comm_rs, const int npts_global[3],
     const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2],
     const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
-    const int border_width[3], const grid_redistribute *redistribute_rs) {
+    const int border_width[3]) {
   const int number_of_processes = grid_mpi_comm_size(comm_rs);
   const int my_process_rs = grid_mpi_comm_rank(comm_rs);
   const int my_process_pw = grid_mpi_comm_rank(comm_pw);
 
-  assert(grid_rs != NULL);
+  assert(grid_rs_inner != NULL);
   assert(grid_pw != NULL);
   assert(!grid_mpi_comm_is_unequal(comm_pw, comm_rs));
   for (int process = 0; process < number_of_processes; process++) {
@@ -1632,19 +1632,9 @@ void grid_copy_from_multigrid_distributed(
         my_bounds_rs_inner[dir][1] - my_bounds_rs_inner[dir][0] + 1;
     my_sizes_pw[dir] = my_bounds_pw[dir][1] - my_bounds_pw[dir][0] + 1;
   }
-  const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
   const int my_number_of_elements_pw = product3(my_sizes_pw);
-  double *grid_rs_inner =
-      calloc(my_number_of_inner_elements_rs, sizeof(double));
-
-  // Step A: Collect the inner local block
-  // From our redistribute container, we send to the inner part and recv the
-  // halo
-  collect_boundary_to_inner(grid_rs, grid_rs_inner, comm_rs, npts_global,
-                            proc2local_rs, border_width, redistribute_rs);
 
   // Step B: Distribute inner local block to PW grids
-  {
     int *map_pw2rs = calloc(number_of_processes, sizeof(int));
     grid_mpi_allgather_int(&my_process_rs, 1, map_pw2rs, comm_pw);
 
@@ -1898,7 +1888,74 @@ void grid_copy_from_multigrid_distributed(
     free(send_buffer);
     free(send_buffers);
     free(send_requests);
+}
+
+void grid_copy_from_multigrid_distributed(
+    const double *grid_rs, double *grid_pw, const grid_mpi_comm comm_pw,
+    const grid_mpi_comm comm_rs, const int npts_global[3],
+    const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2],
+    const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
+    const int border_width[3], const grid_redistribute *redistribute_rs) {
+  const int number_of_processes = grid_mpi_comm_size(comm_rs);
+  const int my_process_rs = grid_mpi_comm_rank(comm_rs);
+
+  assert(grid_rs != NULL);
+  assert(grid_pw != NULL);
+  assert(!grid_mpi_comm_is_unequal(comm_pw, comm_rs));
+  for (int process = 0; process < number_of_processes; process++) {
+    for (int dir = 0; dir < 3; dir++) {
+      assert(proc2local_rs[process][dir][0] >= -border_width[dir] &&
+             "The inner part of the RS grid cannot be lower than zero!");
+      assert(proc2local_rs[process][dir][1] <
+                 npts_global[dir] + border_width[dir] &&
+             "The inner part of the RS grid contains too many points!");
+      assert(proc2local_rs[process][dir][1] - proc2local_rs[process][dir][0] +
+                     1 >=
+                 0 &&
+             "The number of points on the RS grid on one processor cannot be "
+             "negative!");
+      assert(proc2local_pw[process][dir][0] >= 0 &&
+             "The PW grid is only allowed to have nonnegative indices!");
+      assert(proc2local_pw[process][dir][1] < npts_global[dir] &&
+             "The PW grid cannot have points outside of the inner RS grid!");
+      assert(proc2local_pw[process][dir][1] - proc2local_pw[process][dir][0] +
+                     1 >=
+                 0 &&
+             "The number of points on the PW grid on one processor cannot be "
+             "negative!");
+    }
   }
+  for (int dir = 0; dir < 3; dir++) {
+    assert(border_width[dir] >= 0 &&
+           "The number of points on the boundary cannot be negative!");
+    assert(npts_global[dir] >= 0 &&
+           "Global number of points cannot be negative!");
+  }
+
+  // Prepare the intermediate buffer
+  int my_bounds_rs_inner[3][2];
+  int my_sizes_rs_inner[3];
+  for (int dir = 0; dir < 3; dir++) {
+    my_bounds_rs_inner[dir][0] =
+        proc2local_rs[my_process_rs][dir][0] + border_width[dir];
+    my_bounds_rs_inner[dir][1] =
+        proc2local_rs[my_process_rs][dir][1] - border_width[dir];
+    my_sizes_rs_inner[dir] =
+        my_bounds_rs_inner[dir][1] - my_bounds_rs_inner[dir][0] + 1;
+  }
+  const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
+  double *grid_rs_inner =
+      calloc(my_number_of_inner_elements_rs, sizeof(double));
+
+  // Step A: Collect the inner local block
+  // From our redistribute container, we send to the inner part and recv the
+  // halo
+  collect_boundary_to_inner(grid_rs, grid_rs_inner, comm_rs, npts_global,
+                            proc2local_rs, border_width, redistribute_rs);
+
+  // Step B: Distribute inner local block to PW grids
+  distribute_inner_to_pw(grid_rs_inner, grid_pw, comm_pw, comm_rs, npts_global,
+                          proc2local_rs, proc2local_pw, border_width);
 
   free(grid_rs_inner);
 }
