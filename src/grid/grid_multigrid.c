@@ -365,10 +365,10 @@ void grid_copy_to_multigrid_replicated(
 }
 
 void redistribute_grids(
-    double *grid_rs_inner, const double *grid_pw, const grid_mpi_comm comm_pw,
+    const double *grid_pw, double *grid_rs_inner, const grid_mpi_comm comm_pw,
     const grid_mpi_comm comm_rs, const int npts_global[3],
-    const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2],
-    const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2]) {
+    const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
+    const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2]) {
   const int number_of_processes = grid_mpi_comm_size(comm_rs);
   const int my_process_rs = grid_mpi_comm_rank(comm_rs);
   const int my_process_pw = grid_mpi_comm_rank(comm_pw);
@@ -537,11 +537,14 @@ void redistribute_grids(
 
     double *current_send_buffer = send_buffers[send_counter];
     const double *current_pw_grid =
-        &grid_pw[(proc2local_rs[send_process_rs][2][0] - my_bounds_pw[2][0]) *
+        &grid_pw[imax(0, proc2local_rs[send_process_rs][2][0] -
+                             my_bounds_pw[2][0]) *
                      my_sizes_pw[0] * my_sizes_pw[1] +
-                 (proc2local_rs[send_process_rs][1][0] - my_bounds_pw[1][0]) *
+                 imax(0, proc2local_rs[send_process_rs][1][0] -
+                             my_bounds_pw[1][0]) *
                      my_sizes_pw[0] +
-                 (proc2local_rs[send_process_rs][0][0] - my_bounds_pw[0][0])];
+                 imax(0, proc2local_rs[send_process_rs][0][0] -
+                             my_bounds_pw[0][0])];
 
 #pragma omp parallel for collapse(2) default(none)                             \
     shared(send_size, my_sizes_pw, current_send_buffer, current_pw_grid)
@@ -1007,8 +1010,8 @@ void grid_copy_to_multigrid_distributed(
           proc2local_rs[process][dir][1] - border_width[dir];
     }
   }
-  redistribute_grids(grid_rs_inner, grid_pw, comm_pw, comm_rs, npts_global,
-                     proc2local_rs_inner, proc2local_pw);
+  redistribute_grids(grid_pw, grid_rs_inner, comm_pw, comm_rs, npts_global,
+                     proc2local_pw, proc2local_rs_inner);
 
   // B) Distribute inner local block the everyone
   distribute_data_to_boundaries(grid_rs, grid_rs_inner, comm_rs, npts_global,
