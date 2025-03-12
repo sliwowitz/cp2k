@@ -365,37 +365,35 @@ void grid_copy_to_multigrid_replicated(
 }
 
 void redistribute_grids(
-    const double *grid_pw, double *grid_rs_inner, const grid_mpi_comm comm_pw,
-    const grid_mpi_comm comm_rs, const int npts_global[3],
-    const int proc2local_pw[grid_mpi_comm_size(comm_pw)][3][2],
-    const int proc2local_rs[grid_mpi_comm_size(comm_rs)][3][2]) {
-  const int number_of_processes = grid_mpi_comm_size(comm_rs);
-  const int my_process_rs = grid_mpi_comm_rank(comm_rs);
-  const int my_process_pw = grid_mpi_comm_rank(comm_pw);
+    const double *grid_in, double *grid_out, const grid_mpi_comm comm_in,
+    const grid_mpi_comm comm_out, const int npts_global[3],
+    const int proc2local_in[grid_mpi_comm_size(comm_in)][3][2],
+    const int proc2local_out[grid_mpi_comm_size(comm_out)][3][2]) {
+  const int number_of_processes = grid_mpi_comm_size(comm_out);
+  const int my_process_out = grid_mpi_comm_rank(comm_out);
+  const int my_process_in = grid_mpi_comm_rank(comm_in);
 
-  assert(grid_rs_inner != NULL);
-  assert(grid_pw != NULL);
-  assert(!grid_mpi_comm_is_unequal(comm_pw, comm_rs));
+  assert(grid_out != NULL);
+  assert(grid_in != NULL);
+  assert(!grid_mpi_comm_is_unequal(comm_in, comm_out));
   for (int process = 0; process < number_of_processes; process++) {
     for (int dir = 0; dir < 3; dir++) {
-      assert(proc2local_rs[process][dir][0] >= 0 &&
-             "The inner part of the RS grid cannot be lower than zero!");
-      assert(proc2local_rs[process][dir][1] < npts_global[dir] &&
-             "The inner part of the RS grid contains too many points!");
-      assert(proc2local_rs[process][dir][1] - proc2local_rs[process][dir][0] +
-                     1 >=
-                 0 &&
-             "The number of points on the RS grid on one processor cannot be "
-             "negative!");
-      assert(proc2local_pw[process][dir][0] >= 0 &&
-             "The PW grid is only allowed to have nonnegative indices!");
-      assert(proc2local_pw[process][dir][1] < npts_global[dir] &&
-             "The PW grid cannot have points outside of the inner RS grid!");
-      assert(proc2local_pw[process][dir][1] - proc2local_pw[process][dir][0] +
-                     1 >=
-                 0 &&
-             "The number of points on the PW grid on one processor cannot be "
-             "negative!");
+      assert(proc2local_out[process][dir][0] >= 0 &&
+             "The bounds of the output grid cannot be lower than zero!");
+      assert(proc2local_out[process][dir][1] < npts_global[dir] &&
+             "The bounds of the output grid contains too many points!");
+      assert(
+          proc2local_out[process][dir][1] >= proc2local_out[process][dir][0] &&
+          "The number of points on the output grid on one processor cannot be "
+          "negative!");
+      assert(proc2local_in[process][dir][0] >= 0 &&
+             "The input grid is only allowed to have nonnegative indices!");
+      assert(proc2local_in[process][dir][1] < npts_global[dir] &&
+             "The input grid cannot have points outside of the inner RS grid!");
+      assert(
+          proc2local_in[process][dir][1] >= proc2local_in[process][dir][0] &&
+          "The number of points on the input grid on one processor cannot be "
+          "negative!");
     }
   }
   for (int dir = 0; dir < 3; dir++) {
@@ -404,27 +402,27 @@ void redistribute_grids(
   }
 
   // Prepare the intermediate buffer
-  int my_bounds_rs_inner[3][2];
-  int my_bounds_pw[3][2];
-  int my_sizes_rs_inner[3];
-  int my_sizes_pw[3];
+  int my_bounds_out[3][2];
+  int my_bounds_in[3][2];
+  int my_sizes_out[3];
+  int my_sizes_in[3];
   for (int dir = 0; dir < 3; dir++) {
-    my_bounds_rs_inner[dir][0] = proc2local_rs[my_process_rs][dir][0];
-    my_bounds_rs_inner[dir][1] = proc2local_rs[my_process_rs][dir][1];
-    my_sizes_rs_inner[dir] = proc2local_rs[my_process_rs][dir][1] -
-                             proc2local_rs[my_process_rs][dir][0] + 1;
-    my_bounds_pw[dir][0] = proc2local_pw[my_process_pw][dir][0];
-    my_bounds_pw[dir][1] = proc2local_pw[my_process_pw][dir][1];
-    my_sizes_pw[dir] = proc2local_pw[my_process_pw][dir][1] -
-                       proc2local_pw[my_process_pw][dir][0] + 1;
+    my_bounds_out[dir][0] = proc2local_out[my_process_out][dir][0];
+    my_bounds_out[dir][1] = proc2local_out[my_process_out][dir][1];
+    my_sizes_out[dir] = proc2local_out[my_process_out][dir][1] -
+                        proc2local_out[my_process_out][dir][0] + 1;
+    my_bounds_in[dir][0] = proc2local_in[my_process_in][dir][0];
+    my_bounds_in[dir][1] = proc2local_in[my_process_in][dir][1];
+    my_sizes_in[dir] = proc2local_in[my_process_in][dir][1] -
+                       proc2local_in[my_process_in][dir][0] + 1;
   }
-  const int my_number_of_inner_elements_rs = product3(my_sizes_rs_inner);
+  const int my_number_of_elements_out = product3(my_sizes_out);
 
   int received_elements = 0;
 
   // Step A: Collect the inner local block
-  int *map_pw2rs = malloc(number_of_processes * sizeof(int));
-  grid_mpi_allgather_int(&my_process_rs, 1, map_pw2rs, comm_pw);
+  int *map_in2out = malloc(number_of_processes * sizeof(int));
+  grid_mpi_allgather_int(&my_process_out, 1, map_in2out, comm_in);
 
   // Determine from which processes we will receive data
   int number_of_elements_to_recv = 0;
@@ -432,14 +430,14 @@ void redistribute_grids(
   for (int process_shift = 1; process_shift < number_of_processes;
        process_shift++) {
     const int recv_process =
-        modulo(my_process_pw - process_shift, number_of_processes);
+        modulo(my_process_in - process_shift, number_of_processes);
     int recv_size[3];
     for (int dir = 0; dir < 3; dir++)
-      recv_size[dir] = imax(0, imin(proc2local_pw[recv_process][dir][1],
-                                    my_bounds_rs_inner[dir][1]) -
-                                   imax(proc2local_pw[recv_process][dir][0],
-                                        my_bounds_rs_inner[dir][0]) +
-                                   1);
+      recv_size[dir] = imax(
+          0,
+          imin(proc2local_in[recv_process][dir][1], my_bounds_out[dir][1]) -
+              imax(proc2local_in[recv_process][dir][0], my_bounds_out[dir][0]) +
+              1);
 
     if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0)
       continue;
@@ -462,14 +460,14 @@ void redistribute_grids(
   for (int process_shift = 1; process_shift < number_of_processes;
        process_shift++) {
     const int recv_process =
-        modulo(my_process_pw - process_shift, number_of_processes);
+        modulo(my_process_in - process_shift, number_of_processes);
     int recv_size[3];
     for (int dir = 0; dir < 3; dir++)
-      recv_size[dir] = imax(0, imin(proc2local_pw[recv_process][dir][1],
-                                    my_bounds_rs_inner[dir][1]) -
-                                   imax(proc2local_pw[recv_process][dir][0],
-                                        my_bounds_rs_inner[dir][0]) +
-                                   1);
+      recv_size[dir] = imax(
+          0,
+          imin(proc2local_in[recv_process][dir][1], my_bounds_out[dir][1]) -
+              imax(proc2local_in[recv_process][dir][0], my_bounds_out[dir][0]) +
+              1);
 
     if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0)
       continue;
@@ -479,7 +477,7 @@ void redistribute_grids(
 
     grid_mpi_irecv_double(recv_buffers[recv_counter],
                           current_number_of_elements_to_recv, recv_process, 1,
-                          comm_pw, &recv_requests[recv_counter]);
+                          comm_in, &recv_requests[recv_counter]);
 
     recv_offset += current_number_of_elements_to_recv;
     recv_counter++;
@@ -492,15 +490,15 @@ void redistribute_grids(
   for (int process_shift = 1; process_shift < number_of_processes;
        process_shift++) {
     const int send_process =
-        modulo(my_process_pw + process_shift, number_of_processes);
-    const int send_process_rs = map_pw2rs[send_process];
+        modulo(my_process_in + process_shift, number_of_processes);
+    const int send_process_out = map_in2out[send_process];
     int send_size[3];
     for (int dir = 0; dir < 3; dir++)
       send_size[dir] =
-          imax(0, imin(my_bounds_pw[dir][1],
-                       proc2local_rs[send_process_rs][dir][1]) -
-                      imax(my_bounds_pw[dir][0],
-                           proc2local_rs[send_process_rs][dir][0]) +
+          imax(0, imin(my_bounds_in[dir][1],
+                       proc2local_out[send_process_out][dir][1]) -
+                      imax(my_bounds_in[dir][0],
+                           proc2local_out[send_process_out][dir][0]) +
                       1);
     if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0)
       continue;
@@ -520,15 +518,15 @@ void redistribute_grids(
   for (int process_shift = 1; process_shift < number_of_processes;
        process_shift++) {
     const int send_process =
-        modulo(my_process_pw + process_shift, number_of_processes);
-    const int send_process_rs = map_pw2rs[send_process];
+        modulo(my_process_in + process_shift, number_of_processes);
+    const int send_process_out = map_in2out[send_process];
     int send_size[3];
     for (int dir = 0; dir < 3; dir++)
       send_size[dir] =
-          imax(0, imin(my_bounds_pw[dir][1],
-                       proc2local_rs[send_process_rs][dir][1]) -
-                      imax(my_bounds_pw[dir][0],
-                           proc2local_rs[send_process_rs][dir][0]) +
+          imax(0, imin(my_bounds_in[dir][1],
+                       proc2local_out[send_process_out][dir][1]) -
+                      imax(my_bounds_in[dir][0],
+                           proc2local_out[send_process_out][dir][0]) +
                       1);
     if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0)
       continue;
@@ -536,31 +534,31 @@ void redistribute_grids(
     send_buffers[send_counter] = send_buffer + send_offset;
 
     double *current_send_buffer = send_buffers[send_counter];
-    const double *current_pw_grid =
-        &grid_pw[imax(0, proc2local_rs[send_process_rs][2][0] -
-                             my_bounds_pw[2][0]) *
-                     my_sizes_pw[0] * my_sizes_pw[1] +
-                 imax(0, proc2local_rs[send_process_rs][1][0] -
-                             my_bounds_pw[1][0]) *
-                     my_sizes_pw[0] +
-                 imax(0, proc2local_rs[send_process_rs][0][0] -
-                             my_bounds_pw[0][0])];
+    const double *current_grid_in =
+        &grid_in[imax(0, proc2local_out[send_process_out][2][0] -
+                             my_bounds_in[2][0]) *
+                     my_sizes_in[0] * my_sizes_in[1] +
+                 imax(0, proc2local_out[send_process_out][1][0] -
+                             my_bounds_in[1][0]) *
+                     my_sizes_in[0] +
+                 imax(0, proc2local_out[send_process_out][0][0] -
+                             my_bounds_in[0][0])];
 
 #pragma omp parallel for collapse(2) default(none)                             \
-    shared(send_size, my_sizes_pw, current_send_buffer, current_pw_grid)
+    shared(send_size, my_sizes_in, current_send_buffer, current_grid_in)
     for (int iz = 0; iz < send_size[2]; iz++) {
       for (int iy = 0; iy < send_size[1]; iy++) {
         memcpy(&current_send_buffer[iz * send_size[0] * send_size[1] +
                                     iy * send_size[0]],
-               &current_pw_grid[iz * my_sizes_pw[0] * my_sizes_pw[1] +
-                                iy * my_sizes_pw[0]],
+               &current_grid_in[iz * my_sizes_in[0] * my_sizes_in[1] +
+                                iy * my_sizes_in[0]],
                send_size[0] * sizeof(double));
       }
     }
 
     grid_mpi_isend_double(send_buffers[send_counter],
                           current_number_of_elements_to_send, send_process, 1,
-                          comm_pw, &send_requests[send_counter]);
+                          comm_in, &send_requests[send_counter]);
 
     send_offset += current_number_of_elements_to_send;
     send_counter++;
@@ -570,45 +568,41 @@ void redistribute_grids(
 
   // A2) Copy local data
   {
-    int starts_rs[3];
+    int starts_out[3];
     for (int dir = 0; dir < 3; dir++)
-      starts_rs[dir] =
-          imax(0, my_bounds_pw[dir][0] - my_bounds_rs_inner[dir][0]);
-    int ends_rs[3];
+      starts_out[dir] = imax(0, my_bounds_in[dir][0] - my_bounds_out[dir][0]);
+    int ends_out[3];
     for (int dir = 0; dir < 3; dir++)
-      ends_rs[dir] = imin(my_sizes_rs_inner[dir] - 1,
-                          my_bounds_pw[dir][1] - my_bounds_rs_inner[dir][0]);
+      ends_out[dir] = imin(my_sizes_out[dir] - 1,
+                           my_bounds_in[dir][1] - my_bounds_out[dir][0]);
     int sizes_rs[3];
     for (int dir = 0; dir < 3; dir++)
-      sizes_rs[dir] = imax(0, ends_rs[dir] - starts_rs[dir] + 1);
+      sizes_rs[dir] = imax(0, ends_out[dir] - starts_out[dir] + 1);
     double *current_rs_grid =
-        &grid_rs_inner[starts_rs[2] * my_sizes_rs_inner[0] *
-                           my_sizes_rs_inner[1] +
-                       starts_rs[1] * my_sizes_rs_inner[0] + starts_rs[0]];
-    const double *current_pw_grid =
-        &grid_pw
-            [(starts_rs[2] + my_bounds_rs_inner[2][0] - my_bounds_pw[2][0]) *
-                 my_sizes_pw[0] * my_sizes_pw[1] +
-             (starts_rs[1] + my_bounds_rs_inner[1][0] - my_bounds_pw[1][0]) *
-                 my_sizes_pw[0] +
-             starts_rs[0] + my_bounds_rs_inner[0][0] - my_bounds_pw[0][0]];
-#pragma omp parallel for collapse(2) default(none)                             \
-    shared(sizes_rs, my_sizes_rs_inner, my_sizes_pw, current_rs_grid,          \
-               current_pw_grid)
+        &grid_out[starts_out[2] * my_sizes_out[0] * my_sizes_out[1] +
+                  starts_out[1] * my_sizes_out[0] + starts_out[0]];
+    const double *current_grid_in =
+        &grid_in[(starts_out[2] + my_bounds_out[2][0] - my_bounds_in[2][0]) *
+                     my_sizes_in[0] * my_sizes_in[1] +
+                 (starts_out[1] + my_bounds_out[1][0] - my_bounds_in[1][0]) *
+                     my_sizes_in[0] +
+                 starts_out[0] + my_bounds_out[0][0] - my_bounds_in[0][0]];
+#pragma omp parallel for collapse(2) default(none) shared(                     \
+        sizes_rs, my_sizes_out, my_sizes_in, current_rs_grid, current_grid_in)
     for (int iz = 0; iz < sizes_rs[2]; iz++) {
       for (int iy = 0; iy < sizes_rs[1]; iy++) {
-        memcpy(
-            &current_rs_grid[iz * my_sizes_rs_inner[0] * my_sizes_rs_inner[1] +
-                             iy * my_sizes_rs_inner[0]],
-            &current_pw_grid[iz * my_sizes_pw[0] * my_sizes_pw[1] +
-                             iy * my_sizes_pw[0]],
-            sizes_rs[0] * sizeof(double));
+        memcpy(&current_rs_grid[iz * my_sizes_out[0] * my_sizes_out[1] +
+                                iy * my_sizes_out[0]],
+               &current_grid_in[iz * my_sizes_in[0] * my_sizes_in[1] +
+                                iy * my_sizes_in[0]],
+               sizes_rs[0] * sizeof(double));
       }
     }
     received_elements += product3(sizes_rs);
   }
 
-  // A2) Send around local data of the PW grid and copy it to our local buffer
+  // A2) Send around local data of the input grid and copy it to our local
+  // buffer
   for (int process_shift = 0; process_shift < number_of_processes_to_recv_from;
        process_shift++) {
     int recv_counter;
@@ -616,43 +610,41 @@ void redistribute_grids(
                      &recv_counter);
     const int recv_process = processes_to_recv_from[recv_counter];
 
-    int starts_rs[3];
+    int starts_out[3];
     for (int dir = 0; dir < 3; dir++)
-      starts_rs[dir] = imax(0, proc2local_pw[recv_process][dir][0] -
-                                   my_bounds_rs_inner[dir][0]);
-    int ends_rs[3];
+      starts_out[dir] =
+          imax(0, proc2local_in[recv_process][dir][0] - my_bounds_out[dir][0]);
+    int ends_out[3];
     for (int dir = 0; dir < 3; dir++)
-      ends_rs[dir] =
-          imin(my_sizes_rs_inner[dir] - 1, proc2local_pw[recv_process][dir][1] -
-                                               my_bounds_rs_inner[dir][0]);
+      ends_out[dir] =
+          imin(my_sizes_out[dir] - 1,
+               proc2local_in[recv_process][dir][1] - my_bounds_out[dir][0]);
     int recv_size[3];
     for (int dir = 0; dir < 3; dir++)
-      recv_size[dir] = imax(0, ends_rs[dir] - starts_rs[dir] + 1);
-    double *current_rs_grid =
-        &grid_rs_inner[starts_rs[2] * my_sizes_rs_inner[0] *
-                           my_sizes_rs_inner[1] +
-                       starts_rs[1] * my_sizes_rs_inner[0] + starts_rs[0]];
+      recv_size[dir] = imax(0, ends_out[dir] - starts_out[dir] + 1);
+    double *current_grid_out =
+        &grid_out[starts_out[2] * my_sizes_out[0] * my_sizes_out[1] +
+                  starts_out[1] * my_sizes_out[0] + starts_out[0]];
     const double *current_recv_buffer =
-        &recv_buffers[recv_counter][(starts_rs[2] -
-                                     imax(0, proc2local_pw[recv_process][2][0] -
-                                                 my_bounds_rs_inner[2][0])) *
+        &recv_buffers[recv_counter][(starts_out[2] -
+                                     imax(0, proc2local_in[recv_process][2][0] -
+                                                 my_bounds_out[2][0])) *
                                         recv_size[0] * recv_size[1] +
-                                    (starts_rs[1] -
-                                     imax(0, proc2local_pw[recv_process][1][0] -
-                                                 my_bounds_rs_inner[1][0])) *
+                                    (starts_out[1] -
+                                     imax(0, proc2local_in[recv_process][1][0] -
+                                                 my_bounds_out[1][0])) *
                                         recv_size[0] +
-                                    starts_rs[0]];
+                                    starts_out[0]];
 
 #pragma omp parallel for collapse(2) default(none)                             \
-    shared(my_sizes_rs_inner, recv_size, current_rs_grid, current_recv_buffer)
+    shared(my_sizes_out, recv_size, current_grid_out, current_recv_buffer)
     for (int iz = 0; iz < recv_size[2]; iz++) {
       for (int iy = 0; iy < recv_size[1]; iy++) {
-        memcpy(
-            &current_rs_grid[iz * my_sizes_rs_inner[0] * my_sizes_rs_inner[1] +
-                             iy * my_sizes_rs_inner[0]],
-            &current_recv_buffer[iz * recv_size[0] * recv_size[1] +
-                                 iy * recv_size[0]],
-            recv_size[0] * sizeof(double));
+        memcpy(&current_grid_out[iz * my_sizes_out[0] * my_sizes_out[1] +
+                                 iy * my_sizes_out[0]],
+               &current_recv_buffer[iz * recv_size[0] * recv_size[1] +
+                                    iy * recv_size[0]],
+               recv_size[0] * sizeof(double));
       }
     }
     received_elements += product3(recv_size);
@@ -668,9 +660,9 @@ void redistribute_grids(
   free(send_buffer);
   free(send_buffers);
   free(send_requests);
-  free(map_pw2rs);
+  free(map_in2out);
 
-  assert(received_elements == my_number_of_inner_elements_rs &&
+  assert(received_elements == my_number_of_elements_out &&
          "Not elements of the inner part of the RS grid were received");
 }
 
