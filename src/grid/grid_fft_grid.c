@@ -70,14 +70,15 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
   assert(my_fft_grid != NULL);
   assert(my_fft_grid->npts_gs_local >= 0);
 
-  int local_index2g_squared[my_fft_grid->npts_gs_local];
+  int *local_index2g_squared = malloc(my_fft_grid->npts_gs_local * sizeof(int));
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
     local_index2g_squared[index] = squared_length_of_g_vector(
         my_fft_grid->index_to_g[index], my_fft_grid->h_inv);
   }
 
   // Sort the indices according to the length of the vectors
-  double_index_pair g_square_index_pair[my_fft_grid->npts_gs_local];
+  double_index_pair *g_square_index_pair =
+      malloc(my_fft_grid->npts_gs_local * sizeof(double_index_pair));
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
     g_square_index_pair[index].value = local_index2g_squared[index];
     g_square_index_pair[index].index = index;
@@ -87,7 +88,8 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
 
   // Apply the sorting to the index_to_g array
   {
-    int index_to_g_sorted[my_fft_grid->npts_gs_local][3];
+    int(*index_to_g_sorted)[3] =
+        malloc(my_fft_grid->npts_gs_local * sizeof(int[3]));
     for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
       memcpy(index_to_g_sorted[index],
              my_fft_grid->index_to_g[g_square_index_pair[index].index],
@@ -96,6 +98,7 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
     }
     memcpy(my_fft_grid->index_to_g, &index_to_g_sorted[0][0],
            my_fft_grid->npts_gs_local * sizeof(int[3]));
+    free(index_to_g_sorted);
   }
 
   // Sort the vectors with the same length according to the x-, then y-, then
@@ -121,6 +124,8 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
     sort_shell(my_fft_grid->index_to_g + start_index,
                my_fft_grid->npts_gs_local - start_index);
   }
+  free(g_square_index_pair);
+  free(local_index2g_squared);
 }
 
 void grid_free_fft_grid(grid_fft_grid *fft_grid) {
@@ -147,10 +152,9 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
   grid_fft_grid *my_fft_grid = NULL;
   if (*fft_grid != NULL) {
     my_fft_grid = *fft_grid;
-    grid_free_fft_grid(my_fft_grid);
-  } else {
-    my_fft_grid = malloc(sizeof(grid_fft_grid));
+    grid_free_fft_grid(*fft_grid);
   }
+  my_fft_grid = malloc(sizeof(grid_fft_grid));
 
   const int number_of_processes = grid_mpi_comm_size(comm);
 
@@ -271,30 +275,84 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
   my_fft_grid->rays_per_process = NULL;
   my_fft_grid->index_to_g = calloc(my_fft_grid->npts_gs_local, sizeof(int[3]));
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    int index_g[3];
-    index_g[0] = index % (my_fft_grid->proc2local_gs[my_process][0][1] -
-                          my_fft_grid->proc2local_gs[my_process][0][0] + 1);
-    index_g[1] = (index / (my_fft_grid->proc2local_gs[my_process][0][1] -
-                           my_fft_grid->proc2local_gs[my_process][0][0] + 1)) %
+    my_fft_grid->index_to_g[index][0] =
+        my_fft_grid->proc2local_gs[my_process][0][0] +
+        index % (my_fft_grid->proc2local_gs[my_process][0][1] -
+                 my_fft_grid->proc2local_gs[my_process][0][0] + 1);
+    my_fft_grid->index_to_g[index][1] =
+        my_fft_grid->proc2local_gs[my_process][1][0] +
+        (index / (my_fft_grid->proc2local_gs[my_process][0][1] -
+                  my_fft_grid->proc2local_gs[my_process][0][0] + 1)) %
+            (my_fft_grid->proc2local_gs[my_process][1][1] -
+             my_fft_grid->proc2local_gs[my_process][1][0] + 1);
+    my_fft_grid->index_to_g[index][2] =
+        my_fft_grid->proc2local_gs[my_process][2][0] +
+        index / ((my_fft_grid->proc2local_gs[my_process][0][1] -
+                  my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
                  (my_fft_grid->proc2local_gs[my_process][1][1] -
-                  my_fft_grid->proc2local_gs[my_process][1][0] + 1);
-    index_g[2] = index / ((my_fft_grid->proc2local_gs[my_process][0][1] -
-                           my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
-                          (my_fft_grid->proc2local_gs[my_process][1][1] -
-                           my_fft_grid->proc2local_gs[my_process][1][0] + 1));
-    for (int dir = 0; dir < 3; dir++)
-      my_fft_grid->index_to_g[index][dir] =
-          index_g[dir] + my_fft_grid->proc2local_gs[my_process][dir][0];
+                  my_fft_grid->proc2local_gs[my_process][1][0] + 1));
+    /*printf("%i index_to_g %i: %i %i %i\n", my_process, index,
+           my_fft_grid->index_to_g[index][0], my_fft_grid->index_to_g[index][1],
+           my_fft_grid->index_to_g[index][2]);*/
   }
+  // fflush(stdout);
+  // grid_mpi_barrier(comm);
 
   my_fft_grid->local_index_to_ref_grid =
       calloc(my_fft_grid->npts_gs_local, sizeof(int));
-
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
     my_fft_grid->local_index_to_ref_grid[index] = index;
   }
 
+  // Check uniqueness of all grid points
+  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
+    for (int dir = 0; dir < 3; dir++) {
+      assert(my_fft_grid->index_to_g[index][dir] >= 0);
+      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
+    }
+    bool is_unique_vector = true;
+    for (int index2 = 0; index2 < index; index2++) {
+      bool vectors_are_identical = true;
+      for (int dir = 0; dir < 3; dir++) {
+        vectors_are_identical =
+            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
+                                      my_fft_grid->index_to_g[index2][dir]);
+      }
+      if (vectors_are_identical) {
+        printf("%i non-unique g vector: %i\n", my_process, index);
+        fflush(stdout);
+        is_unique_vector = false;
+        break;
+      }
+    }
+    assert(is_unique_vector);
+  }
+
   sort_g_vectors(my_fft_grid);
+
+  // Check uniqueness of all grid points
+  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
+    for (int dir = 0; dir < 3; dir++) {
+      assert(my_fft_grid->index_to_g[index][dir] >= 0);
+      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
+    }
+    bool is_unique_vector = true;
+    for (int index2 = 0; index2 < index; index2++) {
+      bool vectors_are_identical = true;
+      for (int dir = 0; dir < 3; dir++) {
+        vectors_are_identical =
+            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
+                                      my_fft_grid->index_to_g[index2][dir]);
+      }
+      if (vectors_are_identical) {
+        printf("%i non-unique g vector: %i\n", my_process, index);
+        fflush(stdout);
+        is_unique_vector = false;
+        break;
+      }
+    }
+    assert(is_unique_vector);
+  }
 
   *fft_grid = my_fft_grid;
 }
@@ -319,7 +377,8 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
   grid_fft_grid *my_fft_grid = NULL;
   if (*fft_grid != NULL) {
     my_fft_grid = *fft_grid;
-    grid_free_fft_grid(my_fft_grid);
+    grid_free_fft_grid(*fft_grid);
+    my_fft_grid = malloc(sizeof(grid_fft_grid));
   } else {
     my_fft_grid = malloc(sizeof(grid_fft_grid));
   }
@@ -553,12 +612,134 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
       calloc(my_fft_grid->npts_gs_local, sizeof(double complex));
 
   my_fft_grid->index_to_g = calloc(my_fft_grid->npts_gs_local, sizeof(int[3]));
+  // This grid is smaller in all directions such that all points of the new grid
+  // should be available on the reference grid
   my_fft_grid->local_index_to_ref_grid =
-      calloc(my_fft_grid->npts_gs_local, sizeof(int));
+      malloc(my_fft_grid->npts_gs_local * sizeof(int));
+  int own_index = 0;
+  for (int ref_index = 0; ref_index < fft_grid_ref->npts_gs_local;
+       ref_index++) {
+    // Loop over all points on the reference grid
+    bool is_on_new_grid = true;
+    // Check whether the current point is also on the new grid
+    for (int dir = 0; dir < 3; dir++) {
+      const int shifted_index = convert_c_index_to_shifted_index(
+          fft_grid_ref->index_to_g[ref_index][dir],
+          fft_grid_ref->npts_global[dir]);
+      if (!is_on_grid(shifted_index, npts_global[dir])) {
+        is_on_new_grid = false;
+        break;
+      }
+    }
+    // If it is also on the new grid, add update the index array accordingly
+    if (is_on_new_grid) {
+      for (int dir = 0; dir < 3; dir++) {
+        const int shifted_index = convert_c_index_to_shifted_index(
+            fft_grid_ref->index_to_g[ref_index][dir],
+            fft_grid_ref->npts_global[dir]);
+        my_fft_grid->index_to_g[own_index][dir] =
+            convert_shifted_index_to_c_index(shifted_index, npts_global[dir]);
+      }
+      /*printf("%i index_to_g %i: %i %i %i\n", my_process, own_index,
+             my_fft_grid->index_to_g[own_index][0],
+             my_fft_grid->index_to_g[own_index][1],
+             my_fft_grid->index_to_g[own_index][2]);*/
+      my_fft_grid->local_index_to_ref_grid[own_index] = ref_index;
+      own_index++;
+    } else {
+      /*printf("%i not on new grid: %i %i %i\n", my_process,
+             fft_grid_ref->index_to_g[ref_index][0],
+             fft_grid_ref->index_to_g[ref_index][1],
+             fft_grid_ref->index_to_g[ref_index][2]);*/
+    }
+  }
+  /*printf("%i assigned points %i/%i (%i %i %i/%i %i %i: %i)\n", my_process,
+         own_index, my_fft_grid->npts_gs_local, npts_global[0], npts_global[1],
+         npts_global[2], fft_grid_ref->npts_global[0],
+         fft_grid_ref->npts_global[1], fft_grid_ref->npts_global[2],
+         number_of_processes);
+  fflush(stdout);
+  grid_mpi_barrier(my_fft_grid->comm);*/
+  assert(own_index == my_fft_grid->npts_gs_local);
+
+  // Check uniqueness of all grid points
+  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
+    for (int dir = 0; dir < 3; dir++) {
+      assert(my_fft_grid->index_to_g[index][dir] >= 0);
+      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
+    }
+    bool is_unique_vector = true;
+    for (int index2 = 0; index2 < index; index2++) {
+      bool vectors_are_identical = true;
+      for (int dir = 0; dir < 3; dir++) {
+        vectors_are_identical =
+            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
+                                      my_fft_grid->index_to_g[index2][dir]);
+      }
+      if (vectors_are_identical) {
+        printf("%i non-unique g vector: %i\n", my_process, index);
+        fflush(stdout);
+        is_unique_vector = false;
+        break;
+      }
+    }
+    assert(is_unique_vector);
+  }
 
   sort_g_vectors(my_fft_grid);
 
+  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
+    for (int dir = 0; dir < 3; dir++) {
+      assert(my_fft_grid->index_to_g[index][dir] >= 0);
+      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
+    }
+    bool is_unique_vector = true;
+    for (int index2 = 0; index2 < index; index2++) {
+      bool vectors_are_identical = true;
+      for (int dir = 0; dir < 3; dir++) {
+        vectors_are_identical =
+            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
+                                      my_fft_grid->index_to_g[index2][dir]);
+      }
+      if (vectors_are_identical) {
+        printf("%i non-unique g vector: %i\n", my_process, index);
+        fflush(stdout);
+        is_unique_vector = false;
+        break;
+      }
+    }
+    assert(is_unique_vector);
+  }
+
   *fft_grid = my_fft_grid;
+}
+
+/*******************************************************************************
+ * \brief Add one grid to another one in reciprocal space.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_add_to_fine_grid(const grid_fft_grid *coarse_grid,
+                           const grid_fft_grid *fine_grid) {
+  assert(coarse_grid != NULL);
+  assert(fine_grid != NULL);
+  for (int index = 0; index < coarse_grid->npts_gs_local; index++) {
+    const int ref_index = coarse_grid->local_index_to_ref_grid[index];
+    fine_grid->grid_gs[ref_index] += coarse_grid->grid_gs[index];
+  }
+}
+
+/*******************************************************************************
+ * \brief Copy fine grid to coarse grid in reciprocal space
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_copy_to_coarse_grid(const grid_fft_grid *fine_grid,
+                              const grid_fft_grid *coarse_grid) {
+  assert(fine_grid != NULL);
+  assert(coarse_grid != NULL);
+  for (int index = 0; index < coarse_grid->npts_gs_local; index++) {
+    const int ref_index = coarse_grid->local_index_to_ref_grid[index];
+    coarse_grid->grid_gs[index] = fine_grid->grid_gs[ref_index];
+  }
 }
 
 // EOF
