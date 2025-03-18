@@ -898,4 +898,39 @@ int fft_test_3d() {
   return errors;
 }
 
+int fft_test_add_copy_low(const int npts_global_fine[3],
+                          const int npts_global_coarse[3]) {
+  const grid_mpi_comm comm = grid_mpi_comm_world;
+  const double dh_inv[3][3] = {
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+
+  grid_fft_grid *fft_grid_fine = NULL;
+  grid_create_fft_grid(&fft_grid_fine, comm, npts_global_fine, dh_inv);
+
+  grid_fft_grid *fft_grid_coarse = NULL;
+  grid_create_fft_grid_from_reference(&fft_grid_coarse, npts_global_coarse,
+                                      fft_grid_fine);
+
+  int errors = 0;
+
+  grid_free_fft_grid(fft_grid_fine);
+  grid_free_fft_grid(fft_grid_coarse);
+
+  return errors;
+}
+
+/*******************************************************************************
+ * \brief Function to test the addition/copy between different grids.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_add_copy() {
+  int errors = 0;
+
+  const int npts_globals[][3] = {{2, 4, 8}, {2, 3, 5}};
+
+  errors += fft_test_add_copy_low(npts_globals[0], npts_globals[1]);
+
+  return errors;
+}
+
 // EOF

@@ -104,6 +104,7 @@ int main(int argc, char *argv[]) {
   errors += fft_test_transpose();
   errors += fft_test_transpose_parallel();
   errors += fft_test_3d();
+  errors += fft_test_add_copy();
 
   errors += multigrid_test();
 

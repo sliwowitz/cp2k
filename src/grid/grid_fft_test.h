@@ -31,6 +31,12 @@ int fft_test_transpose_parallel();
  ******************************************************************************/
 int fft_test_3d();
 
+/*******************************************************************************
+ * \brief Function to test the addition/copy between different grids.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_add_copy();
+
 #endif /* GRID_FFT_TEST_H */
 
 // EOF
