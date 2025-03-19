@@ -139,10 +139,8 @@ void grid_free_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
       free(fft_grid->proc2local_rs);
       free(fft_grid->proc2local_ms);
       free(fft_grid->proc2local_gs);
-      free(fft_grid->grid_rs);
-      free(fft_grid->grid_rs_complex);
-      free(fft_grid->grid_ms);
-      free(fft_grid->grid_gs);
+      free(fft_grid->buffer_1);
+      free(fft_grid->buffer_2);
       free(fft_grid->yz_to_process);
       free(fft_grid->ray_to_yz);
       free(fft_grid->rays_per_process);
@@ -239,40 +237,6 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
         (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
   }
 
-  my_fft_grid->grid_rs =
-      calloc((my_fft_grid->proc2local_rs[my_process][0][1] -
-              my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][1][1] -
-                  my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][2][1] -
-                  my_fft_grid->proc2local_rs[my_process][2][0] + 1),
-             sizeof(double));
-
-  my_fft_grid->grid_rs_complex =
-      calloc((my_fft_grid->proc2local_rs[my_process][0][1] -
-              my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][1][1] -
-                  my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][2][1] -
-                  my_fft_grid->proc2local_rs[my_process][2][0] + 1),
-             sizeof(double complex));
-  my_fft_grid->grid_ms =
-      calloc((my_fft_grid->proc2local_ms[my_process][0][1] -
-              my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_ms[my_process][1][1] -
-                  my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_ms[my_process][2][1] -
-                  my_fft_grid->proc2local_ms[my_process][2][0] + 1),
-             sizeof(double complex));
-  my_fft_grid->grid_gs =
-      calloc((my_fft_grid->proc2local_gs[my_process][0][1] -
-              my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_gs[my_process][1][1] -
-                  my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_gs[my_process][2][1] -
-                  my_fft_grid->proc2local_gs[my_process][2][0] + 1),
-             sizeof(double complex));
-
   my_fft_grid->ray_distribution = false;
   my_fft_grid->npts_gs_local =
       (my_fft_grid->proc2local_gs[my_process][0][1] -
@@ -281,6 +245,34 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
        my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
       (my_fft_grid->proc2local_gs[my_process][2][1] -
        my_fft_grid->proc2local_gs[my_process][2][0] + 1);
+
+  // Determine the maximum buffer size
+  int buffer_size = 0;
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_rs[my_process][0][1] -
+                         my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_rs[my_process][1][1] -
+                             my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_rs[my_process][2][1] -
+                             my_fft_grid->proc2local_rs[my_process][2][0] + 1));
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_ms[my_process][0][1] -
+                         my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_ms[my_process][1][1] -
+                             my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_ms[my_process][2][1] -
+                             my_fft_grid->proc2local_ms[my_process][2][0] + 1));
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_gs[my_process][0][1] -
+                         my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_gs[my_process][1][1] -
+                             my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_gs[my_process][2][1] -
+                             my_fft_grid->proc2local_gs[my_process][2][0] + 1));
+  buffer_size = imax(buffer_size, my_fft_grid->npts_gs_local);
+  // Allocate the buffers
+  my_fft_grid->buffer_1 = calloc(buffer_size, sizeof(double complex));
+  my_fft_grid->buffer_2 = calloc(buffer_size, sizeof(double complex));
 
   my_fft_grid->yz_to_process = NULL;
   my_fft_grid->ray_to_yz = NULL;
@@ -303,12 +295,7 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
                   my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
                  (my_fft_grid->proc2local_gs[my_process][1][1] -
                   my_fft_grid->proc2local_gs[my_process][1][0] + 1));
-    /*printf("%i index_to_g %i: %i %i %i\n", my_process, index,
-           my_fft_grid->index_to_g[index][0], my_fft_grid->index_to_g[index][1],
-           my_fft_grid->index_to_g[index][2]);*/
   }
-  // fflush(stdout);
-  // grid_mpi_barrier(comm);
 
   my_fft_grid->local_index_to_ref_grid =
       calloc(my_fft_grid->npts_gs_local, sizeof(int));
@@ -464,32 +451,6 @@ void grid_create_fft_grid_layout_from_reference(
         (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
   }
 
-  my_fft_grid->grid_rs =
-      calloc((my_fft_grid->proc2local_rs[my_process][0][1] -
-              my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][1][1] -
-                  my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][2][1] -
-                  my_fft_grid->proc2local_rs[my_process][2][0] + 1),
-             sizeof(double));
-
-  my_fft_grid->grid_rs_complex =
-      calloc((my_fft_grid->proc2local_rs[my_process][0][1] -
-              my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][1][1] -
-                  my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_rs[my_process][2][1] -
-                  my_fft_grid->proc2local_rs[my_process][2][0] + 1),
-             sizeof(double complex));
-  my_fft_grid->grid_ms =
-      calloc((my_fft_grid->proc2local_ms[my_process][0][1] -
-              my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
-                 (my_fft_grid->proc2local_ms[my_process][1][1] -
-                  my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
-                 (my_fft_grid->proc2local_ms[my_process][2][1] -
-                  my_fft_grid->proc2local_ms[my_process][2][0] + 1),
-             sizeof(double complex));
-
   my_fft_grid->ray_distribution = true;
 
   // Assign the (yz)-rays of the reference grid which are also on the current
@@ -539,6 +500,34 @@ void grid_create_fft_grid_layout_from_reference(
   my_fft_grid->npts_gs_local =
       npts_global[0] * my_fft_grid->rays_per_process[my_process];
 
+  // Determine the maximum buffer size
+  int buffer_size = 0;
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_rs[my_process][0][1] -
+                         my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_rs[my_process][1][1] -
+                             my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_rs[my_process][2][1] -
+                             my_fft_grid->proc2local_rs[my_process][2][0] + 1));
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_ms[my_process][0][1] -
+                         my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_ms[my_process][1][1] -
+                             my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_ms[my_process][2][1] -
+                             my_fft_grid->proc2local_ms[my_process][2][0] + 1));
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_gs[my_process][0][1] -
+                         my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_gs[my_process][1][1] -
+                             my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_gs[my_process][2][1] -
+                             my_fft_grid->proc2local_gs[my_process][2][0] + 1));
+  buffer_size = imax(buffer_size, my_fft_grid->npts_gs_local);
+  // Allocate the buffers
+  my_fft_grid->buffer_1 = calloc(buffer_size, sizeof(double complex));
+  my_fft_grid->buffer_2 = calloc(buffer_size, sizeof(double complex));
+
   int *ray_offsets = calloc(number_of_processes, sizeof(int));
   int *ray_index_per_process = calloc(number_of_processes, sizeof(int));
   for (int process = 1; process < number_of_processes; process++) {
@@ -563,8 +552,6 @@ void grid_create_fft_grid_layout_from_reference(
       continue;
     const int index_y_new =
         convert_shifted_index_to_c_index(index_y_shifted, npts_global[1]);
-    assert(index_y_new >= 0);
-    assert(index_y_new < npts_global[1]);
     for (int index_z = 0; index_z < fft_grid_ref->npts_global[2]; index_z++) {
       const int index_z_shifted = convert_c_index_to_shifted_index(
           index_z, fft_grid_ref->npts_global[2]);
@@ -573,32 +560,16 @@ void grid_create_fft_grid_layout_from_reference(
         continue;
       const int index_z_new =
           convert_shifted_index_to_c_index(index_z_shifted, npts_global[2]);
-      assert(index_z_new >= 0);
-      assert(index_z_new < npts_global[2]);
       const int current_process =
           my_fft_grid
               ->yz_to_process[index_y_new * npts_global[2] + index_z_new];
-      assert(current_process >= 0);
       const int current_ray_index = ray_index_per_process[current_process];
-      assert(current_ray_index <
-             my_fft_grid->rays_per_process[current_process]);
       const int current_ray_offset = ray_offsets[current_process];
-      assert(current_ray_offset < total_number_of_rays);
-      assert(current_ray_index <
-             my_fft_grid->rays_per_process[current_process]);
-      assert(current_ray_offset + current_ray_index >= 0);
-      assert(current_ray_offset + current_ray_index < total_number_of_rays);
-      assert(my_fft_grid->ray_to_yz[current_ray_offset + current_ray_index][0] <
-             0);
       my_fft_grid->ray_to_yz[current_ray_offset + current_ray_index][0] =
           index_y_new;
-      assert(my_fft_grid->ray_to_yz[current_ray_offset + current_ray_index][1] <
-             0);
       my_fft_grid->ray_to_yz[current_ray_offset + current_ray_index][1] =
           index_z_new;
       ray_index_per_process[current_process]++;
-      assert(ray_index_per_process[current_process] <=
-             my_fft_grid->rays_per_process[current_process]);
     }
   }
   for (int process = 0; process < number_of_processes; process++) {
@@ -621,11 +592,6 @@ void grid_create_fft_grid_layout_from_reference(
 
   free(ray_offsets);
   free(ray_index_per_process);
-
-  // Here, they need a different size then in the blocked case as we will only
-  // carry the data from our local rays
-  my_fft_grid->grid_gs =
-      calloc(my_fft_grid->npts_gs_local, sizeof(double complex));
 
   my_fft_grid->index_to_g = calloc(my_fft_grid->npts_gs_local, sizeof(int[3]));
   // This grid is smaller in all directions such that all points of the new grid
@@ -656,26 +622,11 @@ void grid_create_fft_grid_layout_from_reference(
         my_fft_grid->index_to_g[own_index][dir] =
             convert_shifted_index_to_c_index(shifted_index, npts_global[dir]);
       }
-      /*printf("%i index_to_g %i: %i %i %i\n", my_process, own_index,
-             my_fft_grid->index_to_g[own_index][0],
-             my_fft_grid->index_to_g[own_index][1],
-             my_fft_grid->index_to_g[own_index][2]);*/
       my_fft_grid->local_index_to_ref_grid[own_index] = ref_index;
       own_index++;
     } else {
-      /*printf("%i not on new grid: %i %i %i\n", my_process,
-             fft_grid_ref->index_to_g[ref_index][0],
-             fft_grid_ref->index_to_g[ref_index][1],
-             fft_grid_ref->index_to_g[ref_index][2]);*/
     }
   }
-  /*printf("%i assigned points %i/%i (%i %i %i/%i %i %i: %i)\n", my_process,
-         own_index, my_fft_grid->npts_gs_local, npts_global[0], npts_global[1],
-         npts_global[2], fft_grid_ref->npts_global[0],
-         fft_grid_ref->npts_global[1], fft_grid_ref->npts_global[2],
-         number_of_processes);
-  fflush(stdout);
-  grid_mpi_barrier(my_fft_grid->comm);*/
   assert(own_index == my_fft_grid->npts_gs_local);
 
   // Check uniqueness of all grid points
@@ -743,13 +694,15 @@ void grid_retain_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
  * \brief Add one grid to another one in reciprocal space.
  * \author Frederick Stein
  ******************************************************************************/
-void grid_add_to_fine_grid(const grid_fft_grid_layout *coarse_grid,
-                           const grid_fft_grid_layout *fine_grid) {
+void grid_add_to_fine_grid(const grid_fft_complex_gs_grid *coarse_grid,
+                           const grid_fft_complex_gs_grid *fine_grid) {
   assert(coarse_grid != NULL);
   assert(fine_grid != NULL);
-  for (int index = 0; index < coarse_grid->npts_gs_local; index++) {
-    const int ref_index = coarse_grid->local_index_to_ref_grid[index];
-    fine_grid->grid_gs[ref_index] += coarse_grid->grid_gs[index];
+  for (int index = 0; index < coarse_grid->fft_grid_layout->npts_gs_local;
+       index++) {
+    const int ref_index =
+        coarse_grid->fft_grid_layout->local_index_to_ref_grid[index];
+    fine_grid->data[ref_index] += coarse_grid->data[index];
   }
 }
 
@@ -757,13 +710,15 @@ void grid_add_to_fine_grid(const grid_fft_grid_layout *coarse_grid,
  * \brief Copy fine grid to coarse grid in reciprocal space
  * \author Frederick Stein
  ******************************************************************************/
-void grid_copy_to_coarse_grid(const grid_fft_grid_layout *fine_grid,
-                              const grid_fft_grid_layout *coarse_grid) {
+void grid_copy_to_coarse_grid(const grid_fft_complex_gs_grid *fine_grid,
+                              const grid_fft_complex_gs_grid *coarse_grid) {
   assert(fine_grid != NULL);
   assert(coarse_grid != NULL);
-  for (int index = 0; index < coarse_grid->npts_gs_local; index++) {
-    const int ref_index = coarse_grid->local_index_to_ref_grid[index];
-    coarse_grid->grid_gs[index] = fine_grid->grid_gs[ref_index];
+  for (int index = 0; index < coarse_grid->fft_grid_layout->npts_gs_local;
+       index++) {
+    const int ref_index =
+        coarse_grid->fft_grid_layout->local_index_to_ref_grid[index];
+    coarse_grid->data[index] = fine_grid->data[ref_index];
   }
 }
 

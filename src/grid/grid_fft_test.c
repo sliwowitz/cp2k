@@ -212,8 +212,8 @@ double fft_test_transpose_ray(const int npts_global[3],
     for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {
       for (int index_z = 0; index_z < my_sizes_ms_ray[2]; index_z++) {
         fft_grid_ray_layout
-            ->grid_ms[index_x * my_sizes_ms_ray[1] * my_sizes_ms_ray[2] +
-                      index_z * my_sizes_ms_ray[1] + index_y] =
+            ->buffer_1[index_x * my_sizes_ms_ray[1] * my_sizes_ms_ray[2] +
+                       index_z * my_sizes_ms_ray[1] + index_y] =
             ((index_y + my_bounds_ms_ray[1][0]) *
                  fft_grid_ray_layout->npts_global[2] +
              (index_z + my_bounds_ms_ray[2][0])) +
@@ -223,7 +223,7 @@ double fft_test_transpose_ray(const int npts_global[3],
   }
 
   collect_x_and_distribute_y_ray(
-      fft_grid_ray_layout->grid_ms, fft_grid_ray_layout->grid_gs,
+      fft_grid_ray_layout->buffer_1, fft_grid_ray_layout->buffer_2,
       fft_grid_ray_layout->npts_global, fft_grid_ray_layout->proc2local_ms,
       fft_grid_ray_layout->yz_to_process, fft_grid_ray_layout->rays_per_process,
       fft_grid_ray_layout->ray_to_yz, fft_grid_ray_layout->comm);
@@ -242,9 +242,9 @@ double fft_test_transpose_ray(const int npts_global[3],
          index_x++) {
       const double complex my_value =
           fft_grid_ray_layout
-              ->grid_gs[index_x *
-                            fft_grid_ray_layout->rays_per_process[my_process] +
-                        yz_ray];
+              ->buffer_2[index_x *
+                             fft_grid_ray_layout->rays_per_process[my_process] +
+                         yz_ray];
       const double complex ref_value =
           (index_y * npts_global[2] + index_z) + I * index_x;
       double current_error = cabs(my_value - ref_value);
@@ -260,11 +260,11 @@ double fft_test_transpose_ray(const int npts_global[3],
     errors++;
   }
 
-  memset(fft_grid_ray_layout->grid_gs, 0,
+  memset(fft_grid_ray_layout->buffer_1, 0,
          fft_grid_ray_layout->npts_global[0] *
              fft_grid_ray_layout->rays_per_process[my_process] *
              sizeof(double complex));
-  memset(fft_grid_ray_layout->grid_ms, 0,
+  memset(fft_grid_ray_layout->buffer_2, 0,
          product3(my_sizes_ms_ray) * sizeof(double complex));
 
   for (int yz_ray = 0;
@@ -276,15 +276,15 @@ double fft_test_transpose_ray(const int npts_global[3],
     for (int index_x = 0; index_x < fft_grid_ray_layout->npts_global[0];
          index_x++) {
       fft_grid_ray_layout
-          ->grid_gs[index_x *
-                        fft_grid_ray_layout->rays_per_process[my_process] +
-                    yz_ray] =
+          ->buffer_1[index_x *
+                         fft_grid_ray_layout->rays_per_process[my_process] +
+                     yz_ray] =
           (index_y * fft_grid_ray_layout->npts_global[2] + index_z) +
           I * index_x;
     }
   }
   collect_y_and_distribute_x_ray(
-      fft_grid_ray_layout->grid_gs, fft_grid_ray_layout->grid_ms,
+      fft_grid_ray_layout->buffer_1, fft_grid_ray_layout->buffer_2,
       fft_grid_ray_layout->npts_global, fft_grid_ray_layout->yz_to_process,
       fft_grid_ray_layout->proc2local_ms, fft_grid_ray_layout->rays_per_process,
       fft_grid_ray_layout->ray_to_yz, fft_grid_ray_layout->comm);
@@ -300,8 +300,8 @@ double fft_test_transpose_ray(const int npts_global[3],
         for (int index_x = 0; index_x < my_sizes_ms_ray[0]; index_x++) {
           const double complex my_value =
               fft_grid_ray_layout
-                  ->grid_ms[index_x * my_sizes_ms_ray[1] * my_sizes_ms_ray[2] +
-                            index_z * my_sizes_ms_ray[1] + index_y];
+                  ->buffer_2[index_x * my_sizes_ms_ray[1] * my_sizes_ms_ray[2] +
+                             index_z * my_sizes_ms_ray[1] + index_y];
           const double complex ref_value =
               ((index_y + my_bounds_ms_ray[1][0]) *
                    fft_grid_ray_layout->npts_global[2] +
@@ -315,10 +315,10 @@ double fft_test_transpose_ray(const int npts_global[3],
              index_x++) {
           const double complex my_value =
               fft_grid_ray_layout
-                  ->grid_ms[index_x * fft_grid_ray_layout->npts_global[1] *
-                                fft_grid_ray_layout->npts_global[2] +
-                            index_z * fft_grid_ray_layout->npts_global[1] +
-                            index_y];
+                  ->buffer_2[index_x * fft_grid_ray_layout->npts_global[1] *
+                                 fft_grid_ray_layout->npts_global[2] +
+                             index_z * fft_grid_ray_layout->npts_global[1] +
+                             index_y];
           // The value is assumed to be zero if absent
           const double complex ref_value = 0.0;
           double current_error = cabs(my_value - ref_value);
@@ -385,8 +385,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   for (int nx = 0; nx < my_sizes_rs[0]; nx++) {
     for (int ny = 0; ny < my_sizes_rs[1]; ny++) {
       for (int nz = 0; nz < my_sizes_rs[2]; nz++) {
-        fft_grid_layout->grid_rs_complex[ny * my_sizes_rs[0] * my_sizes_rs[2] +
-                                         nx * my_sizes_rs[2] + nz] =
+        fft_grid_layout->buffer_1[ny * my_sizes_rs[0] * my_sizes_rs[2] +
+                                  nx * my_sizes_rs[2] + nz] =
             ((nx + my_bounds_rs[0][0]) * npts_global[1] +
              (ny + my_bounds_rs[1][0])) +
             I * (nz + my_bounds_rs[2][0]);
@@ -395,7 +395,7 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   }
 
   collect_y_and_distribute_z_blocked(
-      fft_grid_layout->grid_rs_complex, fft_grid_layout->grid_ms, npts_global,
+      fft_grid_layout->buffer_1, fft_grid_layout->buffer_2, npts_global,
       fft_grid_layout->proc2local_rs, fft_grid_layout->proc2local_ms,
       fft_grid_layout->comm);
 
@@ -403,8 +403,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
       for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
         const double complex my_value =
-            fft_grid_layout->grid_ms[ny * my_sizes_ms[0] * my_sizes_ms[2] +
-                                     nx * my_sizes_ms[2] + nz];
+            fft_grid_layout->buffer_2[ny * my_sizes_ms[0] * my_sizes_ms[2] +
+                                      nx * my_sizes_ms[2] + nz];
         const double complex ref_value =
             ((nx + my_bounds_ms[0][0]) * npts_global[1] +
              (ny + my_bounds_ms[1][0])) +
@@ -427,20 +427,20 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
       for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
-        fft_grid_layout->grid_ms[ny * my_sizes_ms[0] * my_sizes_ms[2] +
-                                 nx * my_sizes_ms[2] + nz] =
+        fft_grid_layout->buffer_2[ny * my_sizes_ms[0] * my_sizes_ms[2] +
+                                  nx * my_sizes_ms[2] + nz] =
             ((nx + my_bounds_ms[0][0]) * npts_global[1] +
              (ny + my_bounds_ms[1][0])) +
             I * (nz + my_bounds_ms[2][0]);
       }
     }
   }
-  memset(fft_grid_layout->grid_rs_complex, 0,
+  memset(fft_grid_layout->buffer_1, 0,
          my_number_of_elements_rs * sizeof(double complex));
 
   // Check the reverse direction
   collect_z_and_distribute_y_blocked(
-      fft_grid_layout->grid_ms, fft_grid_layout->grid_rs_complex, npts_global,
+      fft_grid_layout->buffer_2, fft_grid_layout->buffer_1, npts_global,
       fft_grid_layout->proc2local_ms, fft_grid_layout->proc2local_rs,
       fft_grid_layout->comm);
 
@@ -450,9 +450,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     for (int ny = 0; ny < my_sizes_rs[1]; ny++) {
       for (int nz = 0; nz < my_sizes_rs[2]; nz++) {
         const double complex my_value =
-            fft_grid_layout
-                ->grid_rs_complex[ny * my_sizes_rs[0] * my_sizes_rs[2] +
-                                  nx * my_sizes_rs[2] + nz];
+            fft_grid_layout->buffer_1[ny * my_sizes_rs[0] * my_sizes_rs[2] +
+                                      nx * my_sizes_rs[2] + nz];
         const double complex ref_value =
             ((nx + my_bounds_rs[0][0]) * npts_global[1] +
              (ny + my_bounds_rs[1][0])) +
@@ -475,8 +474,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
       for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
-        fft_grid_layout->grid_ms[nx * my_sizes_ms[1] * my_sizes_ms[2] +
-                                 nz * my_sizes_ms[1] + ny] =
+        fft_grid_layout->buffer_1[nx * my_sizes_ms[1] * my_sizes_ms[2] +
+                                  nz * my_sizes_ms[1] + ny] =
             ((nx + my_bounds_ms[0][0]) * npts_global[1] +
              (ny + my_bounds_ms[1][0])) +
             I * (nz + my_bounds_ms[2][0]);
@@ -486,7 +485,7 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
 
   // Check the MS/GS direction
   collect_y_and_distribute_x_blocked(
-      fft_grid_layout->grid_ms, fft_grid_layout->grid_gs, npts_global,
+      fft_grid_layout->buffer_1, fft_grid_layout->buffer_2, npts_global,
       fft_grid_layout->proc2local_ms, fft_grid_layout->proc2local_gs,
       fft_grid_layout->comm);
 
@@ -496,8 +495,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     for (int ny = 0; ny < my_sizes_gs[1]; ny++) {
       for (int nz = 0; nz < my_sizes_gs[2]; nz++) {
         const double complex my_value =
-            fft_grid_layout->grid_gs[nx * my_sizes_gs[1] * my_sizes_gs[2] +
-                                     nz * my_sizes_gs[1] + ny];
+            fft_grid_layout->buffer_2[nx * my_sizes_gs[1] * my_sizes_gs[2] +
+                                      nz * my_sizes_gs[1] + ny];
         const double complex ref_value =
             ((nx + my_bounds_gs[0][0]) * npts_global[1] +
              (ny + my_bounds_gs[1][0])) +
@@ -520,19 +519,19 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   for (int nx = 0; nx < my_sizes_gs[0]; nx++) {
     for (int ny = 0; ny < my_sizes_gs[1]; ny++) {
       for (int nz = 0; nz < my_sizes_gs[2]; nz++) {
-        fft_grid_layout->grid_gs[nx * my_sizes_gs[1] * my_sizes_gs[2] +
-                                 nz * my_sizes_gs[1] + ny] =
+        fft_grid_layout->buffer_1[nx * my_sizes_gs[1] * my_sizes_gs[2] +
+                                  nz * my_sizes_gs[1] + ny] =
             ((nx + my_bounds_gs[0][0]) * npts_global[1] +
              (ny + my_bounds_gs[1][0])) +
             I * (nz + my_bounds_gs[2][0]);
       }
     }
   }
-  memset(fft_grid_layout->grid_ms, 0, my_number_of_elements_ms);
+  memset(fft_grid_layout->buffer_2, 0, my_number_of_elements_ms);
 
   // Check the MS/GS direction
   collect_y_and_distribute_x_blocked(
-      fft_grid_layout->grid_gs, fft_grid_layout->grid_ms, npts_global,
+      fft_grid_layout->buffer_1, fft_grid_layout->buffer_2, npts_global,
       fft_grid_layout->proc2local_gs, fft_grid_layout->proc2local_ms,
       fft_grid_layout->comm);
 
@@ -542,8 +541,8 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {
       for (int nz = 0; nz < my_sizes_ms[2]; nz++) {
         const double complex my_value =
-            fft_grid_layout->grid_ms[nx * my_sizes_ms[1] * my_sizes_ms[2] +
-                                     nz * my_sizes_ms[1] + ny];
+            fft_grid_layout->buffer_2[nx * my_sizes_ms[1] * my_sizes_ms[2] +
+                                      nz * my_sizes_ms[1] + ny];
         const double complex ref_value =
             ((nx + my_bounds_ms[0][0]) * npts_global[1] +
              (ny + my_bounds_ms[1][0])) +
@@ -645,19 +644,19 @@ int fft_test_3d_blocked(const int npts_global[3]) {
   for (int nx = 0; nx < npts_global[0]; nx++) {
     for (int ny = 0; ny < npts_global[1]; ny++) {
       for (int nz = 0; nz < npts_global[2]; nz++) {
-        memset(fft_grid_layout->grid_rs, 0,
-               my_number_of_elements_rs * sizeof(double));
+        double *buffer_1_real = (double *)fft_grid_layout->buffer_1;
+        memset(buffer_1_real, 0, my_number_of_elements_rs * sizeof(double));
 
         if (nx >= my_bounds_rs[0][0] && nx <= my_bounds_rs[0][1] &&
             ny >= my_bounds_rs[1][0] && ny <= my_bounds_rs[1][1] &&
             nz >= my_bounds_rs[2][0] && nz <= my_bounds_rs[2][1])
-          fft_grid_layout->grid_rs[(nz - my_bounds_rs[2][0]) * my_sizes_rs[0] *
-                                       my_sizes_rs[1] +
-                                   (ny - my_bounds_rs[1][0]) * my_sizes_rs[0] +
-                                   (nx - my_bounds_rs[0][0])] = 1.0;
+          buffer_1_real[(nz - my_bounds_rs[2][0]) * my_sizes_rs[0] *
+                            my_sizes_rs[1] +
+                        (ny - my_bounds_rs[1][0]) * my_sizes_rs[0] +
+                        (nx - my_bounds_rs[0][0])] = 1.0;
 
         fft_3d_fw_blocked(
-            fft_grid_layout->grid_rs, fft_grid_layout->grid_gs,
+            buffer_1_real, fft_grid_layout->buffer_2,
             fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
             fft_grid_layout->proc2local_ms, fft_grid_layout->proc2local_gs,
             fft_grid_layout->comm);
@@ -667,8 +666,8 @@ int fft_test_3d_blocked(const int npts_global[3]) {
             for (int mz = 0; mz < my_sizes_gs[2]; mz++) {
               const double complex my_value =
                   fft_grid_layout
-                      ->grid_gs[mz * my_sizes_gs[0] * my_sizes_gs[1] +
-                                my * my_sizes_gs[0] + mx];
+                      ->buffer_2[mz * my_sizes_gs[0] * my_sizes_gs[1] +
+                                 my * my_sizes_gs[0] + mx];
               const double complex ref_value = cexp(
                   -2.0 * I * pi *
                   (((double)mx + my_bounds_gs[0][0]) * nx / npts_global[0] +
@@ -742,24 +741,26 @@ int fft_test_3d_blocked(const int npts_global[3]) {
     errors++;
   }
 
+  double *buffer_1_real = (double *)fft_grid_layout->buffer_1;
+
   // Check backwards 3D FFTs
   max_error = 0.0;
   for (int nx = 0; nx < npts_global[0]; nx++) {
     for (int ny = 0; ny < npts_global[1]; ny++) {
       for (int nz = 0; nz < npts_global[2]; nz++) {
-        memset(fft_grid_layout->grid_gs, 0,
+        memset(fft_grid_layout->buffer_2, 0,
                my_number_of_elements_gs * sizeof(double complex));
 
         if (nx >= my_bounds_gs[0][0] && nx <= my_bounds_gs[0][1] &&
             ny >= my_bounds_gs[1][0] && ny <= my_bounds_gs[1][1] &&
             nz >= my_bounds_gs[2][0] && nz <= my_bounds_gs[2][1])
-          fft_grid_layout->grid_gs[(nz - my_bounds_gs[2][0]) * my_sizes_gs[0] *
-                                       my_sizes_gs[1] +
-                                   (ny - my_bounds_gs[1][0]) * my_sizes_gs[0] +
-                                   (nx - my_bounds_gs[0][0])] = 1.0;
+          fft_grid_layout->buffer_2[(nz - my_bounds_gs[2][0]) * my_sizes_gs[0] *
+                                        my_sizes_gs[1] +
+                                    (ny - my_bounds_gs[1][0]) * my_sizes_gs[0] +
+                                    (nx - my_bounds_gs[0][0])] = 1.0;
 
         fft_3d_bw_blocked(
-            fft_grid_layout->grid_gs, fft_grid_layout->grid_rs,
+            fft_grid_layout->buffer_2, buffer_1_real,
             fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
             fft_grid_layout->proc2local_ms, fft_grid_layout->proc2local_gs,
             fft_grid_layout->comm);
@@ -768,8 +769,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
           for (int my = 0; my < my_sizes_rs[1]; my++) {
             for (int mz = 0; mz < my_sizes_rs[2]; mz++) {
               const double my_value =
-                  fft_grid_layout
-                      ->grid_rs[mz * my_sizes_rs[0] * my_sizes_rs[1] +
+                  buffer_1_real[mz * my_sizes_rs[0] * my_sizes_rs[1] +
                                 my * my_sizes_rs[0] + mx];
               const double ref_value = cos(
                   2.0 * pi *
@@ -886,24 +886,25 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
   for (int process = 0; process < my_process; process++)
     my_ray_offset += fft_grid_layout->rays_per_process[process];
 
+  double *buffer_1_real = (double *)fft_grid_layout->buffer_1;
+
   // Check forward 3D FFTs
   double max_error = 0.0;
   for (int nx = 0; nx < npts_global[0]; nx++) {
     for (int ny = 0; ny < npts_global[1]; ny++) {
       for (int nz = 0; nz < npts_global[2]; nz++) {
-        memset(fft_grid_layout->grid_rs, 0,
-               my_number_of_elements_rs * sizeof(double));
+        memset(buffer_1_real, 0, my_number_of_elements_rs * sizeof(double));
 
         if (nx >= my_bounds_rs[0][0] && nx <= my_bounds_rs[0][1] &&
             ny >= my_bounds_rs[1][0] && ny <= my_bounds_rs[1][1] &&
             nz >= my_bounds_rs[2][0] && nz <= my_bounds_rs[2][1])
-          fft_grid_layout->grid_rs[(nz - my_bounds_rs[2][0]) * my_sizes_rs[0] *
-                                       my_sizes_rs[1] +
-                                   (ny - my_bounds_rs[1][0]) * my_sizes_rs[0] +
-                                   (nx - my_bounds_rs[0][0])] = 1.0;
+          buffer_1_real[(nz - my_bounds_rs[2][0]) * my_sizes_rs[0] *
+                            my_sizes_rs[1] +
+                        (ny - my_bounds_rs[1][0]) * my_sizes_rs[0] +
+                        (nx - my_bounds_rs[0][0])] = 1.0;
 
         fft_3d_fw_ray(
-            fft_grid_layout->grid_rs, fft_grid_layout->grid_gs,
+            buffer_1_real, fft_grid_layout->buffer_2,
             fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
             fft_grid_layout->proc2local_ms, fft_grid_layout->yz_to_process,
             fft_grid_layout->rays_per_process, fft_grid_layout->ray_to_yz,
@@ -918,7 +919,7 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
             const int index_z =
                 fft_grid_layout->ray_to_yz[my_ray_offset + yz_ray][1];
             const double complex my_value =
-                fft_grid_layout->grid_gs[yz_ray * npts_global[0] + index_x];
+                fft_grid_layout->buffer_2[yz_ray * npts_global[0] + index_x];
             const double complex ref_value =
                 cexp(-2.0 * I * pi *
                      (((double)index_x) * nx / npts_global[0] +
@@ -951,17 +952,17 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
     for (int nyz = 0; nyz < total_number_of_gs_elements; nyz++) {
       const int ny = fft_grid_layout->ray_to_yz[nyz][0];
       const int nz = fft_grid_layout->ray_to_yz[nyz][1];
-      memset(fft_grid_layout->grid_gs, 0,
+      memset(fft_grid_layout->buffer_2, 0,
              my_number_of_elements_gs * sizeof(double complex));
 
       if (nyz >= my_ray_offset &&
           nyz < my_ray_offset + fft_grid_layout->rays_per_process[my_process]) {
-        fft_grid_layout->grid_gs[(nyz - my_ray_offset) * npts_global[0] + nx] =
+        fft_grid_layout->buffer_2[(nyz - my_ray_offset) * npts_global[0] + nx] =
             1.0;
       }
 
       fft_3d_bw_ray(
-          fft_grid_layout->grid_gs, fft_grid_layout->grid_rs,
+          fft_grid_layout->buffer_2, buffer_1_real,
           fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
           fft_grid_layout->proc2local_ms, fft_grid_layout->yz_to_process,
           fft_grid_layout->rays_per_process, fft_grid_layout->ray_to_yz,
@@ -971,8 +972,8 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
         for (int my = 0; my < my_sizes_rs[1]; my++) {
           for (int mz = 0; mz < my_sizes_rs[2]; mz++) {
             const double my_value =
-                fft_grid_layout->grid_rs[mz * my_sizes_rs[0] * my_sizes_rs[1] +
-                                         my * my_sizes_rs[0] + mx];
+                buffer_1_real[mz * my_sizes_rs[0] * my_sizes_rs[1] +
+                              my * my_sizes_rs[0] + mx];
             const double ref_value =
                 cos(2.0 * pi *
                     (((double)mx + my_bounds_rs[0][0]) * nx / npts_global[0] +

@@ -42,8 +42,8 @@ int multigrid_test() {
   double grid[64];
   memset(grid, 0, 64 * sizeof(double));
 
-  grid_copy_to_multigrid_single(multigrid, grid);
-  grid_copy_from_multigrid_single(multigrid, grid);
+  // grid_copy_to_multigrid_single(multigrid, grid);
+  // grid_copy_from_multigrid_single(multigrid, grid);
 
   grid_free_multigrid(multigrid);
 

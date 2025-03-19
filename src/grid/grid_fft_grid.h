@@ -51,11 +51,9 @@ typedef struct {
   int (*proc2local_rs)[3][2]; // Order: (x, y, z)
   int (*proc2local_ms)[3][2]; // Order: (z, x, y)
   int (*proc2local_gs)[3][2]; // Order: (y, z, x)
-  // Actual data
-  double *grid_rs;
-  double complex *grid_rs_complex;
-  double complex *grid_ms;
-  double complex *grid_gs;
+  // Buffers for FFTs
+  double complex *buffer_1;
+  double complex *buffer_2;
   // buffers for different purposes
 } grid_fft_grid_layout;
 
