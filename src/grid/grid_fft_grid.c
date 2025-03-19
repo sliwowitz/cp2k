@@ -7,6 +7,7 @@
 
 #include "grid_fft_grid.h"
 #include "common/grid_common.h"
+#include "grid_fft_lib.h"
 
 #include <assert.h>
 #include <math.h>
@@ -139,8 +140,8 @@ void grid_free_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
       free(fft_grid->proc2local_rs);
       free(fft_grid->proc2local_ms);
       free(fft_grid->proc2local_gs);
-      free(fft_grid->buffer_1);
-      free(fft_grid->buffer_2);
+      fft_free_complex(fft_grid->buffer_1);
+      fft_free_complex(fft_grid->buffer_2);
       free(fft_grid->yz_to_process);
       free(fft_grid->ray_to_yz);
       free(fft_grid->rays_per_process);
@@ -271,8 +272,10 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
                              my_fft_grid->proc2local_gs[my_process][2][0] + 1));
   buffer_size = imax(buffer_size, my_fft_grid->npts_gs_local);
   // Allocate the buffers
-  my_fft_grid->buffer_1 = calloc(buffer_size, sizeof(double complex));
-  my_fft_grid->buffer_2 = calloc(buffer_size, sizeof(double complex));
+  my_fft_grid->buffer_1 = NULL;
+  my_fft_grid->buffer_2 = NULL;
+  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_1);
+  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_2);
 
   my_fft_grid->yz_to_process = NULL;
   my_fft_grid->ray_to_yz = NULL;
@@ -525,8 +528,10 @@ void grid_create_fft_grid_layout_from_reference(
                              my_fft_grid->proc2local_gs[my_process][2][0] + 1));
   buffer_size = imax(buffer_size, my_fft_grid->npts_gs_local);
   // Allocate the buffers
-  my_fft_grid->buffer_1 = calloc(buffer_size, sizeof(double complex));
-  my_fft_grid->buffer_2 = calloc(buffer_size, sizeof(double complex));
+  my_fft_grid->buffer_1 = NULL;
+  my_fft_grid->buffer_2 = NULL;
+  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_1);
+  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_2);
 
   int *ray_offsets = calloc(number_of_processes, sizeof(int));
   int *ray_index_per_process = calloc(number_of_processes, sizeof(int));
@@ -737,7 +742,8 @@ void grid_create_real_rs_grid(grid_fft_real_rs_grid *grid,
   for (int dir = 0; dir < 3; dir++) {
     number_of_elements *= my_bounds[dir][1] - my_bounds[dir][0] + 1;
   }
-  grid->data = calloc(number_of_elements, sizeof(double));
+  grid->data = NULL;
+  fft_allocate_double(number_of_elements, &grid->data);
 }
 
 /*******************************************************************************
@@ -749,7 +755,8 @@ void grid_create_complex_gs_grid(grid_fft_complex_gs_grid *grid,
   assert(grid != NULL);
   grid->fft_grid_layout = grid_layout;
   grid_retain_fft_grid_layout(grid_layout);
-  grid->data = calloc(grid_layout->npts_gs_local, sizeof(double complex));
+  grid->data = NULL;
+  fft_allocate_complex(grid_layout->npts_gs_local, &grid->data);
 }
 
 /*******************************************************************************
@@ -758,7 +765,7 @@ void grid_create_complex_gs_grid(grid_fft_complex_gs_grid *grid,
  ******************************************************************************/
 void grid_free_real_rs_grid(grid_fft_real_rs_grid *grid) {
   if (grid != NULL) {
-    free(grid->data);
+    fft_free_double(grid->data);
     grid_free_fft_grid_layout(grid->fft_grid_layout);
   }
 }
@@ -769,7 +776,7 @@ void grid_free_real_rs_grid(grid_fft_real_rs_grid *grid) {
  ******************************************************************************/
 void grid_free_complex_gs_grid(grid_fft_complex_gs_grid *grid) {
   if (grid != NULL) {
-    free(grid->data);
+    fft_free_complex(grid->data);
     grid_free_fft_grid_layout(grid->fft_grid_layout);
   }
 }

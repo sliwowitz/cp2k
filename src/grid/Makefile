@@ -21,6 +21,7 @@ ALL_OBJECTS := ../offload/offload_buffer.o \
         grid_fft.o \
         grid_fft_test.o \
         grid_fft_grid.o \
+        grid_fft_lib.o \
         common/grid_library.o \
         common/grid_mpi.o \
         common/grid_basis_set.o \
