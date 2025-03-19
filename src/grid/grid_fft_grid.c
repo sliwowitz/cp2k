@@ -164,7 +164,13 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
   }
   my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
 
+  my_fft_grid->grid_id = current_grid_id;
+  my_fft_grid->ref_grid_id = current_grid_id;
+  current_grid_id++;
+  my_fft_grid->ref_counter = 1;
+
   const int number_of_processes = grid_mpi_comm_size(comm);
+  const int my_process = grid_mpi_comm_rank(comm);
 
   if (npts_global[0] < number_of_processes) {
     // We only distribute in two directions if necessary to reduce communication
@@ -182,17 +188,10 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
     }
   }
 
-  my_fft_grid->grid_id = current_grid_id;
-  my_fft_grid->ref_grid_id = current_grid_id;
-  current_grid_id++;
-  my_fft_grid->ref_counter = 1;
-
   my_fft_grid->periodic[0] = 1;
   my_fft_grid->periodic[1] = 1;
   grid_mpi_cart_create(comm, 2, my_fft_grid->proc_grid, my_fft_grid->periodic,
                        true, &my_fft_grid->comm);
-
-  const int my_process = grid_mpi_comm_rank(my_fft_grid->comm);
 
   grid_mpi_cart_get(my_fft_grid->comm, 2, my_fft_grid->proc_grid,
                     my_fft_grid->periodic, my_fft_grid->proc_coords);
@@ -396,11 +395,17 @@ void grid_create_fft_grid_layout_from_reference(
     my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
   }
 
+  my_fft_grid->grid_id = current_grid_id;
+  my_fft_grid->ref_grid_id = fft_grid_ref->grid_id;
+  current_grid_id++;
+  my_fft_grid->ref_counter = 1;
+
   const int number_of_processes = grid_mpi_comm_size(fft_grid_ref->comm);
+  const int my_process = grid_mpi_comm_rank(fft_grid_ref->comm);
 
   if (npts_global[0] < number_of_processes) {
     // We only distribute in two directions if necessary to reduce communication
-    grid_mpi_dims_create(number_of_processes, 2, &my_fft_grid->proc_grid[0]);
+    grid_mpi_dims_create(number_of_processes, 2, my_fft_grid->proc_grid);
   } else {
     my_fft_grid->proc_grid[0] = number_of_processes;
     my_fft_grid->proc_grid[1] = 1;
@@ -408,17 +413,10 @@ void grid_create_fft_grid_layout_from_reference(
 
   memcpy(my_fft_grid->npts_global, npts_global, 3 * sizeof(int));
 
-  my_fft_grid->grid_id = current_grid_id;
-  my_fft_grid->ref_grid_id = fft_grid_ref->grid_id;
-  current_grid_id++;
-  my_fft_grid->ref_counter = 1;
-
   my_fft_grid->periodic[0] = 1;
   my_fft_grid->periodic[1] = 1;
   grid_mpi_cart_create(fft_grid_ref->comm, 2, &my_fft_grid->proc_grid[0],
                        &my_fft_grid->periodic[0], false, &my_fft_grid->comm);
-
-  const int my_process = grid_mpi_comm_rank(my_fft_grid->comm);
 
   grid_mpi_cart_get(my_fft_grid->comm, 2, my_fft_grid->proc_grid,
                     my_fft_grid->periodic, my_fft_grid->proc_coords);
