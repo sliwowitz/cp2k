@@ -11,6 +11,7 @@
 #include "common/grid_mpi.h"
 #include "grid_fft.h"
 #include "grid_fft_grid.h"
+#include "grid_fft_methods.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -617,6 +618,10 @@ int fft_test_3d_blocked(const int npts_global[3]) {
     my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
   const int my_number_of_elements_gs = product3(my_sizes_gs);
 
+  double *grid_rs = malloc(my_number_of_elements_rs * sizeof(double));
+  double complex *grid_gs =
+      malloc(my_number_of_elements_gs * sizeof(complex double));
+
   // Check forward 3D FFTs
   double max_error = 0.0;
   for (int nx = 0; nx < npts_global[0]; nx++) {
@@ -660,7 +665,56 @@ int fft_test_3d_blocked(const int npts_global[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The 3D forward FFTs with blocked layout do not work properly (%i "
+      printf(
+          "The 3D forward FFT with blocked layout does not work properly (%i "
+          "%i %i): %f!\n",
+          npts_global[0], npts_global[1], npts_global[2], max_error);
+    errors++;
+  }
+
+  // Check forward 3D FFTs
+  max_error = 0.0;
+  for (int nx = 0; nx < npts_global[0]; nx++) {
+    for (int ny = 0; ny < npts_global[1]; ny++) {
+      for (int nz = 0; nz < npts_global[2]; nz++) {
+
+        memset(grid_rs, 0, my_number_of_elements_rs * sizeof(double));
+
+        if (nx >= my_bounds_rs[0][0] && nx <= my_bounds_rs[0][1] &&
+            ny >= my_bounds_rs[1][0] && ny <= my_bounds_rs[1][1] &&
+            nz >= my_bounds_rs[2][0] && nz <= my_bounds_rs[2][1])
+          grid_rs[(nz - my_bounds_rs[2][0]) * my_sizes_rs[0] * my_sizes_rs[1] +
+                  (ny - my_bounds_rs[1][0]) * my_sizes_rs[0] +
+                  (nx - my_bounds_rs[0][0])] = 1.0;
+
+        fft_3d_fw(fft_grid, grid_rs, grid_gs);
+
+        for (int index = 0; index < my_number_of_elements_gs; index++) {
+          const int mx = fft_grid->index_to_g[index][0];
+          const int my = fft_grid->index_to_g[index][1];
+          const int mz = fft_grid->index_to_g[index][2];
+          const double complex my_value = grid_gs[index];
+          const double complex ref_value =
+              cexp(-2.0 * I * pi *
+                   (((double)mx) * nx / npts_global[0] +
+                    ((double)my) * ny / npts_global[1] +
+                    ((double)mz) * nz / npts_global[2]));
+          double current_error = cabs(my_value - ref_value);
+          if (current_error > 1e-12)
+            printf("%i ERROR %i %i %i/%i %i %i: (%f %f) (%f %f)\n", my_process,
+                   nx, ny, nz, mx, my, mz, creal(my_value), cimag(my_value),
+                   creal(ref_value), cimag(ref_value));
+          max_error = fmax(max_error, current_error);
+        }
+      }
+    }
+  }
+  grid_mpi_max_double(&max_error, 1, comm);
+
+  if (max_error > 1e-12) {
+    if (my_process == 0)
+      printf("The 3D forward FFT (blocked) to ordered layout does not work "
+             "properly (%i "
              "%i %i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -708,15 +762,65 @@ int fft_test_3d_blocked(const int npts_global[3]) {
   }
   grid_mpi_max_double(&max_error, 1, comm);
 
-  grid_free_fft_grid(fft_grid);
-
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The backwards 3D FFTs with blocked layout do not work properly "
+      printf("The backwards 3D FFT with blocked layout does not work properly "
              "(%i %i %i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
   }
+
+  // Check backwards 3D FFTs
+  max_error = 0.0;
+  for (int nx = 0; nx < npts_global[0]; nx++) {
+    for (int ny = 0; ny < npts_global[1]; ny++) {
+      for (int nz = 0; nz < npts_global[2]; nz++) {
+        memset(grid_gs, 0, my_number_of_elements_gs * sizeof(double complex));
+
+        for (int index = 0; index < my_number_of_elements_gs; index++) {
+          if (nx == fft_grid->index_to_g[index][0] &&
+              ny == fft_grid->index_to_g[index][1] &&
+              nz == fft_grid->index_to_g[index][2]) {
+            grid_gs[index] = 1.0;
+            break;
+          }
+        }
+
+        fft_3d_bw(fft_grid, grid_gs, grid_rs);
+
+        for (int mx = 0; mx < my_sizes_rs[0]; mx++) {
+          for (int my = 0; my < my_sizes_rs[1]; my++) {
+            for (int mz = 0; mz < my_sizes_rs[2]; mz++) {
+              const double my_value =
+                  grid_rs[mz * my_sizes_rs[0] * my_sizes_rs[1] +
+                          my * my_sizes_rs[0] + mx];
+              const double ref_value = cos(
+                  2.0 * pi *
+                  (((double)mx + my_bounds_rs[0][0]) * nx / npts_global[0] +
+                   ((double)my + my_bounds_rs[1][0]) * ny / npts_global[1] +
+                   ((double)mz + my_bounds_rs[2][0]) * nz / npts_global[2]));
+              double current_error = fabs(my_value - ref_value);
+              max_error = fmax(max_error, current_error);
+            }
+          }
+        }
+      }
+    }
+  }
+  grid_mpi_max_double(&max_error, 1, comm);
+
+  if (max_error > 1e-12) {
+    if (my_process == 0)
+      printf("The backwards 3D FFT (blocked) to ordered layout does not work "
+             "properly "
+             "(%i %i %i): %f!\n",
+             npts_global[0], npts_global[1], npts_global[2], max_error);
+    errors++;
+  }
+
+  free(grid_rs);
+  free(grid_gs);
+  grid_free_fft_grid(fft_grid);
 
   if (errors == 0 && my_process == 0)
     printf("The 3D FFTs with blocked layout do work properly!\n");
@@ -875,6 +979,12 @@ int fft_test_3d() {
   int errors = 0;
 
   // Grid sizes to be checked
+  const int npts_global_x[3] = {8, 1, 1};
+  const int npts_global_y[3] = {1, 8, 1};
+  const int npts_global_z[3] = {1, 1, 8};
+  const int npts_global_yz[3] = {1, 8, 8};
+  const int npts_global_xz[3] = {8, 1, 8};
+  const int npts_global_xy[3] = {8, 8, 1};
   const int npts_global[3] = {2, 4, 8};
   const int npts_global_small[3] = {2, 3, 5};
   const int npts_global_reverse[3] = {8, 4, 2};
@@ -885,8 +995,20 @@ int fft_test_3d() {
   errors += fft_test_3d_blocked(npts_global_small);
   errors += fft_test_3d_blocked(npts_global_reverse);
   errors += fft_test_3d_blocked(npts_global_small_reverse);
+  errors += fft_test_3d_blocked(npts_global_x);
+  errors += fft_test_3d_blocked(npts_global_y);
+  errors += fft_test_3d_blocked(npts_global_z);
+  errors += fft_test_3d_blocked(npts_global_yz);
+  errors += fft_test_3d_blocked(npts_global_xz);
+  errors += fft_test_3d_blocked(npts_global_xy);
 
   // Check the ray layout with the same grid sizes
+  errors += fft_test_3d_ray(npts_global_y, npts_global_yz);
+  errors += fft_test_3d_ray(npts_global_z, npts_global_yz);
+  errors += fft_test_3d_ray(npts_global_x, npts_global_xz);
+  errors += fft_test_3d_ray(npts_global_z, npts_global_xz);
+  errors += fft_test_3d_ray(npts_global_x, npts_global_xy);
+  errors += fft_test_3d_ray(npts_global_y, npts_global_xy);
   errors += fft_test_3d_ray(npts_global, npts_global);
   errors += fft_test_3d_ray(npts_global_small, npts_global_small);
   errors += fft_test_3d_ray(npts_global_reverse, npts_global_reverse);
