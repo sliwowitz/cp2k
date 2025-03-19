@@ -11,6 +11,7 @@
 
 #include "../offload/offload_library.h"
 #include "common/grid_library.h"
+#include "grid_fft_lib.h"
 #include "grid_fft_test.h"
 #include "grid_multigrid_test.h"
 #include "grid_replay.h"
@@ -84,6 +85,7 @@ int main(int argc, char *argv[]) {
 
   offload_set_chosen_device(0);
   grid_library_init();
+  fft_init_lib();
 
   int errors = 0;
   errors += run_test(argv[1], "ortho_density_l0000.task");
@@ -108,6 +110,7 @@ int main(int argc, char *argv[]) {
 
   errors += multigrid_test();
 
+  fft_finalize_lib();
   grid_library_print_stats(&mpi_sum_func, 0, &print_func, 0);
   grid_library_finalize();
 
