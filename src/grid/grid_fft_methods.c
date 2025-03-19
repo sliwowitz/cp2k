@@ -9,6 +9,7 @@
 #include "grid_fft.h"
 #include "grid_fft_grid.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,61 +19,64 @@
  *fft_grid->proc2local_rs \param grid_gs complex data in reciprocal space,
  *ordered according to fft_grid->index_to_g \author Frederick Stein
  ******************************************************************************/
-void fft_3d_fw(const grid_fft_grid *fft_grid, const double *grid_rs,
-               double complex *grid_gs) {
-  const int my_process = grid_mpi_comm_rank(fft_grid->comm);
+void fft_3d_fw(const grid_fft_real_rs_grid *grid_rs,
+               const grid_fft_complex_gs_grid *grid_gs) {
+  assert(grid_rs->fft_grid_layout->grid_id ==
+         grid_gs->fft_grid_layout->grid_id);
+  const grid_fft_grid_layout *grid_layout = grid_rs->fft_grid_layout;
+  const int my_process = grid_mpi_comm_rank(grid_layout->comm);
   int local_sizes_rs[3];
   for (int dir = 0; dir < 3; dir++) {
-    local_sizes_rs[dir] = fft_grid->proc2local_rs[my_process][dir][1] -
-                          fft_grid->proc2local_rs[my_process][dir][0] + 1;
+    local_sizes_rs[dir] = grid_layout->proc2local_rs[my_process][dir][1] -
+                          grid_layout->proc2local_rs[my_process][dir][0] + 1;
   }
-  memcpy(fft_grid->grid_rs, grid_rs,
+  memcpy(grid_layout->grid_rs, grid_rs->data,
          local_sizes_rs[0] * local_sizes_rs[1] * local_sizes_rs[2] *
              sizeof(double));
-  if (fft_grid->ray_distribution) {
-    fft_3d_fw_ray(fft_grid->grid_rs, fft_grid->grid_gs, fft_grid->npts_global,
-                  fft_grid->proc2local_rs, fft_grid->proc2local_ms,
-                  fft_grid->yz_to_process, fft_grid->rays_per_process,
-                  fft_grid->ray_to_yz, fft_grid->comm);
-    int(*my_ray_to_yz)[2] = fft_grid->ray_to_yz;
+  if (grid_layout->ray_distribution) {
+    fft_3d_fw_ray(grid_layout->grid_rs, grid_layout->grid_gs,
+                  grid_layout->npts_global, grid_layout->proc2local_rs,
+                  grid_layout->proc2local_ms, grid_layout->yz_to_process,
+                  grid_layout->rays_per_process, grid_layout->ray_to_yz,
+                  grid_layout->comm);
+    int(*my_ray_to_yz)[2] = grid_layout->ray_to_yz;
     for (int process = 0; process < my_process; process++) {
-      my_ray_to_yz += fft_grid->rays_per_process[process];
+      my_ray_to_yz += grid_layout->rays_per_process[process];
     }
-    for (int index = 0; index < fft_grid->npts_gs_local; index++) {
-      int *index_g = fft_grid->index_to_g[index];
-      for (int yz_ray = 0; yz_ray < fft_grid->rays_per_process[my_process];
+    for (int index = 0; index < grid_layout->npts_gs_local; index++) {
+      int *index_g = grid_layout->index_to_g[index];
+      for (int yz_ray = 0; yz_ray < grid_layout->rays_per_process[my_process];
            yz_ray++) {
         if (my_ray_to_yz[yz_ray][0] == index_g[1] &&
             my_ray_to_yz[yz_ray][1] == index_g[2]) {
-          grid_gs[index] =
-              fft_grid->grid_gs[yz_ray * fft_grid->npts_global[0] + index_g[0]];
+          grid_gs->data[index] =
+              grid_layout
+                  ->grid_gs[yz_ray * grid_layout->npts_global[0] + index_g[0]];
           break;
         }
       }
     }
   } else {
-    fft_3d_fw_blocked(fft_grid->grid_rs, fft_grid->grid_gs,
-                      fft_grid->npts_global, fft_grid->proc2local_rs,
-                      fft_grid->proc2local_ms, fft_grid->proc2local_gs,
-                      fft_grid->comm);
+    fft_3d_fw_blocked(grid_layout->grid_rs, grid_layout->grid_gs,
+                      grid_layout->npts_global, grid_layout->proc2local_rs,
+                      grid_layout->proc2local_ms, grid_layout->proc2local_gs,
+                      grid_layout->comm);
     int local_sizes_gs[3];
     for (int dir = 0; dir < 3; dir++) {
-      local_sizes_gs[dir] = fft_grid->proc2local_gs[my_process][dir][1] -
-                            fft_grid->proc2local_gs[my_process][dir][0] + 1;
+      local_sizes_gs[dir] = grid_layout->proc2local_gs[my_process][dir][1] -
+                            grid_layout->proc2local_gs[my_process][dir][0] + 1;
     }
-    for (int index = 0; index < fft_grid->npts_gs_local; index++) {
-      int *index_g = fft_grid->index_to_g[index];
-      grid_gs[index] =
-          fft_grid->grid_gs
-              [(index_g[2] - fft_grid->proc2local_gs[my_process][2][0]) *
+    for (int index = 0; index < grid_layout->npts_gs_local; index++) {
+      int *index_g = grid_layout->index_to_g[index];
+      grid_gs->data[index] =
+          grid_layout->grid_gs
+              [(index_g[2] - grid_layout->proc2local_gs[my_process][2][0]) *
                    local_sizes_gs[0] * local_sizes_gs[1] +
-               (index_g[1] - fft_grid->proc2local_gs[my_process][1][0]) *
+               (index_g[1] - grid_layout->proc2local_gs[my_process][1][0]) *
                    local_sizes_gs[0] +
-               (index_g[0] - fft_grid->proc2local_gs[my_process][0][0])];
+               (index_g[0] - grid_layout->proc2local_gs[my_process][0][0])];
     }
   }
-  fflush(stdout);
-  grid_mpi_barrier(fft_grid->comm);
 }
 
 /*******************************************************************************
@@ -82,57 +86,62 @@ void fft_3d_fw(const grid_fft_grid *fft_grid, const double *grid_rs,
  *fft_grid->index_to_g \param grid_rs real-valued data in real space, ordered
  *according to fft_grid->proc2local_rs \author Frederick Stein
  ******************************************************************************/
-void fft_3d_bw(const grid_fft_grid *fft_grid, const double complex *grid_gs,
-               double *grid_rs) {
-  const int my_process = grid_mpi_comm_rank(fft_grid->comm);
+void fft_3d_bw(const grid_fft_complex_gs_grid *grid_gs,
+               const grid_fft_real_rs_grid *grid_rs) {
+  assert(grid_rs->fft_grid_layout->grid_id ==
+         grid_gs->fft_grid_layout->grid_id);
+  const grid_fft_grid_layout *grid_layout = grid_rs->fft_grid_layout;
+  const int my_process = grid_mpi_comm_rank(grid_layout->comm);
   int local_sizes_rs[3];
   for (int dir = 0; dir < 3; dir++) {
-    local_sizes_rs[dir] = fft_grid->proc2local_rs[my_process][dir][1] -
-                          fft_grid->proc2local_rs[my_process][dir][0] + 1;
+    local_sizes_rs[dir] = grid_layout->proc2local_rs[my_process][dir][1] -
+                          grid_layout->proc2local_rs[my_process][dir][0] + 1;
   }
-  if (fft_grid->ray_distribution) {
-    int(*my_ray_to_yz)[2] = fft_grid->ray_to_yz;
+  if (grid_layout->ray_distribution) {
+    int(*my_ray_to_yz)[2] = grid_layout->ray_to_yz;
     for (int process = 0; process < my_process; process++) {
-      my_ray_to_yz += fft_grid->rays_per_process[process];
+      my_ray_to_yz += grid_layout->rays_per_process[process];
     }
-    for (int index = 0; index < fft_grid->npts_gs_local; index++) {
-      int *index_g = fft_grid->index_to_g[index];
-      for (int yz_ray = 0; yz_ray < fft_grid->rays_per_process[my_process];
+    for (int index = 0; index < grid_layout->npts_gs_local; index++) {
+      int *index_g = grid_layout->index_to_g[index];
+      for (int yz_ray = 0; yz_ray < grid_layout->rays_per_process[my_process];
            yz_ray++) {
         if (my_ray_to_yz[yz_ray][0] == index_g[1] &&
             my_ray_to_yz[yz_ray][1] == index_g[2]) {
-          fft_grid->grid_gs[yz_ray * fft_grid->npts_global[0] + index_g[0]] =
-              grid_gs[index];
+          grid_layout
+              ->grid_gs[yz_ray * grid_layout->npts_global[0] + index_g[0]] =
+              grid_gs->data[index];
           break;
         }
       }
     }
-    fft_3d_bw_ray(fft_grid->grid_gs, fft_grid->grid_rs, fft_grid->npts_global,
-                  fft_grid->proc2local_rs, fft_grid->proc2local_ms,
-                  fft_grid->yz_to_process, fft_grid->rays_per_process,
-                  fft_grid->ray_to_yz, fft_grid->comm);
+    fft_3d_bw_ray(grid_layout->grid_gs, grid_layout->grid_rs,
+                  grid_layout->npts_global, grid_layout->proc2local_rs,
+                  grid_layout->proc2local_ms, grid_layout->yz_to_process,
+                  grid_layout->rays_per_process, grid_layout->ray_to_yz,
+                  grid_layout->comm);
   } else {
     int local_sizes_gs[3];
     for (int dir = 0; dir < 3; dir++) {
-      local_sizes_gs[dir] = fft_grid->proc2local_gs[my_process][dir][1] -
-                            fft_grid->proc2local_gs[my_process][dir][0] + 1;
+      local_sizes_gs[dir] = grid_layout->proc2local_gs[my_process][dir][1] -
+                            grid_layout->proc2local_gs[my_process][dir][0] + 1;
     }
-    for (int index = 0; index < fft_grid->npts_gs_local; index++) {
-      int *index_g = fft_grid->index_to_g[index];
-      fft_grid
-          ->grid_gs[(index_g[2] - fft_grid->proc2local_gs[my_process][2][0]) *
-                        local_sizes_gs[0] * local_sizes_gs[1] +
-                    (index_g[1] - fft_grid->proc2local_gs[my_process][1][0]) *
-                        local_sizes_gs[0] +
-                    (index_g[0] - fft_grid->proc2local_gs[my_process][0][0])] =
-          grid_gs[index];
+    for (int index = 0; index < grid_layout->npts_gs_local; index++) {
+      int *index_g = grid_layout->index_to_g[index];
+      grid_layout->grid_gs
+          [(index_g[2] - grid_layout->proc2local_gs[my_process][2][0]) *
+               local_sizes_gs[0] * local_sizes_gs[1] +
+           (index_g[1] - grid_layout->proc2local_gs[my_process][1][0]) *
+               local_sizes_gs[0] +
+           (index_g[0] - grid_layout->proc2local_gs[my_process][0][0])] =
+          grid_gs->data[index];
     }
-    fft_3d_bw_blocked(fft_grid->grid_gs, fft_grid->grid_rs,
-                      fft_grid->npts_global, fft_grid->proc2local_rs,
-                      fft_grid->proc2local_ms, fft_grid->proc2local_gs,
-                      fft_grid->comm);
+    fft_3d_bw_blocked(grid_layout->grid_gs, grid_layout->grid_rs,
+                      grid_layout->npts_global, grid_layout->proc2local_rs,
+                      grid_layout->proc2local_ms, grid_layout->proc2local_gs,
+                      grid_layout->comm);
   }
-  memcpy(grid_rs, fft_grid->grid_rs,
+  memcpy(grid_rs->data, grid_layout->grid_rs,
          local_sizes_rs[0] * local_sizes_rs[1] * local_sizes_rs[2] *
              sizeof(double));
 }

@@ -17,6 +17,12 @@
  * \author Frederick Stein
  ******************************************************************************/
 typedef struct {
+  // ID for comparison and referencing grids
+  int grid_id;
+  // ID of the reference grid
+  int ref_grid_id;
+  // Reference counter
+  int ref_counter;
   // Global number of points
   int npts_global[3];
   // Grid spacing in reciprocal space
@@ -51,28 +57,72 @@ typedef struct {
   double complex *grid_ms;
   double complex *grid_gs;
   // buffers for different purposes
-} grid_fft_grid;
+} grid_fft_grid_layout;
+
+typedef struct {
+  grid_fft_grid_layout *fft_grid_layout;
+  double *data;
+} grid_fft_real_rs_grid;
+
+typedef struct {
+  grid_fft_grid_layout *fft_grid_layout;
+  double complex *data;
+} grid_fft_complex_gs_grid;
 
 /*******************************************************************************
  * \brief Frees a FFT grid.
  * \author Frederick Stein
  ******************************************************************************/
-void grid_free_fft_grid(grid_fft_grid *fft_grid);
+void grid_free_fft_grid_layout(grid_fft_grid_layout *fft_grid);
 
 /*******************************************************************************
  * \brief Create a FFT grid.
  * \author Frederick Stein
  ******************************************************************************/
-void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
-                          const int npts_global[3], const double dh_inv[3][3]);
+void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
+                                 const grid_mpi_comm comm,
+                                 const int npts_global[3],
+                                 const double dh_inv[3][3]);
 
 /*******************************************************************************
  * \brief Create a FFT grid using a reference grid to interact with this grid.
  * \author Frederick Stein
  ******************************************************************************/
-void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
-                                         const int npts_global[3],
-                                         const grid_fft_grid *fft_grid_ref);
+void grid_create_fft_grid_layout_from_reference(
+    grid_fft_grid_layout **fft_grid, const int npts_global[3],
+    const grid_fft_grid_layout *fft_grid_ref);
+
+/*******************************************************************************
+ * \brief Retains a grid layout.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_retain_fft_grid_layout(grid_fft_grid_layout *fft_grid);
+
+/*******************************************************************************
+ * \brief Create a real-valued real-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_create_real_rs_grid(grid_fft_real_rs_grid *grid,
+                              grid_fft_grid_layout *grid_layout);
+
+/*******************************************************************************
+ * \brief Create a complex-valued reciprocal-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_create_complex_gs_grid(grid_fft_complex_gs_grid *grid,
+                                 grid_fft_grid_layout *grid_layout);
+
+/*******************************************************************************
+ * \brief Frees a real-valued real-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_free_real_rs_grid(grid_fft_real_rs_grid *grid);
+
+/*******************************************************************************
+ * \brief Frees a complex-valued reciprocal-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_free_complex_gs_grid(grid_fft_complex_gs_grid *grid);
 
 /*******************************************************************************
  * \brief Convert between C indices (0...n-1) and shifted indices (-n/2...n/2).

@@ -72,7 +72,7 @@ typedef struct {
   int (*pgrid_dims)[3];
   int *proc2local;
   grid_redistribute *redistribute;
-  grid_fft_grid **fft_grids;
+  grid_fft_grid_layout **fft_grids;
   grid_ref_multigrid *ref;
   grid_cpu_multigrid *cpu;
   // more backends to be added here

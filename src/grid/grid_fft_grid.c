@@ -15,6 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int current_grid_id = 1;
+
 // Could be reformulated with Lapack or calculated
 // For orthorhombic cells, this is at the order of
 // 3*eps(multiplication)+6*eps(addition) For non-orthorhombic cells, this
@@ -66,7 +68,7 @@ void sort_shell(int (*shell)[3], const int shell_size) {
   qsort(shell, shell_size, sizeof(int[3]), compare_shell);
 }
 
-void sort_g_vectors(grid_fft_grid *my_fft_grid) {
+void sort_g_vectors(grid_fft_grid_layout *my_fft_grid) {
   assert(my_fft_grid != NULL);
   assert(my_fft_grid->npts_gs_local >= 0);
 
@@ -128,33 +130,39 @@ void sort_g_vectors(grid_fft_grid *my_fft_grid) {
   free(local_index2g_squared);
 }
 
-void grid_free_fft_grid(grid_fft_grid *fft_grid) {
+void grid_free_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
   if (fft_grid != NULL) {
-    grid_mpi_comm_free(&fft_grid->comm);
-    free(fft_grid->proc2local_rs);
-    free(fft_grid->proc2local_ms);
-    free(fft_grid->proc2local_gs);
-    free(fft_grid->grid_rs);
-    free(fft_grid->grid_rs_complex);
-    free(fft_grid->grid_ms);
-    free(fft_grid->grid_gs);
-    free(fft_grid->yz_to_process);
-    free(fft_grid->ray_to_yz);
-    free(fft_grid->rays_per_process);
-    free(fft_grid->index_to_g);
-    free(fft_grid->local_index_to_ref_grid);
-    free(fft_grid);
+    assert(fft_grid->ref_counter > 0);
+    fft_grid->ref_counter--;
+    if (fft_grid->ref_counter == 0) {
+      grid_mpi_comm_free(&fft_grid->comm);
+      free(fft_grid->proc2local_rs);
+      free(fft_grid->proc2local_ms);
+      free(fft_grid->proc2local_gs);
+      free(fft_grid->grid_rs);
+      free(fft_grid->grid_rs_complex);
+      free(fft_grid->grid_ms);
+      free(fft_grid->grid_gs);
+      free(fft_grid->yz_to_process);
+      free(fft_grid->ray_to_yz);
+      free(fft_grid->rays_per_process);
+      free(fft_grid->index_to_g);
+      free(fft_grid->local_index_to_ref_grid);
+      free(fft_grid);
+    }
   }
 }
 
-void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
-                          const int npts_global[3], const double dh_inv[3][3]) {
-  grid_fft_grid *my_fft_grid = NULL;
+void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
+                                 const grid_mpi_comm comm,
+                                 const int npts_global[3],
+                                 const double dh_inv[3][3]) {
+  grid_fft_grid_layout *my_fft_grid = NULL;
   if (*fft_grid != NULL) {
     my_fft_grid = *fft_grid;
-    grid_free_fft_grid(*fft_grid);
+    grid_free_fft_grid_layout(*fft_grid);
   }
-  my_fft_grid = malloc(sizeof(grid_fft_grid));
+  my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
 
   const int number_of_processes = grid_mpi_comm_size(comm);
 
@@ -173,6 +181,11 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
           dh_inv[dir][dir2] / ((double)npts_global[dir2]);
     }
   }
+
+  my_fft_grid->grid_id = current_grid_id;
+  my_fft_grid->ref_grid_id = current_grid_id;
+  current_grid_id++;
+  my_fft_grid->ref_counter = 1;
 
   my_fft_grid->periodic[0] = 1;
   my_fft_grid->periodic[1] = 1;
@@ -357,9 +370,9 @@ void grid_create_fft_grid(grid_fft_grid **fft_grid, const grid_mpi_comm comm,
   *fft_grid = my_fft_grid;
 }
 
-void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
-                                         const int npts_global[3],
-                                         const grid_fft_grid *fft_grid_ref) {
+void grid_create_fft_grid_layout_from_reference(
+    grid_fft_grid_layout **fft_grid, const int npts_global[3],
+    const grid_fft_grid_layout *fft_grid_ref) {
   assert(fft_grid_ref != NULL &&
          "Grid creation from reference grid requires a valid reference grid!");
   // Current restriction of the code.
@@ -374,13 +387,13 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
          "The new grid cannot have more grid points in any direction than the "
          "reference grid!");
 
-  grid_fft_grid *my_fft_grid = NULL;
+  grid_fft_grid_layout *my_fft_grid = NULL;
   if (*fft_grid != NULL) {
     my_fft_grid = *fft_grid;
-    grid_free_fft_grid(*fft_grid);
-    my_fft_grid = malloc(sizeof(grid_fft_grid));
+    grid_free_fft_grid_layout(*fft_grid);
+    my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
   } else {
-    my_fft_grid = malloc(sizeof(grid_fft_grid));
+    my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
   }
 
   const int number_of_processes = grid_mpi_comm_size(fft_grid_ref->comm);
@@ -394,6 +407,11 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
   }
 
   memcpy(my_fft_grid->npts_global, npts_global, 3 * sizeof(int));
+
+  my_fft_grid->grid_id = current_grid_id;
+  my_fft_grid->ref_grid_id = fft_grid_ref->grid_id;
+  current_grid_id++;
+  my_fft_grid->ref_counter = 1;
 
   my_fft_grid->periodic[0] = 1;
   my_fft_grid->periodic[1] = 1;
@@ -715,11 +733,20 @@ void grid_create_fft_grid_from_reference(grid_fft_grid **fft_grid,
 }
 
 /*******************************************************************************
+ * \brief Retains a grid layout.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_retain_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
+  assert(fft_grid != NULL);
+  fft_grid->ref_counter++;
+}
+
+/*******************************************************************************
  * \brief Add one grid to another one in reciprocal space.
  * \author Frederick Stein
  ******************************************************************************/
-void grid_add_to_fine_grid(const grid_fft_grid *coarse_grid,
-                           const grid_fft_grid *fine_grid) {
+void grid_add_to_fine_grid(const grid_fft_grid_layout *coarse_grid,
+                           const grid_fft_grid_layout *fine_grid) {
   assert(coarse_grid != NULL);
   assert(fine_grid != NULL);
   for (int index = 0; index < coarse_grid->npts_gs_local; index++) {
@@ -732,13 +759,65 @@ void grid_add_to_fine_grid(const grid_fft_grid *coarse_grid,
  * \brief Copy fine grid to coarse grid in reciprocal space
  * \author Frederick Stein
  ******************************************************************************/
-void grid_copy_to_coarse_grid(const grid_fft_grid *fine_grid,
-                              const grid_fft_grid *coarse_grid) {
+void grid_copy_to_coarse_grid(const grid_fft_grid_layout *fine_grid,
+                              const grid_fft_grid_layout *coarse_grid) {
   assert(fine_grid != NULL);
   assert(coarse_grid != NULL);
   for (int index = 0; index < coarse_grid->npts_gs_local; index++) {
     const int ref_index = coarse_grid->local_index_to_ref_grid[index];
     coarse_grid->grid_gs[index] = fine_grid->grid_gs[ref_index];
+  }
+}
+
+/*******************************************************************************
+ * \brief Create a real-valued real-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_create_real_rs_grid(grid_fft_real_rs_grid *grid,
+                              grid_fft_grid_layout *grid_layout) {
+  assert(grid != NULL);
+  grid->fft_grid_layout = grid_layout;
+  grid_retain_fft_grid_layout(grid_layout);
+  const int(*my_bounds)[2] =
+      grid_layout->proc2local_rs[grid_mpi_comm_rank(grid_layout->comm)];
+  int number_of_elements = 1;
+  for (int dir = 0; dir < 3; dir++) {
+    number_of_elements *= my_bounds[dir][1] - my_bounds[dir][0] + 1;
+  }
+  grid->data = calloc(number_of_elements, sizeof(double));
+}
+
+/*******************************************************************************
+ * \brief Create a complex-valued reciprocal-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_create_complex_gs_grid(grid_fft_complex_gs_grid *grid,
+                                 grid_fft_grid_layout *grid_layout) {
+  assert(grid != NULL);
+  grid->fft_grid_layout = grid_layout;
+  grid_retain_fft_grid_layout(grid_layout);
+  grid->data = calloc(grid_layout->npts_gs_local, sizeof(double complex));
+}
+
+/*******************************************************************************
+ * \brief Frees a real-valued real-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_free_real_rs_grid(grid_fft_real_rs_grid *grid) {
+  if (grid != NULL) {
+    free(grid->data);
+    grid_free_fft_grid_layout(grid->fft_grid_layout);
+  }
+}
+
+/*******************************************************************************
+ * \brief Frees a complex-valued reciprocal-space grid.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_free_complex_gs_grid(grid_fft_complex_gs_grid *grid) {
+  if (grid != NULL) {
+    free(grid->data);
+    grid_free_fft_grid_layout(grid->fft_grid_layout);
   }
 }
 
