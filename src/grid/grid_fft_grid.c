@@ -7,7 +7,6 @@
 
 #include "grid_fft_grid.h"
 #include "common/grid_common.h"
-#include "grid_fft.h"
 #include "grid_fft_grid_layout.h"
 #include "grid_fft_lib.h"
 

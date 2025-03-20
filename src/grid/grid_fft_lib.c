@@ -8,6 +8,7 @@
 #include "grid_fft_lib.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
 
@@ -85,6 +86,118 @@ void fft_free_complex(double complex *buffer) {
 #else
   free(buffer);
 #endif
+}
+
+/*******************************************************************************
+ * \brief Naive implementation of FFT from transposed format (for easier
+ *transposition). \author Frederick Stein
+ ******************************************************************************/
+void fft_1d_fw_local(const double complex *grid_rs, double complex *grid_gs,
+                     const int fft_size, const int number_of_ffts) {
+  const double pi = acos(-1.0);
+#pragma omp parallel for default(none) collapse(2)                             \
+    shared(grid_rs, grid_gs, fft_size, number_of_ffts, pi)
+  for (int fft = 0; fft < number_of_ffts; fft++) {
+    for (int index_out = 0; index_out < fft_size; index_out++) {
+      double complex tmp = 0.0;
+      for (int index_in = 0; index_in < fft_size; index_in++) {
+        tmp += grid_rs[index_in * number_of_ffts + fft] *
+               cexp(-2.0 * I * pi * index_out * index_in / fft_size);
+      }
+      grid_gs[fft * fft_size + index_out] = tmp;
+    }
+  }
+}
+
+/*******************************************************************************
+ * \brief Naive implementation of backwards FFT to transposed format (for easier
+ *transposition). \author Frederick Stein
+ ******************************************************************************/
+void fft_1d_bw_local(const double complex *grid_gs, double complex *grid_rs,
+                     const int fft_size, const int number_of_ffts) {
+  const double pi = acos(-1.0);
+#pragma omp parallel for default(none) collapse(2)                             \
+    shared(grid_rs, grid_gs, fft_size, number_of_ffts, pi)
+  for (int fft = 0; fft < number_of_ffts; fft++) {
+    for (int index_out = 0; index_out < fft_size; index_out++) {
+      double complex tmp = 0.0;
+      for (int index_in = 0; index_in < fft_size; index_in++) {
+        tmp += grid_gs[fft * fft_size + index_in] *
+               cexp(2.0 * I * pi * index_out * index_in / fft_size);
+      }
+      grid_rs[index_out * number_of_ffts + fft] = tmp;
+    }
+  }
+}
+
+void transpose_local(double complex *grid, double complex *grid_transposed,
+                     const int number_of_columns_grid,
+                     const int number_of_rows_grid) {
+#pragma omp parallel for collapse(2) default(none)                             \
+    shared(grid, grid_transposed, number_of_columns_grid, number_of_rows_grid)
+  for (int column_index = 0; column_index < number_of_columns_grid;
+       column_index++) {
+    for (int row_index = 0; row_index < number_of_rows_grid; row_index++) {
+      grid_transposed[column_index * number_of_rows_grid + row_index] =
+          grid[row_index * number_of_columns_grid + column_index];
+    }
+  }
+}
+
+void fft_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
+                     const int npts_global[3]) {
+
+  // Perform the first FFT along z
+  fft_1d_fw_local(grid_rs, grid_gs, npts_global[2],
+                  npts_global[0] * npts_global[1]);
+
+  // Perform the second FFT along y
+  fft_1d_fw_local(grid_gs, grid_rs, npts_global[1],
+                  npts_global[0] * npts_global[2]);
+}
+
+void fft_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
+                     const int npts_global[3]) {
+
+  // Perform the second FFT along y
+  fft_1d_bw_local(grid_gs, grid_rs, npts_global[1],
+                  npts_global[0] * npts_global[2]);
+
+  // Perform the third FFT along z
+  fft_1d_bw_local(grid_rs, grid_gs, npts_global[2],
+                  npts_global[0] * npts_global[1]);
+}
+
+void fft_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
+                     const int npts_global[3]) {
+
+  // Perform the first FFT along z
+  fft_1d_fw_local(grid_rs, grid_gs, npts_global[2],
+                  npts_global[0] * npts_global[1]);
+
+  // Perform the second FFT along y
+  fft_1d_fw_local(grid_gs, grid_rs, npts_global[1],
+                  npts_global[0] * npts_global[2]);
+
+  // Perform the third FFT along x
+  fft_1d_fw_local(grid_rs, grid_gs, npts_global[0],
+                  npts_global[1] * npts_global[2]);
+}
+
+void fft_3d_bw_local(double complex *grid_gs, double complex *grid_rs,
+                     const int npts_global[3]) {
+
+  // Perform the first FFT along x
+  fft_1d_bw_local(grid_gs, grid_rs, npts_global[0],
+                  npts_global[1] * npts_global[2]);
+
+  // Perform the second FFT along y
+  fft_1d_bw_local(grid_rs, grid_gs, npts_global[1],
+                  npts_global[0] * npts_global[2]);
+
+  // Perform the third FFT along z
+  fft_1d_bw_local(grid_gs, grid_rs, npts_global[2],
+                  npts_global[0] * npts_global[1]);
 }
 
 // EOF

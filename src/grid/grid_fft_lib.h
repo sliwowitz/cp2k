@@ -45,6 +45,36 @@ void fft_free_double(double *buffer);
  ******************************************************************************/
 void fft_free_complex(double complex *buffer);
 
+/*******************************************************************************
+ * \brief 1D Forward FFT from transposed format.
+ * \author Frederick Stein
+ ******************************************************************************/
+void fft_1d_fw_local(const double complex *grid_rs, double complex *grid_gs,
+                     const int fft_size, const int number_of_ffts);
+
+/*******************************************************************************
+ * \brief 1D Backward FFT to transposed format.
+ * \author Frederick Stein
+ ******************************************************************************/
+void fft_1d_bw_local(const double complex *grid_gs, double complex *grid_rs,
+                     const int fft_size, const int number_of_ffts);
+
+void transpose_local(double complex *grid, double complex *grid_transposed,
+                     const int number_of_columns_grid,
+                     const int number_of_rows_grid);
+
+void fft_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
+                     const int npts_global[3]);
+
+void fft_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
+                     const int npts_global[3]);
+
+void fft_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
+                     const int npts_global[3]);
+
+void fft_3d_bw_local(double complex *grid_gs, double complex *grid_rs,
+                     const int npts_global[3]);
+
 #endif /* GRID_FFT_LIB_H */
 
 // EOF

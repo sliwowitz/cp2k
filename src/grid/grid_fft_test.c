@@ -9,28 +9,15 @@
 
 #include "common/grid_common.h"
 #include "common/grid_mpi.h"
-#include "grid_fft.h"
 #include "grid_fft_grid.h"
 #include "grid_fft_grid_layout.h"
+#include "grid_fft_lib.h"
+#include "grid_fft_reorder.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-inline double norm_vector(const double complex *vector, const int size) {
-  double norm = 0.0;
-  for (int i = 0; i < size; i++)
-    norm += cabs(vector[i]);
-  return sqrt(norm);
-}
-
-inline double norm_vector_double(const double *vector, const int size) {
-  double norm = 0.0;
-  for (int i = 0; i < size; i++)
-    norm += fabs(vector[i]);
-  return sqrt(norm);
-}
 
 /*******************************************************************************
  * \brief Function to test the local FFT backend.
