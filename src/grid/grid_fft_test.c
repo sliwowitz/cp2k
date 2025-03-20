@@ -11,7 +11,7 @@
 #include "common/grid_mpi.h"
 #include "grid_fft.h"
 #include "grid_fft_grid.h"
-#include "grid_fft_methods.h"
+#include "grid_fft_grid_layout.h"
 
 #include <math.h>
 #include <stdio.h>
