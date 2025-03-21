@@ -172,6 +172,12 @@ void fft_3d_fw(const grid_fft_real_rs_grid *grid_rs,
                (index_g[0] - grid_layout->proc2local_gs[my_process][0][0])];
     }
   }
+  const double scale = 1.0 / (grid_layout->npts_global[0] *
+                              grid_layout->npts_global[1] *
+                              grid_layout->npts_global[2]);
+  for (int index = 0; index < grid_layout->npts_gs_local; index++) {
+    grid_gs->data[index] *= scale;
+  }
 }
 
 /*******************************************************************************

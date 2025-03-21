@@ -46,7 +46,6 @@ MODULE qs_integrate_potential_single
    USE gaussian_gridlevels,             ONLY: gaussian_gridlevel,&
                                               gridlevel_info_type
    USE grid_api,                        ONLY: grid_copy_to_multigrid_general_single,&
-                                              grid_copy_to_multigrid_local,&
                                               grid_copy_to_multigrid_local_single,&
                                               grid_multigrid_type,&
                                               integrate_pgf_product
@@ -833,7 +832,6 @@ CONTAINS
       gridlevel_info => pw_env%gridlevel_info
 
       CALL potential_pw2rs(rs_v, v_rspace, pw_env)
-      CALL grid_copy_to_multigrid_local(multigrid, rs_v)
 
       CALL get_qs_env(qs_env=qs_env, &
                       atomic_kind_set=atomic_kind_set, &
@@ -1034,7 +1032,6 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env, rs_grids=rs_v, multigrid=multigrid)
       CALL potential_pw2rs(rs_v, v_rspace, pw_env)
-      CALL grid_copy_to_multigrid_local(multigrid, rs_v)
 
       gridlevel_info => pw_env%gridlevel_info
 
@@ -1251,7 +1248,6 @@ CONTAINS
 
       CALL pw_env_get(pw_env, rs_grids=rs_v, multigrid=multigrid)
       CALL potential_pw2rs(rs_v, v_rspace, pw_env)
-      CALL grid_copy_to_multigrid_local(multigrid, rs_v)
 
       CALL get_qs_env(qs_env=qs_env, &
                       atomic_kind_set=atomic_kind_set, &
