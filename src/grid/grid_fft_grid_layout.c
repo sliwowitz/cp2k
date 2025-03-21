@@ -155,6 +155,88 @@ void grid_free_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
   }
 }
 
+void setup_proc2local(grid_fft_grid_layout *my_fft_grid,
+                      const int npts_global[3]) {
+  const int number_of_processes = grid_mpi_comm_size(my_fft_grid->comm);
+
+  my_fft_grid->proc2local_rs = malloc(number_of_processes * sizeof(int[3][2]));
+  my_fft_grid->proc2local_ms = malloc(number_of_processes * sizeof(int[3][2]));
+  my_fft_grid->proc2local_gs = malloc(number_of_processes * sizeof(int[3][2]));
+  for (int proc = 0; proc < number_of_processes; proc++) {
+    int proc_coords[2];
+    grid_mpi_cart_coords(my_fft_grid->comm, proc, 2, proc_coords);
+    // Determine the bounds in real space
+    my_fft_grid->proc2local_rs[proc][0][0] =
+        proc_coords[0] * npts_global[0] / my_fft_grid->proc_grid[0];
+    my_fft_grid->proc2local_rs[proc][0][1] =
+        (proc_coords[0] + 1) * npts_global[0] / my_fft_grid->proc_grid[0] - 1;
+    my_fft_grid->proc2local_rs[proc][1][0] =
+        proc_coords[1] * npts_global[1] / my_fft_grid->proc_grid[1];
+    my_fft_grid->proc2local_rs[proc][1][1] =
+        (proc_coords[1] + 1) * npts_global[1] / my_fft_grid->proc_grid[1] - 1;
+    my_fft_grid->proc2local_rs[proc][2][0] = 0;
+    my_fft_grid->proc2local_rs[proc][2][1] = npts_global[2] - 1;
+    // Determine the bounds in mixed space: we keep the distribution in the
+    // first direction to reduce communication
+    my_fft_grid->proc2local_ms[proc][0][0] =
+        proc_coords[0] * npts_global[0] / my_fft_grid->proc_grid[0];
+    my_fft_grid->proc2local_ms[proc][0][1] =
+        (proc_coords[0] + 1) * npts_global[0] / my_fft_grid->proc_grid[0] - 1;
+    my_fft_grid->proc2local_ms[proc][1][0] = 0;
+    my_fft_grid->proc2local_ms[proc][1][1] = npts_global[1] - 1;
+    my_fft_grid->proc2local_ms[proc][2][0] =
+        proc_coords[1] * npts_global[2] / my_fft_grid->proc_grid[1];
+    my_fft_grid->proc2local_ms[proc][2][1] =
+        (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
+    // Determine the bounds in mixed space: we keep the distribution in the
+    // third direction to reduce communication
+    my_fft_grid->proc2local_gs[proc][0][0] = 0;
+    my_fft_grid->proc2local_gs[proc][0][1] = npts_global[0] - 1;
+    my_fft_grid->proc2local_gs[proc][1][0] =
+        proc_coords[0] * npts_global[1] / my_fft_grid->proc_grid[0];
+    my_fft_grid->proc2local_gs[proc][1][1] =
+        (proc_coords[0] + 1) * npts_global[1] / my_fft_grid->proc_grid[0] - 1;
+    my_fft_grid->proc2local_gs[proc][2][0] =
+        proc_coords[1] * npts_global[2] / my_fft_grid->proc_grid[1];
+    my_fft_grid->proc2local_gs[proc][2][1] =
+        (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
+  }
+}
+
+void allocate_fft_buffers(grid_fft_grid_layout *my_fft_grid) {
+  const int my_process = grid_mpi_comm_rank(my_fft_grid->comm);
+
+  // Determine the maximum buffer size
+  int buffer_size = 0;
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_rs[my_process][0][1] -
+                         my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_rs[my_process][1][1] -
+                             my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_rs[my_process][2][1] -
+                             my_fft_grid->proc2local_rs[my_process][2][0] + 1));
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_ms[my_process][0][1] -
+                         my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_ms[my_process][1][1] -
+                             my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_ms[my_process][2][1] -
+                             my_fft_grid->proc2local_ms[my_process][2][0] + 1));
+  buffer_size =
+      imax(buffer_size, (my_fft_grid->proc2local_gs[my_process][0][1] -
+                         my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
+                            (my_fft_grid->proc2local_gs[my_process][1][1] -
+                             my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
+                            (my_fft_grid->proc2local_gs[my_process][2][1] -
+                             my_fft_grid->proc2local_gs[my_process][2][0] + 1));
+  buffer_size = imax(buffer_size, my_fft_grid->npts_gs_local);
+  // Allocate the buffers
+  my_fft_grid->buffer_1 = NULL;
+  my_fft_grid->buffer_2 = NULL;
+  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_1);
+  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_2);
+}
+
 void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
                                  const grid_mpi_comm comm,
                                  const int npts_global[3],
@@ -199,48 +281,7 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
   grid_mpi_cart_get(my_fft_grid->comm, 2, my_fft_grid->proc_grid,
                     my_fft_grid->periodic, my_fft_grid->proc_coords);
 
-  my_fft_grid->proc2local_rs = malloc(number_of_processes * sizeof(int[3][2]));
-  my_fft_grid->proc2local_ms = malloc(number_of_processes * sizeof(int[3][2]));
-  my_fft_grid->proc2local_gs = malloc(number_of_processes * sizeof(int[3][2]));
-  for (int proc = 0; proc < number_of_processes; proc++) {
-    int proc_coords[2];
-    grid_mpi_cart_coords(my_fft_grid->comm, proc, 2, proc_coords);
-    // Determine the bounds in real space
-    my_fft_grid->proc2local_rs[proc][0][0] =
-        proc_coords[0] * npts_global[0] / my_fft_grid->proc_grid[0];
-    my_fft_grid->proc2local_rs[proc][0][1] =
-        (proc_coords[0] + 1) * npts_global[0] / my_fft_grid->proc_grid[0] - 1;
-    my_fft_grid->proc2local_rs[proc][1][0] =
-        proc_coords[1] * npts_global[1] / my_fft_grid->proc_grid[1];
-    my_fft_grid->proc2local_rs[proc][1][1] =
-        (proc_coords[1] + 1) * npts_global[1] / my_fft_grid->proc_grid[1] - 1;
-    my_fft_grid->proc2local_rs[proc][2][0] = 0;
-    my_fft_grid->proc2local_rs[proc][2][1] = npts_global[2] - 1;
-    // Determine the bounds in mixed space: we keep the distribution in the
-    // first direction to reduce communication
-    my_fft_grid->proc2local_ms[proc][0][0] =
-        proc_coords[0] * npts_global[0] / my_fft_grid->proc_grid[0];
-    my_fft_grid->proc2local_ms[proc][0][1] =
-        (proc_coords[0] + 1) * npts_global[0] / my_fft_grid->proc_grid[0] - 1;
-    my_fft_grid->proc2local_ms[proc][1][0] = 0;
-    my_fft_grid->proc2local_ms[proc][1][1] = npts_global[1] - 1;
-    my_fft_grid->proc2local_ms[proc][2][0] =
-        proc_coords[1] * npts_global[2] / my_fft_grid->proc_grid[1];
-    my_fft_grid->proc2local_ms[proc][2][1] =
-        (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
-    // Determine the bounds in mixed space: we keep the distribution in the
-    // third direction to reduce communication
-    my_fft_grid->proc2local_gs[proc][0][0] = 0;
-    my_fft_grid->proc2local_gs[proc][0][1] = npts_global[0] - 1;
-    my_fft_grid->proc2local_gs[proc][1][0] =
-        proc_coords[0] * npts_global[1] / my_fft_grid->proc_grid[0];
-    my_fft_grid->proc2local_gs[proc][1][1] =
-        (proc_coords[0] + 1) * npts_global[1] / my_fft_grid->proc_grid[0] - 1;
-    my_fft_grid->proc2local_gs[proc][2][0] =
-        proc_coords[1] * npts_global[2] / my_fft_grid->proc_grid[1];
-    my_fft_grid->proc2local_gs[proc][2][1] =
-        (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
-  }
+  setup_proc2local(my_fft_grid, npts_global);
 
   my_fft_grid->npts_gs_local =
       (my_fft_grid->proc2local_gs[my_process][0][1] -
@@ -250,35 +291,7 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
       (my_fft_grid->proc2local_gs[my_process][2][1] -
        my_fft_grid->proc2local_gs[my_process][2][0] + 1);
 
-  // Determine the maximum buffer size
-  int buffer_size = 0;
-  buffer_size =
-      imax(buffer_size, (my_fft_grid->proc2local_rs[my_process][0][1] -
-                         my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
-                            (my_fft_grid->proc2local_rs[my_process][1][1] -
-                             my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
-                            (my_fft_grid->proc2local_rs[my_process][2][1] -
-                             my_fft_grid->proc2local_rs[my_process][2][0] + 1));
-  buffer_size =
-      imax(buffer_size, (my_fft_grid->proc2local_ms[my_process][0][1] -
-                         my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
-                            (my_fft_grid->proc2local_ms[my_process][1][1] -
-                             my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
-                            (my_fft_grid->proc2local_ms[my_process][2][1] -
-                             my_fft_grid->proc2local_ms[my_process][2][0] + 1));
-  buffer_size =
-      imax(buffer_size, (my_fft_grid->proc2local_gs[my_process][0][1] -
-                         my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
-                            (my_fft_grid->proc2local_gs[my_process][1][1] -
-                             my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
-                            (my_fft_grid->proc2local_gs[my_process][2][1] -
-                             my_fft_grid->proc2local_gs[my_process][2][0] + 1));
-  buffer_size = imax(buffer_size, my_fft_grid->npts_gs_local);
-  // Allocate the buffers
-  my_fft_grid->buffer_1 = NULL;
-  my_fft_grid->buffer_2 = NULL;
-  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_1);
-  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_2);
+  allocate_fft_buffers(my_fft_grid);
 
   my_fft_grid->yz_to_process = NULL;
   my_fft_grid->ray_to_yz = NULL;
@@ -309,55 +322,7 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
     my_fft_grid->local_index_to_ref_grid[index] = index;
   }
 
-  // Check uniqueness of all grid points
-  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    for (int dir = 0; dir < 3; dir++) {
-      assert(my_fft_grid->index_to_g[index][dir] >= 0);
-      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
-    }
-    bool is_unique_vector = true;
-    for (int index2 = 0; index2 < index; index2++) {
-      bool vectors_are_identical = true;
-      for (int dir = 0; dir < 3; dir++) {
-        vectors_are_identical =
-            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
-                                      my_fft_grid->index_to_g[index2][dir]);
-      }
-      if (vectors_are_identical) {
-        printf("%i non-unique g vector: %i\n", my_process, index);
-        fflush(stdout);
-        is_unique_vector = false;
-        break;
-      }
-    }
-    assert(is_unique_vector);
-  }
-
   sort_g_vectors(my_fft_grid);
-
-  // Check uniqueness of all grid points
-  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    for (int dir = 0; dir < 3; dir++) {
-      assert(my_fft_grid->index_to_g[index][dir] >= 0);
-      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
-    }
-    bool is_unique_vector = true;
-    for (int index2 = 0; index2 < index; index2++) {
-      bool vectors_are_identical = true;
-      for (int dir = 0; dir < 3; dir++) {
-        vectors_are_identical =
-            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
-                                      my_fft_grid->index_to_g[index2][dir]);
-      }
-      if (vectors_are_identical) {
-        printf("%i non-unique g vector: %i\n", my_process, index);
-        fflush(stdout);
-        is_unique_vector = false;
-        break;
-      }
-    }
-    assert(is_unique_vector);
-  }
 
   *fft_grid = my_fft_grid;
 }
@@ -394,6 +359,8 @@ void grid_create_fft_grid_layout_from_reference(
   current_grid_id++;
   my_fft_grid->ref_counter = 1;
 
+  my_fft_grid->ray_distribution = true;
+
   if (npts_global[0] < number_of_processes) {
     // We only distribute in two directions if necessary to reduce communication
     grid_mpi_dims_create(number_of_processes, 2, my_fft_grid->proc_grid);
@@ -412,50 +379,7 @@ void grid_create_fft_grid_layout_from_reference(
   grid_mpi_cart_get(my_fft_grid->comm, 2, my_fft_grid->proc_grid,
                     my_fft_grid->periodic, my_fft_grid->proc_coords);
 
-  my_fft_grid->proc2local_rs = malloc(number_of_processes * sizeof(int[3][2]));
-  my_fft_grid->proc2local_ms = malloc(number_of_processes * sizeof(int[3][2]));
-  my_fft_grid->proc2local_gs = malloc(number_of_processes * sizeof(int[3][2]));
-  for (int proc = 0; proc < number_of_processes; proc++) {
-    int proc_coords[2];
-    grid_mpi_cart_coords(my_fft_grid->comm, proc, 2, proc_coords);
-    // Determine the bounds in real space
-    my_fft_grid->proc2local_rs[proc][0][0] =
-        proc_coords[0] * npts_global[0] / my_fft_grid->proc_grid[0];
-    my_fft_grid->proc2local_rs[proc][0][1] =
-        (proc_coords[0] + 1) * npts_global[0] / my_fft_grid->proc_grid[0] - 1;
-    my_fft_grid->proc2local_rs[proc][1][0] =
-        proc_coords[1] * npts_global[1] / my_fft_grid->proc_grid[1];
-    my_fft_grid->proc2local_rs[proc][1][1] =
-        (proc_coords[1] + 1) * npts_global[1] / my_fft_grid->proc_grid[1] - 1;
-    my_fft_grid->proc2local_rs[proc][2][0] = 0;
-    my_fft_grid->proc2local_rs[proc][2][1] = npts_global[2] - 1;
-    // Determine the bounds in mixed space: we keep the distribution in the
-    // first direction to reduce communication
-    my_fft_grid->proc2local_ms[proc][0][0] =
-        proc_coords[0] * npts_global[0] / my_fft_grid->proc_grid[0];
-    my_fft_grid->proc2local_ms[proc][0][1] =
-        (proc_coords[0] + 1) * npts_global[0] / my_fft_grid->proc_grid[0] - 1;
-    my_fft_grid->proc2local_ms[proc][1][0] = 0;
-    my_fft_grid->proc2local_ms[proc][1][1] = npts_global[1] - 1;
-    my_fft_grid->proc2local_ms[proc][2][0] =
-        proc_coords[1] * npts_global[2] / my_fft_grid->proc_grid[1];
-    my_fft_grid->proc2local_ms[proc][2][1] =
-        (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
-    // Determine the bounds in mixed space: we keep the distribution in the
-    // third direction to reduce communication
-    my_fft_grid->proc2local_gs[proc][0][0] = 0;
-    my_fft_grid->proc2local_gs[proc][0][1] = npts_global[0] - 1;
-    my_fft_grid->proc2local_gs[proc][1][0] =
-        proc_coords[0] * npts_global[1] / my_fft_grid->proc_grid[0];
-    my_fft_grid->proc2local_gs[proc][1][1] =
-        (proc_coords[0] + 1) * npts_global[1] / my_fft_grid->proc_grid[0] - 1;
-    my_fft_grid->proc2local_gs[proc][2][0] =
-        proc_coords[1] * npts_global[2] / my_fft_grid->proc_grid[1];
-    my_fft_grid->proc2local_gs[proc][2][1] =
-        (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
-  }
-
-  my_fft_grid->ray_distribution = true;
+  setup_proc2local(my_fft_grid, npts_global);
 
   // Assign the (yz)-rays of the reference grid which are also on the current
   // grid to each process
@@ -489,9 +413,6 @@ void grid_create_fft_grid_layout_from_reference(
           continue;
         const int index_z_new =
             convert_shifted_index_to_c_index(index_z_shifted, npts_global[2]);
-        assert(index_y_new * npts_global[2] + index_z_new >= 0);
-        assert(npts_global[1] * npts_global[2] >
-               index_y_new * npts_global[2] + index_z_new);
         assert(my_fft_grid->yz_to_process[index_y_new * npts_global[2] +
                                           index_z_new] < 0);
         my_fft_grid->yz_to_process[index_y_new * npts_global[2] + index_z_new] =
@@ -504,35 +425,7 @@ void grid_create_fft_grid_layout_from_reference(
   my_fft_grid->npts_gs_local =
       npts_global[0] * my_fft_grid->rays_per_process[my_process];
 
-  // Determine the maximum buffer size
-  int buffer_size = 0;
-  buffer_size =
-      imax(buffer_size, (my_fft_grid->proc2local_rs[my_process][0][1] -
-                         my_fft_grid->proc2local_rs[my_process][0][0] + 1) *
-                            (my_fft_grid->proc2local_rs[my_process][1][1] -
-                             my_fft_grid->proc2local_rs[my_process][1][0] + 1) *
-                            (my_fft_grid->proc2local_rs[my_process][2][1] -
-                             my_fft_grid->proc2local_rs[my_process][2][0] + 1));
-  buffer_size =
-      imax(buffer_size, (my_fft_grid->proc2local_ms[my_process][0][1] -
-                         my_fft_grid->proc2local_ms[my_process][0][0] + 1) *
-                            (my_fft_grid->proc2local_ms[my_process][1][1] -
-                             my_fft_grid->proc2local_ms[my_process][1][0] + 1) *
-                            (my_fft_grid->proc2local_ms[my_process][2][1] -
-                             my_fft_grid->proc2local_ms[my_process][2][0] + 1));
-  buffer_size =
-      imax(buffer_size, (my_fft_grid->proc2local_gs[my_process][0][1] -
-                         my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
-                            (my_fft_grid->proc2local_gs[my_process][1][1] -
-                             my_fft_grid->proc2local_gs[my_process][1][0] + 1) *
-                            (my_fft_grid->proc2local_gs[my_process][2][1] -
-                             my_fft_grid->proc2local_gs[my_process][2][0] + 1));
-  buffer_size = imax(buffer_size, my_fft_grid->npts_gs_local);
-  // Allocate the buffers
-  my_fft_grid->buffer_1 = NULL;
-  my_fft_grid->buffer_2 = NULL;
-  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_1);
-  fft_allocate_complex(buffer_size, &my_fft_grid->buffer_2);
+  allocate_fft_buffers(my_fft_grid);
 
   int *ray_offsets = calloc(number_of_processes, sizeof(int));
   int *ray_index_per_process = calloc(number_of_processes, sizeof(int));
@@ -632,54 +525,7 @@ void grid_create_fft_grid_layout_from_reference(
   }
   assert(own_index == my_fft_grid->npts_gs_local);
 
-  // Check uniqueness of all grid points
-  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    for (int dir = 0; dir < 3; dir++) {
-      assert(my_fft_grid->index_to_g[index][dir] >= 0);
-      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
-    }
-    bool is_unique_vector = true;
-    for (int index2 = 0; index2 < index; index2++) {
-      bool vectors_are_identical = true;
-      for (int dir = 0; dir < 3; dir++) {
-        vectors_are_identical =
-            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
-                                      my_fft_grid->index_to_g[index2][dir]);
-      }
-      if (vectors_are_identical) {
-        printf("%i non-unique g vector: %i\n", my_process, index);
-        fflush(stdout);
-        is_unique_vector = false;
-        break;
-      }
-    }
-    assert(is_unique_vector);
-  }
-
   sort_g_vectors(my_fft_grid);
-
-  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    for (int dir = 0; dir < 3; dir++) {
-      assert(my_fft_grid->index_to_g[index][dir] >= 0);
-      assert(my_fft_grid->index_to_g[index][dir] < npts_global[dir]);
-    }
-    bool is_unique_vector = true;
-    for (int index2 = 0; index2 < index; index2++) {
-      bool vectors_are_identical = true;
-      for (int dir = 0; dir < 3; dir++) {
-        vectors_are_identical =
-            vectors_are_identical && (my_fft_grid->index_to_g[index][dir] ==
-                                      my_fft_grid->index_to_g[index2][dir]);
-      }
-      if (vectors_are_identical) {
-        printf("%i non-unique g vector: %i\n", my_process, index);
-        fflush(stdout);
-        is_unique_vector = false;
-        break;
-      }
-    }
-    assert(is_unique_vector);
-  }
 
   *fft_grid = my_fft_grid;
 }

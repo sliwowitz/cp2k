@@ -2222,126 +2222,52 @@ void grid_create_redistribute(
   }
 }
 
-/*******************************************************************************
- * \brief Allocates a multigrid which is passed to task list-based and
- *pgf_product-based routines.
- *
- * \param orthorhombic     Whether simulation box is orthorhombic.
- * \param nlevels          Number of grid levels.
- * \param npts_global     Number of global grid points in each direction.
- * \param npts_local      Number of local grid points in each direction.
- * \param shift_local     Number of points local grid is shifted wrt global grid
- * \param border_width    Width of halo region in grid points in each direction.
- * \param dh              Incremental grid matrix.
- * \param dh_inv          Inverse incremental grid matrix.
- *
- * \param multigrid        Handle to the created multigrid.
- *
- * \author Frederick Stein
- ******************************************************************************/
-void grid_create_multigrid(
-    const bool orthorhombic, const int nlevels,
-    const int npts_global[nlevels][3], const int npts_local[nlevels][3],
-    const int shift_local[nlevels][3], const int border_width[nlevels][3],
-    const double dh[nlevels][3][3], const double dh_inv[nlevels][3][3],
-    const int pgrid_dims[nlevels][3], const grid_mpi_comm comm,
-    grid_multigrid **multigrid_out) {
-
+void grid_multigrid_allocate_buffers(grid_multigrid *multigrid,
+                                     const int nlevels,
+                                     const grid_mpi_comm comm) {
   const grid_library_config config = grid_library_get_config();
-
-  grid_multigrid *multigrid = NULL;
-
-  assert(multigrid_out != NULL);
-  for (int level = 0; level < nlevels; level++) {
-    assert(pgrid_dims[level][0] * pgrid_dims[level][1] * pgrid_dims[level][2] ==
-               grid_mpi_comm_size(comm) ||
-           (pgrid_dims[level][0] == 1 && pgrid_dims[level][1] == 1 &&
-            pgrid_dims[level][2] == 1));
-  }
 
   const int num_int = 3 * nlevels;
   const int num_double = 9 * nlevels;
 
-  if (*multigrid_out != NULL)
-    grid_free_multigrid(*multigrid_out);
-  *multigrid_out = NULL;
+  multigrid->npts_global = calloc(num_int, sizeof(int));
+  multigrid->npts_local = calloc(num_int, sizeof(int));
+  multigrid->shift_local = calloc(num_int, sizeof(int));
+  multigrid->border_width = calloc(num_int, sizeof(int));
+  multigrid->dh = calloc(num_double, sizeof(double));
+  multigrid->dh_inv = calloc(num_double, sizeof(double));
+  multigrid->grids = calloc(nlevels, sizeof(offload_buffer *));
+  multigrid->pgrid_dims = calloc(num_int, sizeof(int));
+  multigrid->proc2local =
+      calloc(nlevels * grid_mpi_comm_size(comm) * 6, sizeof(int));
+  multigrid->redistribute = calloc(nlevels, sizeof(grid_redistribute));
+  multigrid->fft_grid_layouts = calloc(nlevels, sizeof(grid_fft_grid_layout *));
+  multigrid->fft_rs_grids = calloc(nlevels, sizeof(grid_fft_real_rs_grid));
+  multigrid->fft_gs_grids = calloc(nlevels, sizeof(grid_fft_complex_gs_grid));
 
-  if (*multigrid_out != NULL) {
-    multigrid = *multigrid_out;
-    if (nlevels != multigrid->nlevels) {
-      multigrid->npts_global =
-          realloc(multigrid->npts_global, num_int * sizeof(int));
-      multigrid->npts_local =
-          realloc(multigrid->npts_local, num_int * sizeof(int));
-      multigrid->shift_local =
-          realloc(multigrid->shift_local, num_int * sizeof(int));
-      multigrid->border_width =
-          realloc(multigrid->border_width, num_int * sizeof(int));
-      multigrid->dh = realloc(multigrid->dh, num_double * sizeof(double));
-      multigrid->dh_inv =
-          realloc(multigrid->dh_inv, num_double * sizeof(double));
-      multigrid->pgrid_dims =
-          realloc(multigrid->pgrid_dims, num_int * sizeof(int));
-      multigrid->redistribute =
-          realloc(multigrid->redistribute, nlevels * sizeof(grid_redistribute));
-
-      for (int level = 0; level < multigrid->nlevels; level++) {
-        offload_free_buffer(multigrid->grids[level]);
-        grid_free_real_rs_grid(&multigrid->fft_rs_grids[level]);
-        grid_free_complex_gs_grid(&multigrid->fft_gs_grids[level]);
-        grid_free_fft_grid_layout(multigrid->fft_grid_layouts[level]);
-        multigrid->fft_grid_layouts[level] = NULL;
-      }
-      multigrid->grids =
-          realloc(multigrid->grids, nlevels * sizeof(offload_buffer *));
-      multigrid->fft_rs_grids = realloc(
-          multigrid->fft_rs_grids, nlevels * sizeof(grid_fft_real_rs_grid));
-      multigrid->fft_gs_grids = realloc(
-          multigrid->fft_gs_grids, nlevels * sizeof(grid_fft_complex_gs_grid));
-      multigrid->fft_grid_layouts =
-          realloc(multigrid->fft_grid_layouts,
-                  nlevels * sizeof(grid_fft_grid_layout *));
-      if (nlevels > multigrid->nlevels) {
-        memset(multigrid->grids[multigrid->nlevels], 0,
-               (nlevels - multigrid->nlevels) * sizeof(offload_buffer *));
-      }
-    }
-    // Always free the old communicator
-    grid_mpi_comm_free(&multigrid->comm);
-    multigrid->proc2local =
-        realloc(multigrid->proc2local,
-                nlevels * grid_mpi_comm_size(comm) * 6 * sizeof(int));
-  } else {
-    multigrid = calloc(1, sizeof(grid_multigrid));
-    multigrid->npts_global = calloc(num_int, sizeof(int));
-    multigrid->npts_local = calloc(num_int, sizeof(int));
-    multigrid->shift_local = calloc(num_int, sizeof(int));
-    multigrid->border_width = calloc(num_int, sizeof(int));
-    multigrid->dh = calloc(num_double, sizeof(double));
-    multigrid->dh_inv = calloc(num_double, sizeof(double));
-    multigrid->grids = calloc(nlevels, sizeof(offload_buffer *));
-    multigrid->pgrid_dims = calloc(num_int, sizeof(int));
-    multigrid->proc2local =
-        calloc(nlevels * grid_mpi_comm_size(comm) * 6, sizeof(int));
-    multigrid->redistribute = calloc(nlevels, sizeof(grid_redistribute));
-    multigrid->fft_grid_layouts =
-        calloc(nlevels, sizeof(grid_fft_grid_layout *));
-    multigrid->fft_rs_grids = calloc(nlevels, sizeof(grid_fft_real_rs_grid));
-    multigrid->fft_gs_grids = calloc(nlevels, sizeof(grid_fft_complex_gs_grid));
-
-    // Resolve AUTO to a concrete backend.
-    if (config.backend == GRID_BACKEND_AUTO) {
+  // Resolve AUTO to a concrete backend.
+  if (config.backend == GRID_BACKEND_AUTO) {
 #if defined(__OFFLOAD_HIP) && !defined(__NO_OFFLOAD_GRID)
-      multigrid->backend = GRID_BACKEND_HIP;
+    multigrid->backend = GRID_BACKEND_HIP;
 #elif defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
-      multigrid->backend = GRID_BACKEND_GPU;
+    multigrid->backend = GRID_BACKEND_GPU;
 #else
-      multigrid->backend = GRID_BACKEND_CPU;
+    multigrid->backend = GRID_BACKEND_CPU;
 #endif
-    } else {
-      multigrid->backend = config.backend;
-    }
+  } else {
+    multigrid->backend = config.backend;
   }
+}
+
+void grid_multigrid_setup_distribution(
+    grid_multigrid *multigrid, const bool orthorhombic, const int nlevels,
+    const int npts_global[nlevels][3], const int npts_local[nlevels][3],
+    const int shift_local[nlevels][3], const int border_width[nlevels][3],
+    const double dh[nlevels][3][3], const double dh_inv[nlevels][3][3],
+    const int pgrid_dims[nlevels][3], const grid_mpi_comm comm) {
+
+  const int num_int = 3 * nlevels;
+  const int num_double = 9 * nlevels;
 
   for (int level = 0; level < nlevels; level++) {
     offload_create_buffer(npts_local[level][0] * npts_local[level][1] *
@@ -2377,16 +2303,16 @@ void grid_create_multigrid(
             multigrid->proc2local[level * 6 * grid_mpi_comm_size(comm)],
         multigrid->border_width[level], &(multigrid->redistribute[level]));
   }
+}
 
-  multigrid->fft_grid_layouts[0] = NULL;
+void grid_multigrid_setup_fft_grids(grid_multigrid *multigrid) {
   grid_create_fft_grid_layout(&multigrid->fft_grid_layouts[0], multigrid->comm,
-                              npts_global[0], dh_inv[0]);
+                              multigrid->npts_global[0], multigrid->dh_inv[0]);
   grid_create_real_rs_grid(&multigrid->fft_rs_grids[0],
                            multigrid->fft_grid_layouts[0]);
   grid_create_complex_gs_grid(&multigrid->fft_gs_grids[0],
                               multigrid->fft_grid_layouts[0]);
-  for (int level = 1; level < nlevels; level++) {
-    multigrid->fft_grid_layouts[level] = NULL;
+  for (int level = 1; level < multigrid->nlevels; level++) {
     grid_create_fft_grid_layout_from_reference(
         &multigrid->fft_grid_layouts[level], multigrid->npts_global[level],
         multigrid->fft_grid_layouts[0]);
@@ -2395,6 +2321,53 @@ void grid_create_multigrid(
     grid_create_complex_gs_grid(&multigrid->fft_gs_grids[level],
                                 multigrid->fft_grid_layouts[level]);
   }
+}
+
+/*******************************************************************************
+ * \brief Allocates a multigrid which is passed to task list-based and
+ *pgf_product-based routines.
+ *
+ * \param orthorhombic     Whether simulation box is orthorhombic.
+ * \param nlevels          Number of grid levels.
+ * \param npts_global     Number of global grid points in each direction.
+ * \param npts_local      Number of local grid points in each direction.
+ * \param shift_local     Number of points local grid is shifted wrt global grid
+ * \param border_width    Width of halo region in grid points in each direction.
+ * \param dh              Incremental grid matrix.
+ * \param dh_inv          Inverse incremental grid matrix.
+ *
+ * \param multigrid        Handle to the created multigrid.
+ *
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_create_multigrid(
+    const bool orthorhombic, const int nlevels,
+    const int npts_global[nlevels][3], const int npts_local[nlevels][3],
+    const int shift_local[nlevels][3], const int border_width[nlevels][3],
+    const double dh[nlevels][3][3], const double dh_inv[nlevels][3][3],
+    const int pgrid_dims[nlevels][3], const grid_mpi_comm comm,
+    grid_multigrid **multigrid_out) {
+
+  grid_multigrid *multigrid = NULL;
+
+  assert(multigrid_out != NULL);
+  for (int level = 0; level < nlevels; level++) {
+    assert(pgrid_dims[level][0] * pgrid_dims[level][1] * pgrid_dims[level][2] ==
+               grid_mpi_comm_size(comm) ||
+           (pgrid_dims[level][0] == 1 && pgrid_dims[level][1] == 1 &&
+            pgrid_dims[level][2] == 1));
+  }
+
+  if (multigrid_out != NULL)
+    grid_free_multigrid(*multigrid_out);
+  multigrid = calloc(1, sizeof(grid_multigrid));
+  grid_multigrid_allocate_buffers(multigrid, nlevels, comm);
+
+  grid_multigrid_setup_distribution(multigrid, orthorhombic, nlevels,
+                                    npts_global, npts_local, shift_local,
+                                    border_width, dh, dh_inv, pgrid_dims, comm);
+
+  grid_multigrid_setup_fft_grids(multigrid);
 
   grid_ref_create_multigrid(orthorhombic, nlevels, npts_global, npts_local,
                             shift_local, border_width, dh, dh_inv, comm,
