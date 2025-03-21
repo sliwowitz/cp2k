@@ -621,8 +621,8 @@ int fft_test_3d_blocked(const int npts_global[3]) {
     my_sizes_gs[dir] = my_bounds_gs[dir][1] - my_bounds_gs[dir][0] + 1;
   const int my_number_of_elements_gs = product3(my_sizes_gs);
 
-  const double scale = 1.0 / ((double)npts_global[0]) / ((double)npts_global[1]) /
-                       ((double)npts_global[2]);
+  const double scale = 1.0 / ((double)npts_global[0]) /
+                       ((double)npts_global[1]) / ((double)npts_global[2]);
 
   grid_fft_real_rs_grid grid_rs;
   grid_create_real_rs_grid(&grid_rs, fft_grid_layout);
@@ -706,10 +706,10 @@ int fft_test_3d_blocked(const int npts_global[3]) {
           const int mz = fft_grid_layout->index_to_g[index][2];
           const double complex my_value = grid_gs.data[index];
           const double complex ref_value =
-              cexp(-2.0 * I * pi *
-                   (((double)mx) * nx / npts_global[0] +
-                    ((double)my) * ny / npts_global[1] +
-                    ((double)mz) * nz / npts_global[2]));
+              scale * cexp(-2.0 * I * pi *
+                           (((double)mx) * nx / npts_global[0] +
+                            ((double)my) * ny / npts_global[1] +
+                            ((double)mz) * nz / npts_global[2]));
           double current_error = cabs(my_value - ref_value);
           if (current_error > 1e-12)
             printf("%i ERROR %i %i %i/%i %i %i: (%f %f) (%f %f)\n", my_process,

@@ -97,10 +97,10 @@ int main(int argc, char *argv[]) {
   errors += run_test(argv[1], "ortho_non_periodic.task");
   errors += run_test(argv[1], "ortho_tau.task");
   errors += run_test(argv[1], "general_density.task");
-   errors += run_test(argv[1], "general_tau.task");
-   errors += run_test(argv[1], "general_subpatch0.task");
-   errors += run_test(argv[1], "general_subpatch16.task");
-   errors += run_test(argv[1], "general_overflow.task");
+  errors += run_test(argv[1], "general_tau.task");
+  errors += run_test(argv[1], "general_subpatch0.task");
+  errors += run_test(argv[1], "general_subpatch16.task");
+  errors += run_test(argv[1], "general_overflow.task");
 
   errors += fft_test_local();
   errors += fft_test_transpose();
