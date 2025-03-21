@@ -11,6 +11,7 @@
 #include "common/grid_mpi.h"
 #include "cpu/grid_cpu_multigrid.h"
 #include "grid_fft_grid.h"
+#include "grid_fft_grid_layout.h"
 #include "ref/grid_ref_multigrid.h"
 
 #include <complex.h>
@@ -72,7 +73,9 @@ typedef struct {
   int (*pgrid_dims)[3];
   int *proc2local;
   grid_redistribute *redistribute;
-  grid_fft_grid_layout **fft_grids;
+  grid_fft_grid_layout **fft_grid_layouts;
+  grid_fft_real_rs_grid *fft_rs_grids;
+  grid_fft_complex_gs_grid *fft_gs_grids;
   grid_ref_multigrid *ref;
   grid_cpu_multigrid *cpu;
   // more backends to be added here
@@ -133,10 +136,12 @@ void grid_copy_from_multigrid_local_single(const grid_multigrid *multigrid,
                                            double *grid, const int level);
 
 void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
-                                   const double *grid);
+                                   const double *grid, const grid_mpi_comm comm,
+                                   const int (*proc2local)[3][2]);
 
 void grid_copy_from_multigrid_single(const grid_multigrid *multigrid,
-                                     double *grid);
+                                     double *grid, const grid_mpi_comm comm,
+                                     const int (*proc2local)[3][2]);
 
 void grid_copy_to_multigrid_local_single_f(const grid_multigrid *multigrid,
                                            const double *grid, const int level);
@@ -218,6 +223,16 @@ void grid_create_multigrid(
  * \author Frederick Stein
  ******************************************************************************/
 void grid_free_multigrid(grid_multigrid *multigrid);
+
+/*******************************************************************************
+ * \brief Redistributes data between two grids with a given distribution and the
+ *same order of global indices. \author Frederick Stein
+ ******************************************************************************/
+void redistribute_grids(
+    const double *grid_in, double *grid_out, const grid_mpi_comm comm_in,
+    const grid_mpi_comm comm_out, const int npts_global[3],
+    const int proc2local_in[grid_mpi_comm_size(comm_in)][3][2],
+    const int proc2local_out[grid_mpi_comm_size(comm_out)][3][2]);
 
 #endif
 

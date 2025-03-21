@@ -46,7 +46,7 @@ void fft_allocate_double(const int length, double **buffer) {
 #if defined(__FFTW3)
   *buffer = fftw_alloc_real(length);
 #else
-  *buffer = malloc(length * sizeof(double));
+  *buffer = (double *)malloc(length * sizeof(double));
 #endif
 }
 
@@ -60,7 +60,7 @@ void fft_allocate_complex(const int length, double complex **buffer) {
 #if defined(__FFTW3)
   *buffer = fftw_alloc_complex(length);
 #else
-  *buffer = malloc(length * sizeof(double complex));
+  *buffer = (double complex *)malloc(length * sizeof(double complex));
 #endif
 }
 

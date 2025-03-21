@@ -75,7 +75,7 @@ void sort_g_vectors(grid_fft_grid_layout *my_fft_grid) {
   assert(my_fft_grid != NULL);
   assert(my_fft_grid->npts_gs_local >= 0);
 
-  int *local_index2g_squared = malloc(my_fft_grid->npts_gs_local * sizeof(int));
+  int *local_index2g_squared = calloc(my_fft_grid->npts_gs_local, sizeof(int));
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
     local_index2g_squared[index] = squared_length_of_g_vector(
         my_fft_grid->index_to_g[index], my_fft_grid->h_inv);
@@ -83,7 +83,7 @@ void sort_g_vectors(grid_fft_grid_layout *my_fft_grid) {
 
   // Sort the indices according to the length of the vectors
   double_index_pair *g_square_index_pair =
-      malloc(my_fft_grid->npts_gs_local * sizeof(double_index_pair));
+      calloc(my_fft_grid->npts_gs_local, sizeof(double_index_pair));
   for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
     g_square_index_pair[index].value = local_index2g_squared[index];
     g_square_index_pair[index].index = index;
@@ -94,7 +94,7 @@ void sort_g_vectors(grid_fft_grid_layout *my_fft_grid) {
   // Apply the sorting to the index_to_g array
   {
     int(*index_to_g_sorted)[3] =
-        malloc(my_fft_grid->npts_gs_local * sizeof(int[3]));
+        calloc(my_fft_grid->npts_gs_local, sizeof(int[3]));
     for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
       memcpy(index_to_g_sorted[index],
              my_fft_grid->index_to_g[g_square_index_pair[index].index],
@@ -135,7 +135,8 @@ void sort_g_vectors(grid_fft_grid_layout *my_fft_grid) {
 
 void grid_free_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
   if (fft_grid != NULL) {
-    assert(fft_grid->ref_counter > 0);
+    if (grid_mpi_comm_rank(fft_grid->comm) == 0)
+      assert((fft_grid->ref_counter) > 0);
     fft_grid->ref_counter--;
     if (fft_grid->ref_counter == 0) {
       grid_mpi_comm_free(&fft_grid->comm);
@@ -163,15 +164,16 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
     my_fft_grid = *fft_grid;
     grid_free_fft_grid_layout(*fft_grid);
   }
-  my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
+  my_fft_grid = calloc(1, sizeof(grid_fft_grid_layout));
+
+  const int number_of_processes = grid_mpi_comm_size(comm);
+  const int my_process = grid_mpi_comm_rank(comm);
 
   my_fft_grid->grid_id = current_grid_id;
   my_fft_grid->ref_grid_id = current_grid_id;
   current_grid_id++;
   my_fft_grid->ref_counter = 1;
-
-  const int number_of_processes = grid_mpi_comm_size(comm);
-  const int my_process = grid_mpi_comm_rank(comm);
+  my_fft_grid->ray_distribution = false;
 
   if (npts_global[0] < number_of_processes) {
     // We only distribute in two directions if necessary to reduce communication
@@ -240,7 +242,6 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
         (proc_coords[1] + 1) * npts_global[2] / my_fft_grid->proc_grid[1] - 1;
   }
 
-  my_fft_grid->ray_distribution = false;
   my_fft_grid->npts_gs_local =
       (my_fft_grid->proc2local_gs[my_process][0][1] -
        my_fft_grid->proc2local_gs[my_process][0][0] + 1) *
@@ -378,22 +379,20 @@ void grid_create_fft_grid_layout_from_reference(
          "The new grid cannot have more grid points in any direction than the "
          "reference grid!");
 
+  const int number_of_processes = grid_mpi_comm_size(fft_grid_ref->comm);
+  const int my_process = grid_mpi_comm_rank(fft_grid_ref->comm);
+
   grid_fft_grid_layout *my_fft_grid = NULL;
   if (*fft_grid != NULL) {
     my_fft_grid = *fft_grid;
     grid_free_fft_grid_layout(*fft_grid);
-    my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
-  } else {
-    my_fft_grid = malloc(sizeof(grid_fft_grid_layout));
   }
+  my_fft_grid = calloc(1, sizeof(grid_fft_grid_layout));
 
   my_fft_grid->grid_id = current_grid_id;
   my_fft_grid->ref_grid_id = fft_grid_ref->grid_id;
   current_grid_id++;
   my_fft_grid->ref_counter = 1;
-
-  const int number_of_processes = grid_mpi_comm_size(fft_grid_ref->comm);
-  const int my_process = grid_mpi_comm_rank(fft_grid_ref->comm);
 
   if (npts_global[0] < number_of_processes) {
     // We only distribute in two directions if necessary to reduce communication
@@ -462,10 +461,10 @@ void grid_create_fft_grid_layout_from_reference(
   // grid to each process
   my_fft_grid->yz_to_process =
       malloc(npts_global[1] * npts_global[2] * sizeof(int));
-  // Count the number of rays on each process
-  my_fft_grid->rays_per_process = calloc(number_of_processes, sizeof(int));
   memset(my_fft_grid->yz_to_process, -1,
          npts_global[1] * npts_global[2] * sizeof(int));
+  // Count the number of rays on each process
+  my_fft_grid->rays_per_process = calloc(number_of_processes, sizeof(int));
   int total_number_of_rays = 0;
   for (int process = 0; process < number_of_processes; process++) {
     for (int index_y = fft_grid_ref->proc2local_gs[process][1][0];
@@ -548,10 +547,7 @@ void grid_create_fft_grid_layout_from_reference(
   // Create the map of yz index to the yz coordinates and the z-values required
   // for the mixed space
   my_fft_grid->ray_to_yz = malloc(total_number_of_rays * sizeof(int[2]));
-  for (int ray = 0; ray < total_number_of_rays; ray++) {
-    my_fft_grid->ray_to_yz[ray][0] = -1;
-    my_fft_grid->ray_to_yz[ray][1] = -1;
-  }
+  memset(my_fft_grid->ray_to_yz, -1, total_number_of_rays * sizeof(int[2]));
   for (int index_y = 0; index_y < fft_grid_ref->npts_global[1]; index_y++) {
     const int index_y_shifted =
         convert_c_index_to_shifted_index(index_y, fft_grid_ref->npts_global[1]);
@@ -604,7 +600,7 @@ void grid_create_fft_grid_layout_from_reference(
   // This grid is smaller in all directions such that all points of the new grid
   // should be available on the reference grid
   my_fft_grid->local_index_to_ref_grid =
-      malloc(my_fft_grid->npts_gs_local * sizeof(int));
+      calloc(my_fft_grid->npts_gs_local, sizeof(int));
   int own_index = 0;
   for (int ref_index = 0; ref_index < fft_grid_ref->npts_gs_local;
        ref_index++) {
@@ -694,6 +690,7 @@ void grid_create_fft_grid_layout_from_reference(
  ******************************************************************************/
 void grid_retain_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
   assert(fft_grid != NULL);
+  assert(fft_grid->ref_counter > 0);
   fft_grid->ref_counter++;
 }
 

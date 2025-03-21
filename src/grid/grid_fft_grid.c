@@ -55,13 +55,14 @@ void grid_copy_to_coarse_grid(const grid_fft_complex_gs_grid *fine_grid,
 void grid_create_real_rs_grid(grid_fft_real_rs_grid *grid,
                               grid_fft_grid_layout *grid_layout) {
   assert(grid != NULL);
+  assert(grid_layout->ref_counter > 0);
   grid->fft_grid_layout = grid_layout;
-  grid_retain_fft_grid_layout(grid_layout);
+  grid_retain_fft_grid_layout(grid->fft_grid_layout);
   const int(*my_bounds)[2] =
       grid_layout->proc2local_rs[grid_mpi_comm_rank(grid_layout->comm)];
   int number_of_elements = 1;
   for (int dir = 0; dir < 3; dir++) {
-    number_of_elements *= my_bounds[dir][1] - my_bounds[dir][0] + 1;
+    number_of_elements *= imax(0, my_bounds[dir][1] - my_bounds[dir][0] + 1);
   }
   grid->data = NULL;
   fft_allocate_double(number_of_elements, &grid->data);
@@ -75,7 +76,7 @@ void grid_create_complex_gs_grid(grid_fft_complex_gs_grid *grid,
                                  grid_fft_grid_layout *grid_layout) {
   assert(grid != NULL);
   grid->fft_grid_layout = grid_layout;
-  grid_retain_fft_grid_layout(grid_layout);
+  grid_retain_fft_grid_layout(grid->fft_grid_layout);
   grid->data = NULL;
   fft_allocate_complex(grid_layout->npts_gs_local, &grid->data);
 }
@@ -87,7 +88,9 @@ void grid_create_complex_gs_grid(grid_fft_complex_gs_grid *grid,
 void grid_free_real_rs_grid(grid_fft_real_rs_grid *grid) {
   if (grid != NULL) {
     fft_free_double(grid->data);
+    grid->data = NULL;
     grid_free_fft_grid_layout(grid->fft_grid_layout);
+    grid->fft_grid_layout = NULL;
   }
 }
 
@@ -98,7 +101,9 @@ void grid_free_real_rs_grid(grid_fft_real_rs_grid *grid) {
 void grid_free_complex_gs_grid(grid_fft_complex_gs_grid *grid) {
   if (grid != NULL) {
     fft_free_complex(grid->data);
+    grid->data = NULL;
     grid_free_fft_grid_layout(grid->fft_grid_layout);
+    grid->fft_grid_layout = NULL;
   }
 }
 

@@ -8,6 +8,7 @@
 #include "grid_multigrid.h"
 #include "common/grid_common.h"
 #include "common/grid_library.h"
+#include "grid_fft_grid.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -114,59 +115,80 @@ void grid_copy_from_multigrid_local_single(const grid_multigrid *multigrid,
 }
 
 void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
-                                   const double *grid) {
-  // Create a matching reference grid where all data is collected
-  grid_fft_grid_layout *fft_grid = NULL;
-  grid_create_fft_grid_layout(&fft_grid, multigrid->comm,
-                              multigrid->npts_global[0], multigrid->dh_inv[0]);
-  memcpy((double *)fft_grid->buffer_1, grid,
-         sizeof(double) * multigrid->npts_global[0][0] *
-             multigrid->npts_global[0][1] * multigrid->npts_global[0][2]);
-  grid_copy_to_multigrid_general_single(
-      multigrid, 0, (double *)fft_grid->buffer_1, fft_grid->comm,
-      (const int *)fft_grid->proc2local_rs);
-  // Create grids referencing the large one
-  for (int level = 1; level < multigrid->nlevels; level++) {
-    grid_fft_grid_layout *fft_grid_level = NULL;
-    // grid_fft_grid_copy_grids(fft_grid_level, fft_grid);
-    grid_create_fft_grid_layout_from_reference(
-        &fft_grid_level, multigrid->npts_local[level], fft_grid);
-    grid_copy_from_multigrid_general_single(
-        multigrid, level, (double *)fft_grid_level->buffer_1,
-        fft_grid_level->comm,
-        (const int *)&fft_grid_level
-            ->proc2local_rs[level * grid_mpi_comm_size(multigrid->comm)]);
-    grid_free_fft_grid_layout(fft_grid_level);
+                                   const double *grid, const grid_mpi_comm comm,
+                                   const int (*proc2local)[3][2]) {
+  if (multigrid->nlevels > 1) {
+    // Copy the data into our own grid
+    redistribute_grids(grid, (double *)multigrid->fft_rs_grids->data, comm,
+                       multigrid->fft_rs_grids->fft_grid_layout->comm,
+                       multigrid->npts_global[0], proc2local,
+                       (const int(*)[3][2])multigrid->fft_rs_grids
+                           ->fft_grid_layout->proc2local_rs);
+    // FFT the data
+    fft_3d_fw(&multigrid->fft_rs_grids[0], &multigrid->fft_gs_grids[0]);
+    grid_copy_to_multigrid_general_single(
+        multigrid, 0, (double *)multigrid->fft_rs_grids->data,
+        multigrid->fft_rs_grids->fft_grid_layout->comm,
+        (const int *)multigrid->fft_rs_grids->fft_grid_layout->proc2local_rs);
+    // Create grids referencing the large one
+    for (int level = 1; level < multigrid->nlevels; level++) {
+      // Copy the data to the coarse grids
+      grid_copy_to_coarse_grid(&multigrid->fft_gs_grids[0],
+                               &multigrid->fft_gs_grids[level]);
+      fft_3d_bw(&multigrid->fft_gs_grids[level],
+                &multigrid->fft_rs_grids[level]);
+      // Redistribute to the realspace grid
+      grid_copy_to_multigrid_general_single(
+          multigrid, level, (double *)multigrid->fft_rs_grids[level].data,
+          multigrid->fft_rs_grids[level].fft_grid_layout->comm,
+          (const int *)multigrid->fft_rs_grids[level]
+              .fft_grid_layout->proc2local_rs);
+    }
+  } else {
+    // Copy the data directly to the realspace grid
+    grid_copy_to_multigrid_general_single(multigrid, 0, grid, comm,
+                                          (const int *)proc2local);
   }
-  grid_free_fft_grid_layout(fft_grid);
 }
 
 void grid_copy_from_multigrid_single(const grid_multigrid *multigrid,
-                                     double *grid) {
-  // Create a matching reference grid where all data is collected
-  grid_fft_grid_layout *fft_grid = NULL;
-  grid_create_fft_grid_layout(&fft_grid, multigrid->comm,
-                              multigrid->npts_global[0], multigrid->dh_inv[0]);
-  grid_copy_from_multigrid_general_single(
-      multigrid, 0, (double *)fft_grid->buffer_1, fft_grid->comm,
-      (const int *)fft_grid->proc2local_rs);
-  // Create grids referencing the large one
-  for (int level = 1; level < multigrid->nlevels; level++) {
-    grid_fft_grid_layout *fft_grid_level = NULL;
-    grid_create_fft_grid_layout_from_reference(
-        &fft_grid_level, multigrid->npts_local[level], fft_grid);
-    grid_copy_from_multigrid_general_single(
-        multigrid, level, (double *)fft_grid_level->buffer_1,
-        fft_grid_level->comm,
-        (const int *)&fft_grid_level
-            ->proc2local_rs[level * grid_mpi_comm_size(multigrid->comm)]);
-    // grid_fft_grid_add_grids(fft_grid, fft_grid_level);
-    grid_free_fft_grid_layout(fft_grid_level);
+                                     double *grid, const grid_mpi_comm comm,
+                                     const int (*proc2local)[3][2]) {
+  if (multigrid->nlevels > 1) {
+    // Redistribute the data on the realspace grid to an FFT-optimal layout
+    grid_copy_to_multigrid_general_single(
+        multigrid, 0, grid, multigrid->fft_rs_grids[0].fft_grid_layout->comm,
+        (const int *)multigrid->fft_rs_grids[0].fft_grid_layout->proc2local_rs);
+    // FFT the data
+    fft_3d_fw(&multigrid->fft_rs_grids[0], &multigrid->fft_gs_grids[0]);
+    for (int level = 1; level < multigrid->nlevels; level++) {
+      // Redistribute the data on the coarse grids
+      grid_copy_to_multigrid_general_single(
+          multigrid, level, grid,
+          multigrid->fft_rs_grids[level].fft_grid_layout->comm,
+          (const int *)multigrid->fft_rs_grids[level]
+              .fft_grid_layout->proc2local_rs);
+      // FFT the data
+      fft_3d_fw(&multigrid->fft_rs_grids[level],
+                &multigrid->fft_gs_grids[level]);
+      // Add the data on the fine grid
+      grid_add_to_fine_grid(&multigrid->fft_gs_grids[level],
+                            &multigrid->fft_gs_grids[0]);
+    }
+    // FFT back to realspace
+    fft_3d_bw(&multigrid->fft_gs_grids[0], &multigrid->fft_rs_grids[0]);
+    // Copy the data back to the original grid
+    redistribute_grids((double *)multigrid->fft_rs_grids[0].data, grid,
+                       multigrid->fft_rs_grids[0].fft_grid_layout->comm, comm,
+                       multigrid->npts_global[0],
+                       (const int(*)[3][2])multigrid->fft_rs_grids[0]
+                           .fft_grid_layout->proc2local_rs,
+                       proc2local);
+  } else {
+    // Copy the data directly to the realspace grid
+    grid_copy_from_multigrid_general_single(multigrid, 0, grid, multigrid->comm,
+                                            (const int *)proc2local);
   }
-  memcpy(grid, (double *)fft_grid->buffer_1,
-         sizeof(double) * fft_grid->npts_global[0] * fft_grid->npts_global[1] *
-             fft_grid->npts_global[2]);
-  grid_free_fft_grid_layout(fft_grid);
 }
 
 void grid_copy_to_multigrid_local_single_f(const grid_multigrid *multigrid,
@@ -2240,6 +2262,10 @@ void grid_create_multigrid(
   const int num_int = 3 * nlevels;
   const int num_double = 9 * nlevels;
 
+  if (*multigrid_out != NULL)
+    grid_free_multigrid(*multigrid_out);
+  *multigrid_out = NULL;
+
   if (*multigrid_out != NULL) {
     multigrid = *multigrid_out;
     if (nlevels != multigrid->nlevels) {
@@ -2261,11 +2287,20 @@ void grid_create_multigrid(
 
       for (int level = 0; level < multigrid->nlevels; level++) {
         offload_free_buffer(multigrid->grids[level]);
-        grid_free_fft_grid_layout(multigrid->fft_grids[level]);
-        multigrid->fft_grids[level] = NULL;
+        grid_free_real_rs_grid(&multigrid->fft_rs_grids[level]);
+        grid_free_complex_gs_grid(&multigrid->fft_gs_grids[level]);
+        grid_free_fft_grid_layout(multigrid->fft_grid_layouts[level]);
+        multigrid->fft_grid_layouts[level] = NULL;
       }
       multigrid->grids =
           realloc(multigrid->grids, nlevels * sizeof(offload_buffer *));
+      multigrid->fft_rs_grids = realloc(
+          multigrid->fft_rs_grids, nlevels * sizeof(grid_fft_real_rs_grid));
+      multigrid->fft_gs_grids = realloc(
+          multigrid->fft_gs_grids, nlevels * sizeof(grid_fft_complex_gs_grid));
+      multigrid->fft_grid_layouts =
+          realloc(multigrid->fft_grid_layouts,
+                  nlevels * sizeof(grid_fft_grid_layout *));
       if (nlevels > multigrid->nlevels) {
         memset(multigrid->grids[multigrid->nlevels], 0,
                (nlevels - multigrid->nlevels) * sizeof(offload_buffer *));
@@ -2289,7 +2324,10 @@ void grid_create_multigrid(
     multigrid->proc2local =
         calloc(nlevels * grid_mpi_comm_size(comm) * 6, sizeof(int));
     multigrid->redistribute = calloc(nlevels, sizeof(grid_redistribute));
-    multigrid->fft_grids = calloc(nlevels, sizeof(grid_fft_grid_layout *));
+    multigrid->fft_grid_layouts =
+        calloc(nlevels, sizeof(grid_fft_grid_layout *));
+    multigrid->fft_rs_grids = calloc(nlevels, sizeof(grid_fft_real_rs_grid));
+    multigrid->fft_gs_grids = calloc(nlevels, sizeof(grid_fft_complex_gs_grid));
 
     // Resolve AUTO to a concrete backend.
     if (config.backend == GRID_BACKEND_AUTO) {
@@ -2340,16 +2378,22 @@ void grid_create_multigrid(
         multigrid->border_width[level], &(multigrid->redistribute[level]));
   }
 
-  // int current_npts_global[3] ;
-  //  memcpy(current_npts_global, multigrid->npts_global[0], 3 * sizeof(int));
-  // grid_create_fft_grid_layout(&multigrid->fft_grids[0], multigrid->comm,
-  //    current_npts_global, dh_inv);
+  multigrid->fft_grid_layouts[0] = NULL;
+  grid_create_fft_grid_layout(&multigrid->fft_grid_layouts[0], multigrid->comm,
+                              npts_global[0], dh_inv[0]);
+  grid_create_real_rs_grid(&multigrid->fft_rs_grids[0],
+                           multigrid->fft_grid_layouts[0]);
+  grid_create_complex_gs_grid(&multigrid->fft_gs_grids[0],
+                              multigrid->fft_grid_layouts[0]);
   for (int level = 1; level < nlevels; level++) {
-    // memcpy(current_npts_global, multigrid->npts_global[level], 3 *
-    // sizeof(int));
-    // grid_create_fft_grid_layout_from_reference(&multigrid->fft_grids[level],
-    // multigrid->npts_global[level],
-    // multigrid->fft_grids[0]);
+    multigrid->fft_grid_layouts[level] = NULL;
+    grid_create_fft_grid_layout_from_reference(
+        &multigrid->fft_grid_layouts[level], multigrid->npts_global[level],
+        multigrid->fft_grid_layouts[0]);
+    grid_create_real_rs_grid(&multigrid->fft_rs_grids[level],
+                             multigrid->fft_grid_layouts[level]);
+    grid_create_complex_gs_grid(&multigrid->fft_gs_grids[level],
+                                multigrid->fft_grid_layouts[level]);
   }
 
   grid_ref_create_multigrid(orthorhombic, nlevels, npts_global, npts_local,
@@ -2413,11 +2457,23 @@ void grid_free_multigrid(grid_multigrid *multigrid) {
       }
       free(multigrid->redistribute);
     }
-    if (multigrid->fft_grids != NULL) {
+    if (multigrid->fft_grid_layouts != NULL) {
       for (int level = 0; level < multigrid->nlevels; level++) {
-        grid_free_fft_grid_layout(multigrid->fft_grids[level]);
+        grid_free_fft_grid_layout(multigrid->fft_grid_layouts[level]);
       }
-      free(multigrid->fft_grids);
+      free(multigrid->fft_grid_layouts);
+    }
+    if (multigrid->fft_rs_grids != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_real_rs_grid(&multigrid->fft_rs_grids[level]);
+      }
+      free(multigrid->fft_rs_grids);
+    }
+    if (multigrid->fft_gs_grids != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_complex_gs_grid(&multigrid->fft_gs_grids[level]);
+      }
+      free(multigrid->fft_gs_grids);
     }
     grid_mpi_comm_free(&multigrid->comm);
     grid_ref_free_multigrid(multigrid->ref);

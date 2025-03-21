@@ -49,6 +49,20 @@ void grid_free_real_rs_grid(grid_fft_real_rs_grid *grid);
 void grid_free_complex_gs_grid(grid_fft_complex_gs_grid *grid);
 
 /*******************************************************************************
+ * \brief Add one grid to another one in reciprocal space.
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_add_to_fine_grid(const grid_fft_complex_gs_grid *coarse_grid,
+                           const grid_fft_complex_gs_grid *fine_grid);
+
+/*******************************************************************************
+ * \brief Copy fine grid to coarse grid in reciprocal space
+ * \author Frederick Stein
+ ******************************************************************************/
+void grid_copy_to_coarse_grid(const grid_fft_complex_gs_grid *fine_grid,
+                              const grid_fft_complex_gs_grid *coarse_grid);
+
+/*******************************************************************************
  * \brief Performs a forward 3D-FFT using a high-level FFT grid.
  * \param grid_rs real-valued data in real space, ordered according to
  *fft_grid->proc2local_rs \param grid_gs complex data in reciprocal space,

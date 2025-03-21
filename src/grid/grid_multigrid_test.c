@@ -13,6 +13,7 @@
 #include "grid_multigrid.h"
 #include "grid_multigrid_test.h"
 
+#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +39,9 @@ int multigrid_test() {
   grid_create_multigrid(true, 2, npts_global, npts_local, shift_local,
                         border_width, dh, dh_inv, pgrid_dims,
                         grid_mpi_comm_self, &multigrid);
+  for (int level = 0; level < multigrid->nlevels; level++) {
+    assert(multigrid->fft_grid_layouts[level]->grid_id > 0);
+  }
 
   double grid[64];
   memset(grid, 0, 64 * sizeof(double));
