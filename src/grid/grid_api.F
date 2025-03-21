@@ -82,6 +82,7 @@ MODULE grid_api
    PUBLIC :: grid_copy_from_multigrid_local_single, grid_copy_to_multigrid_local_single
    PUBLIC :: grid_copy_from_multigrid_general, grid_copy_to_multigrid_general
    PUBLIC :: grid_copy_to_multigrid_general_single, grid_copy_from_multigrid_general_single
+   PUBLIC :: grid_copy_from_multigrid_single, grid_copy_to_multigrid_single
    PUBLIC :: grid_get_multigrid_borderwidth, grid_get_multigrid_dh
    PUBLIC :: grid_get_multigrid_dh_inv, grid_get_multigrid_nlevels
    PUBLIC :: grid_get_multigrid_comm
@@ -1455,6 +1456,83 @@ CONTAINS
                                                      C_LOC(proc2local))
 
    END SUBROUTINE grid_copy_from_multigrid_general_single
+
+! **************************************************************************************************
+!> \brief Returns the respective info on the multigrid.
+!> \param multigrid ...
+!> \param grid ...
+!> \return ...
+!> \author Frederick Stein
+! **************************************************************************************************
+   SUBROUTINE grid_copy_to_multigrid_single(multigrid, grid)
+
+      TYPE(grid_multigrid_type), INTENT(IN)              :: multigrid
+      TYPE(pw_r3d_rs_type), INTENT(IN)                   :: grid
+
+      INTEGER, ALLOCATABLE, DIMENSION(:, :, :), TARGET   :: proc2local
+      INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_global
+      INTERFACE
+         SUBROUTINE grid_copy_to_multigrid_single_c(multigrid, grid, comm, proc2local) &
+            BIND(C, name="grid_copy_to_multigrid_single_f")
+            IMPORT :: C_PTR, C_INT
+            TYPE(C_PTR), VALUE                        :: multigrid
+            TYPE(C_PTR), VALUE                        :: grid
+            INTEGER(C_INT), VALUE                     :: comm
+            TYPE(C_PTR), VALUE                        :: proc2local
+         END SUBROUTINE grid_copy_to_multigrid_single_c
+      END INTERFACE
+
+      CPASSERT(C_ASSOCIATED(multigrid%c_ptr))
+      npts_global => grid_get_multigrid_npts_global(multigrid)
+      CPASSERT(ALL(grid%pw_grid%npts == npts_global(:, 1)))
+
+      ALLOCATE (proc2local(2, 3, grid%pw_grid%para%group%num_pe))
+      proc2local(:, :, :) = grid%pw_grid%para%bo(:, :, :, 1) - 1
+
+      CALL grid_copy_to_multigrid_single_c(multigrid%c_ptr, C_LOC(grid%array), &
+                                           grid%pw_grid%para%group%get_handle(), &
+                                           C_LOC(proc2local))
+
+   END SUBROUTINE grid_copy_to_multigrid_single
+
+! **************************************************************************************************
+!> \brief Returns the respective info on the multigrid.
+!> \param multigrid ...
+!> \param grid ...
+!> \return ...
+!> \author Frederick Stein
+! **************************************************************************************************
+   SUBROUTINE grid_copy_from_multigrid_single(multigrid, grid)
+
+      TYPE(grid_multigrid_type), INTENT(IN)              :: multigrid
+      TYPE(pw_r3d_rs_type), INTENT(IN)                   :: grid
+
+      INTEGER, ALLOCATABLE, DIMENSION(:, :, :), TARGET   :: proc2local
+      INTEGER, CONTIGUOUS, DIMENSION(:, :), POINTER      :: npts_global
+      INTERFACE
+         SUBROUTINE grid_copy_from_multigrid_single_c(multigrid, grid, comm, proc2local) &
+            BIND(C, name="grid_copy_from_multigrid_single_f")
+            IMPORT :: C_PTR, C_INT
+            TYPE(C_PTR), VALUE                        :: multigrid
+            TYPE(C_PTR), VALUE                        :: grid
+            INTEGER(C_INT), VALUE                     :: comm
+            TYPE(C_PTR), VALUE                        :: proc2local
+         END SUBROUTINE grid_copy_from_multigrid_single_c
+      END INTERFACE
+
+      CPASSERT(C_ASSOCIATED(multigrid%c_ptr))
+      npts_global => grid_get_multigrid_npts_global(multigrid)
+      CPASSERT(ALL(grid%pw_grid%npts == npts_global(:, 1)))
+      CPASSERT(ASSOCIATED(grid%array))
+
+      ALLOCATE (proc2local(2, 3, grid%pw_grid%para%group%num_pe))
+      proc2local(:, :, :) = grid%pw_grid%para%bo(:, :, :, 1) - 1
+
+      CALL grid_copy_from_multigrid_single_c(multigrid%c_ptr, C_LOC(grid%array), &
+                                             grid%pw_grid%para%group%get_handle(), &
+                                             C_LOC(proc2local))
+
+   END SUBROUTINE grid_copy_from_multigrid_single
 
 ! **************************************************************************************************
 !> \brief Returns the respective info on the multigrid.

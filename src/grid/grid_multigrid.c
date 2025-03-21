@@ -130,6 +130,10 @@ void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
         multigrid, 0, (double *)multigrid->fft_rs_grids->data,
         multigrid->fft_rs_grids->fft_grid_layout->comm,
         (const int *)multigrid->fft_rs_grids->fft_grid_layout->proc2local_rs);
+    long int total_number_of_elements =
+        ((long int)multigrid->npts_global[0][0]) *
+        ((long int)multigrid->npts_global[0][1]) *
+        ((long int)multigrid->npts_global[0][2]);
     // Create grids referencing the large one
     for (int level = 1; level < multigrid->nlevels; level++) {
       // Copy the data to the coarse grids
@@ -137,6 +141,13 @@ void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
                                &multigrid->fft_gs_grids[level]);
       fft_3d_bw(&multigrid->fft_gs_grids[level],
                 &multigrid->fft_rs_grids[level]);
+      const double factor = (double)total_number_of_elements /
+                            ((double)multigrid->npts_global[level][0]) /
+                            ((double)multigrid->npts_global[level][1]) /
+                            ((double)multigrid->npts_global[level][2]);
+      for (int index = 0; index < product3(multigrid->npts_local[level]);
+           index++)
+        multigrid->fft_rs_grids[level].data[index] *= factor;
       // Redistribute to the realspace grid
       grid_copy_to_multigrid_general_single(
           multigrid, level, (double *)multigrid->fft_rs_grids[level].data,
@@ -189,6 +200,21 @@ void grid_copy_from_multigrid_single(const grid_multigrid *multigrid,
     grid_copy_from_multigrid_general_single(multigrid, 0, grid, multigrid->comm,
                                             (const int *)proc2local);
   }
+}
+
+void grid_copy_to_multigrid_single_f(const grid_multigrid *multigrid,
+                                     const double *grid,
+                                     const grid_mpi_fint comm,
+                                     const int (*proc2local)[3][2]) {
+  grid_copy_to_multigrid_single(multigrid, grid, grid_mpi_comm_f2c(comm),
+                                proc2local);
+}
+
+void grid_copy_from_multigrid_single_f(const grid_multigrid *multigrid,
+                                       double *grid, const grid_mpi_fint comm,
+                                       const int (*proc2local)[3][2]) {
+  grid_copy_from_multigrid_single(multigrid, grid, grid_mpi_comm_f2c(comm),
+                                  proc2local);
 }
 
 void grid_copy_to_multigrid_local_single_f(const grid_multigrid *multigrid,
