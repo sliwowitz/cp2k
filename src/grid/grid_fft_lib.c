@@ -11,6 +11,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 #if defined(__FFTW3)
 #include <fftw3.h>
@@ -163,6 +164,10 @@ void fft_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
   // Perform the second FFT along y
   fft_1d_fw_local(grid_gs, grid_rs, size_of_second_fft,
                   size_of_first_fft * number_of_ffts);
+
+  memcpy(grid_gs, grid_rs,
+         size_of_first_fft * size_of_second_fft * number_of_ffts *
+             sizeof(double complex));
 }
 
 /*******************************************************************************
@@ -182,6 +187,10 @@ void fft_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
   // Perform the third FFT along z
   fft_1d_bw_local(grid_rs, grid_gs, size_of_first_fft,
                   size_of_second_fft * number_of_ffts);
+
+  memcpy(grid_rs, grid_gs,
+         size_of_first_fft * size_of_second_fft * number_of_ffts *
+             sizeof(double complex));
 }
 
 /*******************************************************************************

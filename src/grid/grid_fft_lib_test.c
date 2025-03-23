@@ -106,58 +106,71 @@ int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
 
   const double pi = acos(-1);
 
-  double complex *input_array =
-      calloc(fft_size[0] * fft_size[1] * number_of_ffts, sizeof(double
-complex)); double complex *output_array = calloc(fft_size[0] * fft_size[1] *
-number_of_ffts, sizeof(double complex));
+  double complex *input_array = calloc(
+      fft_size[0] * fft_size[1] * number_of_ffts, sizeof(double complex));
+  double complex *output_array = calloc(
+      fft_size[0] * fft_size[1] * number_of_ffts, sizeof(double complex));
 
   double max_error = 0.0;
   // Check the forward FFT
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
-    input_array[(number_of_fft / fft_size[1] + number_of_fft % fft_size[1]) *
-number_of_ffts + number_of_fft] = 1.0;
+    input_array[number_of_fft % (fft_size[0] * fft_size[1]) * number_of_ffts +
+                number_of_fft] = 1.0;
   }
 
-  fft_2d_fw_local(input_array, output_array, fft_size[0], fft_size[1], number_of_ffts);
+  fft_2d_fw_local(input_array, output_array, fft_size[0], fft_size[1],
+                  number_of_ffts);
 
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index_1 = 0; index_1 < fft_size[0]; index_1++) {
       for (int index_2 = 0; index_2 < fft_size[1]; index_2++) {
-      max_error =
-          fmax(max_error, cabs(output_array[number_of_fft * fft_size[0]*fft_size[1] + index_1*fft_size[1]+index_2] -
-                               cexp(-2.0 * I * pi * ((double)(number_of_fft / fft_size[1]) *
-                               index_1 / fft_size[1]+(double)(number_of_fft % fft_size[1]) *
-                               index_2 / fft_size[1]))));
-          }
+        const double complex my_value =
+            output_array[number_of_fft * fft_size[0] * fft_size[1] +
+                         index_1 * fft_size[1] + index_2];
+        const double complex ref_value = cexp(
+            -2.0 * I * pi *
+            ((double)(number_of_fft / fft_size[1]) * index_1 / fft_size[0] +
+             (double)(number_of_fft % fft_size[1]) * index_2 / fft_size[1]));
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+      }
     }
   }
 
   if (max_error > 1.0e-12) {
     if (my_process == 0)
-      printf("The fw 2D-FFT does not work properly (%i %i/%i): %f!\n", fft_size[0], fft_size[1],
-             number_of_ffts, max_error);
+      printf("The fw 2D-FFT does not work properly (%i %i/%i): %f!\n",
+             fft_size[0], fft_size[1], number_of_ffts, max_error);
     errors++;
   }
 
   // Check the backward FFT
-  memset(input_array, 0, fft_size[0]*fft_size[1] * number_of_ffts * sizeof(double complex));
+  memset(input_array, 0,
+         fft_size[0] * fft_size[1] * number_of_ffts * sizeof(double complex));
 
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
-    input_array[number_of_fft * fft_size[0]*fft_size[1] + number_of_fft / fft_size[1] + number_of_fft % fft_size[1]] = 1.0;
+    input_array[number_of_fft * fft_size[0] * fft_size[1] +
+                (number_of_fft / fft_size[1] % fft_size[0] * fft_size[1]) +
+                number_of_fft % fft_size[1]] = 1.0;
   }
 
-  fft_2d_bw_local(input_array, output_array, fft_size[0], fft_size[1], number_of_ffts);
+  fft_2d_bw_local(input_array, output_array, fft_size[0], fft_size[1],
+                  number_of_ffts);
 
   max_error = 0.0;
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index_1 = 0; index_1 < fft_size[0]; index_1++) {
       for (int index_2 = 0; index_2 < fft_size[1]; index_2++) {
-      max_error =
-          fmax(max_error, cabs(output_array[number_of_fft * fft_size[0]*fft_size[1] + index_1*fft_size[1]+index_2] -
-                               cos(2.0 * I * pi * ((double)(number_of_fft / fft_size[1]) *
-                               index_1 / fft_size[1]+(double)(number_of_fft % fft_size[1]) *
-                               index_2 / fft_size[1]))));
-          }
+        const double complex my_value =
+            output_array[(index_1 * fft_size[1] + index_2) * number_of_ffts +
+                         number_of_fft];
+        const double complex ref_value = cexp(
+            2.0 * I * pi *
+            ((double)(number_of_fft / fft_size[1]) * index_1 / fft_size[0] +
+             (double)(number_of_fft % fft_size[1]) * index_2 / fft_size[1]));
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+      }
     }
   }
 
@@ -166,14 +179,14 @@ number_of_ffts + number_of_fft] = 1.0;
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The bw 2D-FFT does not work properly (%i %i/%H): %f!\n", fft_size[0], fft_size[1],
-             number_of_ffts, max_error);
+      printf("The bw 2D-FFT does not work properly (%i %i/%i): %f!\n",
+             fft_size[0], fft_size[1], number_of_ffts, max_error);
     errors++;
   }
 
   if (errors == 0 && my_process == 0)
-    printf("The 1D FFT does work properly (%i %i)!\n", fft_size,
-           number_of_ffts);
+    printf("The 1D FFT does work properly (%i %i/%i)!\n", fft_size[0],
+           fft_size[1], number_of_ffts);
   return errors;
 }
 
@@ -207,14 +220,14 @@ int fft_test_local() {
   errors += fft_test_2d_local_low((const int[2]){1, 1}, 1);
   errors += fft_test_2d_local_low((const int[2]){2, 2}, 4);
   errors += fft_test_2d_local_low((const int[2]){3, 3}, 9);
-  errors += fft_test_2d_local_low((const int[2]){4, 4}, 16);
+  errors += fft_test_2d_local_low((const int[2]){4, 4}, 29);
   errors += fft_test_2d_local_low((const int[2]){5, 5}, 25);
-  errors += fft_test_2d_local_low((const int[2]){6, 6}, 36);
+  errors += fft_test_2d_local_low((const int[2]){6, 6}, 50);
   errors += fft_test_2d_local_low((const int[2]){8, 8}, 64);
-  errors += fft_test_2d_local_low((const int[2]){9, 9}, 81);
-  errors += fft_test_2d_local_low((const int[2]){10, 10}, 100);
-  errors += fft_test_2d_local_low((const int[2]){16, 9}, 288);
-  errors += fft_test_2d_local_low((const int[2]){7, 20}, 100);
+  errors += fft_test_2d_local_low((const int[2]){9, 9}, 60);
+  errors += fft_test_2d_local_low((const int[2]){10, 10}, 20);
+  errors += fft_test_2d_local_low((const int[2]){16, 9}, 150);
+  errors += fft_test_2d_local_low((const int[2]){7, 20}, 90);
 
   return errors;
 }
