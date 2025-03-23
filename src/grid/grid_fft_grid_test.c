@@ -615,12 +615,12 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
       if (shifted_index_g_coarse[0] == shifted_index_g[0] &&
           shifted_index_g_coarse[1] == shifted_index_g[1] &&
           shifted_index_g_coarse[2] == shifted_index_g[2]) {
-        const double complex ref_value =
-            fabs((double)shifted_index_g_coarse[0]) +
-            fabs((double)shifted_index_g_coarse[1]) +
-            fabs((double)shifted_index_g_coarse[2]) +
-            (double)shifted_index_g[0] + (double)shifted_index_g[1] +
-            (double)shifted_index_g[2];
+        const double complex ref_value = fabs((double)shifted_index_g[0]) +
+                                         fabs((double)shifted_index_g[1]) +
+                                         fabs((double)shifted_index_g[2]) +
+                                         (double)shifted_index_g_coarse[0] +
+                                         (double)shifted_index_g_coarse[1] +
+                                         (double)shifted_index_g_coarse[2];
         double current_error = cabs(my_value - ref_value);
         max_error = fmax(max_error, current_error);
         found = true;
@@ -628,9 +628,9 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
       }
     }
     if (!found) {
-      const double complex ref_value = (double)shifted_index_g[0] +
-                                       (double)shifted_index_g[1] +
-                                       (double)shifted_index_g[2];
+      const double complex ref_value = fabs((double)shifted_index_g[0]) +
+                                       fabs((double)shifted_index_g[1]) +
+                                       fabs((double)shifted_index_g[2]);
       double current_error = cabs(my_value - ref_value);
       max_error = fmax(max_error, current_error);
     }
