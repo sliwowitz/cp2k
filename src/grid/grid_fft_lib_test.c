@@ -204,17 +204,17 @@ int fft_test_local() {
   errors += fft_test_1d_local_low(18, 320);
   errors += fft_test_1d_local_low(20, 288);
 
-  errors += fft_test_2d_local_low({1, 1}, 1);
-  errors += fft_test_2d_local_low({2, 2}, 4);
-  errors += fft_test_2d_local_low({3, 3}, 9);
-  errors += fft_test_2d_local_low({4, 4}, 16);
-  errors += fft_test_2d_local_low({5, 5}, 25);
-  errors += fft_test_2d_local_low({6, 6}, 36);
-  errors += fft_test_2d_local_low({8, 8}, 64);
-  errors += fft_test_2d_local_low({9, 9}, 81);
-  errors += fft_test_2d_local_low({10, 10}, 100);
-  errors += fft_test_2d_local_low({16, 9}, 288);
-  errors += fft_test_2d_local_low({7, 20}, 100);
+  errors += fft_test_2d_local_low((const int[2]){1, 1}, 1);
+  errors += fft_test_2d_local_low((const int[2]){2, 2}, 4);
+  errors += fft_test_2d_local_low((const int[2]){3, 3}, 9);
+  errors += fft_test_2d_local_low((const int[2]){4, 4}, 16);
+  errors += fft_test_2d_local_low((const int[2]){5, 5}, 25);
+  errors += fft_test_2d_local_low((const int[2]){6, 6}, 36);
+  errors += fft_test_2d_local_low((const int[2]){8, 8}, 64);
+  errors += fft_test_2d_local_low((const int[2]){9, 9}, 81);
+  errors += fft_test_2d_local_low((const int[2]){10, 10}, 100);
+  errors += fft_test_2d_local_low((const int[2]){16, 9}, 288);
+  errors += fft_test_2d_local_low((const int[2]){7, 20}, 100);
 
   return errors;
 }
