@@ -130,6 +130,10 @@ void fft_1d_bw_local(const double complex *grid_gs, double complex *grid_rs,
   }
 }
 
+/*******************************************************************************
+ * \brief Local transposition.
+ * \author Frederick Stein
+ ******************************************************************************/
 void transpose_local(double complex *grid, double complex *grid_transposed,
                      const int number_of_columns_grid,
                      const int number_of_rows_grid) {
@@ -144,60 +148,78 @@ void transpose_local(double complex *grid, double complex *grid_transposed,
   }
 }
 
+/*******************************************************************************
+ * \brief Naive implementation of 2D FFT (transposed format, no normalization).
+ * \author Frederick Stein
+ ******************************************************************************/
 void fft_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
-                     const int npts_global[3]) {
+                     const int size_of_first_fft, const int size_of_second_fft,
+                     const int number_of_ffts) {
 
   // Perform the first FFT along z
-  fft_1d_fw_local(grid_rs, grid_gs, npts_global[2],
-                  npts_global[0] * npts_global[1]);
+  fft_1d_fw_local(grid_rs, grid_gs, size_of_first_fft,
+                  size_of_second_fft * number_of_ffts);
 
   // Perform the second FFT along y
-  fft_1d_fw_local(grid_gs, grid_rs, npts_global[1],
-                  npts_global[0] * npts_global[2]);
+  fft_1d_fw_local(grid_gs, grid_rs, size_of_second_fft,
+                  size_of_first_fft * number_of_ffts);
 }
 
+/*******************************************************************************
+ * \brief Performs local 2D FFT (reverse to fw routine, no normalization).
+ * \note fft_2d_bw_local(grid_gs, grid_rs, n1, n2, m) is the reverse to
+ * fft_2d_rw_local(grid_rs, grid_gs, n1, n2, m) (ignoring normalization).
+ * \author Frederick Stein
+ ******************************************************************************/
 void fft_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
-                     const int npts_global[3]) {
+                     const int size_of_first_fft, const int size_of_second_fft,
+                     const int number_of_ffts) {
 
   // Perform the second FFT along y
-  fft_1d_bw_local(grid_gs, grid_rs, npts_global[1],
-                  npts_global[0] * npts_global[2]);
+  fft_1d_bw_local(grid_gs, grid_rs, size_of_second_fft,
+                  size_of_first_fft * number_of_ffts);
 
   // Perform the third FFT along z
-  fft_1d_bw_local(grid_rs, grid_gs, npts_global[2],
-                  npts_global[0] * npts_global[1]);
+  fft_1d_bw_local(grid_rs, grid_gs, size_of_first_fft,
+                  size_of_second_fft * number_of_ffts);
 }
 
+/*******************************************************************************
+ * \brief Performs local 3D FFT (no normalization).
+ * \note fft_3d_bw_local(grid_gs, grid_rs, n) is the reverse to
+ * fft_3d_rw_local(grid_rs, grid_gs, n) (ignoring normalization).
+ * \author Frederick Stein
+ ******************************************************************************/
 void fft_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
-                     const int npts_global[3]) {
+                     const int fft_size[3]) {
 
   // Perform the first FFT along z
-  fft_1d_fw_local(grid_rs, grid_gs, npts_global[2],
-                  npts_global[0] * npts_global[1]);
+  fft_1d_fw_local(grid_rs, grid_gs, fft_size[2], fft_size[0] * fft_size[1]);
 
   // Perform the second FFT along y
-  fft_1d_fw_local(grid_gs, grid_rs, npts_global[1],
-                  npts_global[0] * npts_global[2]);
+  fft_1d_fw_local(grid_gs, grid_rs, fft_size[1], fft_size[0] * fft_size[2]);
 
   // Perform the third FFT along x
-  fft_1d_fw_local(grid_rs, grid_gs, npts_global[0],
-                  npts_global[1] * npts_global[2]);
+  fft_1d_fw_local(grid_rs, grid_gs, fft_size[0], fft_size[1] * fft_size[2]);
 }
 
+/*******************************************************************************
+ * \brief Performs local 3D FFT (reverse to fw routine, no normalization).
+ * \note fft_3d_bw_local(grid_gs, grid_rs, n) is the reverse to
+ * fft_3d_rw_local(grid_rs, grid_gs, n) (ignoring normalization).
+ * \author Frederick Stein
+ ******************************************************************************/
 void fft_3d_bw_local(double complex *grid_gs, double complex *grid_rs,
-                     const int npts_global[3]) {
+                     const int fft_size[3]) {
 
   // Perform the first FFT along x
-  fft_1d_bw_local(grid_gs, grid_rs, npts_global[0],
-                  npts_global[1] * npts_global[2]);
+  fft_1d_bw_local(grid_gs, grid_rs, fft_size[0], fft_size[1] * fft_size[2]);
 
   // Perform the second FFT along y
-  fft_1d_bw_local(grid_rs, grid_gs, npts_global[1],
-                  npts_global[0] * npts_global[2]);
+  fft_1d_bw_local(grid_rs, grid_gs, fft_size[1], fft_size[0] * fft_size[2]);
 
   // Perform the third FFT along z
-  fft_1d_bw_local(grid_gs, grid_rs, npts_global[2],
-                  npts_global[0] * npts_global[1]);
+  fft_1d_bw_local(grid_gs, grid_rs, fft_size[2], fft_size[0] * fft_size[1]);
 }
 
 // EOF

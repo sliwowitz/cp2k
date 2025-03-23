@@ -23,7 +23,7 @@
  * \brief Function to test the local FFT backend.
  * \author Frederick Stein
  ******************************************************************************/
-int fft_test_local_low(const int fft_size, const int number_of_ffts) {
+int fft_test_1d_local_low(const int fft_size, const int number_of_ffts) {
   const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
 
   int errors = 0;
@@ -95,28 +95,108 @@ int fft_test_local_low(const int fft_size, const int number_of_ffts) {
   return errors;
 }
 
+/*******************************************************************************
+ * \brief Function to test the local FFT backend.
+ * \author Frederick Stein
+ ******************************************************************************/
+/*int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
+  const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
+
+  int errors = 0;
+
+  const double pi = acos(-1);
+
+  double complex *input_array =
+      calloc(fft_size[0] * fft_size[1] * number_of_ffts, sizeof(double
+complex)); double complex *output_array = calloc(fft_size[0] * fft_size[1] *
+number_of_ffts, sizeof(double complex));
+
+  double max_error = 0.0;
+  // Check the forward FFT
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    input_array[(number_of_fft / fft_size[0] + number_of_fft % fft_size[0]) *
+number_of_ffts + number_of_fft] = 1.0;
+  }
+
+  fft_2d_fw_local(input_array, output_array, fft_size, number_of_ffts);
+
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    for (int index = 0; index < fft_size; index++) {
+      max_error =
+          fmax(max_error, cabs(output_array[number_of_fft * fft_size + index] -
+                               cexp(-2.0 * I * pi * (number_of_fft % fft_size) *
+                                    index / fft_size)));
+    }
+  }
+
+  if (max_error > 1.0e-12) {
+    if (my_process == 0)
+      printf("The 1D-FFT does not work properly (%i %i): %f!\n", fft_size,
+             number_of_ffts, max_error);
+    errors++;
+  }
+
+  // Check the backward FFT
+  memset(input_array, 0, fft_size * number_of_ffts * sizeof(double complex));
+
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    input_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
+  }
+
+  fft_1d_bw_local(input_array, output_array, fft_size, number_of_ffts);
+
+  max_error = 0.0;
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    for (int index = 0; index < fft_size; index++) {
+      max_error = fmax(
+          max_error, cabs(output_array[index * number_of_ffts + number_of_fft] -
+                          cexp(2.0 * I * pi * (number_of_fft % fft_size) *
+                               index / fft_size)));
+    }
+  }
+
+  free(input_array);
+  free(output_array);
+
+  if (max_error > 1e-12) {
+    if (my_process == 0)
+      printf("The low-level FFTs do not work properly (%i %i): %f!\n", fft_size,
+             number_of_ffts, max_error);
+    errors++;
+  }
+
+  if (errors == 0 && my_process == 0)
+    printf("The 1D FFT does work properly (%i %i)!\n", fft_size,
+           number_of_ffts);
+  return errors;
+}*/
+
+/*******************************************************************************
+ * \brief Function to test the local FFT backend (1-3D).
+ * \author Frederick Stein
+ ******************************************************************************/
 int fft_test_local() {
   int errors = 0;
 
-  errors += fft_test_local_low(1, 1);
-  errors += fft_test_local_low(2, 1);
-  errors += fft_test_local_low(3, 1);
-  errors += fft_test_local_low(4, 1);
-  errors += fft_test_local_low(5, 1);
-  errors += fft_test_local_low(16, 1);
-  errors += fft_test_local_low(18, 1);
-  errors += fft_test_local_low(20, 1);
-  errors += fft_test_local_low(1, 1);
-  errors += fft_test_local_low(2, 2);
-  errors += fft_test_local_low(3, 3);
-  errors += fft_test_local_low(4, 4);
-  errors += fft_test_local_low(5, 5);
-  errors += fft_test_local_low(16, 16);
-  errors += fft_test_local_low(18, 18);
-  errors += fft_test_local_low(20, 20);
-  errors += fft_test_local_low(16, 360);
-  errors += fft_test_local_low(18, 320);
-  errors += fft_test_local_low(20, 288);
+  errors += fft_test_1d_local_low(1, 1);
+  errors += fft_test_1d_local_low(2, 1);
+  errors += fft_test_1d_local_low(3, 1);
+  errors += fft_test_1d_local_low(4, 1);
+  errors += fft_test_1d_local_low(5, 1);
+  errors += fft_test_1d_local_low(16, 1);
+  errors += fft_test_1d_local_low(18, 1);
+  errors += fft_test_1d_local_low(20, 1);
+  errors += fft_test_1d_local_low(1, 1);
+  errors += fft_test_1d_local_low(2, 2);
+  errors += fft_test_1d_local_low(3, 3);
+  errors += fft_test_1d_local_low(4, 4);
+  errors += fft_test_1d_local_low(5, 5);
+  errors += fft_test_1d_local_low(16, 16);
+  errors += fft_test_1d_local_low(18, 18);
+  errors += fft_test_1d_local_low(20, 20);
+  errors += fft_test_1d_local_low(16, 360);
+  errors += fft_test_1d_local_low(18, 320);
+  errors += fft_test_1d_local_low(20, 288);
 
   return errors;
 }

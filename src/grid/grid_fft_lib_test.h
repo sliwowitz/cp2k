@@ -8,7 +8,7 @@
 #define GRID_FFT_LIB_TEST_H
 
 /*******************************************************************************
- * \brief Function to test the local FFT backend.
+ * \brief Function to test the local FFT backend (1-3D).
  * \author Frederick Stein
  ******************************************************************************/
 int fft_test_local();

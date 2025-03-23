@@ -28,6 +28,9 @@ void grid_add_to_fine_grid(const grid_fft_complex_gs_grid *coarse_grid,
        index++) {
     const int ref_index =
         coarse_grid->fft_grid_layout->local_index_to_ref_grid[index];
+        for (int dir = 0; dir < 3; dir++) 
+    assert(convert_c_index_to_shifted_index(coarse_grid->fft_grid_layout->index_to_g[ref_index][dir], coarse_grid->fft_grid_layout->npts_global[dir]) ==
+    convert_c_index_to_shifted_index(fine_grid->fft_grid_layout->index_to_g[index][dir], fine_grid->fft_grid_layout->npts_global[dir]));
     fine_grid->data[ref_index] += coarse_grid->data[index];
   }
 }
@@ -44,6 +47,9 @@ void grid_copy_to_coarse_grid(const grid_fft_complex_gs_grid *fine_grid,
        index++) {
     const int ref_index =
         coarse_grid->fft_grid_layout->local_index_to_ref_grid[index];
+        for (int dir = 0; dir < 3; dir++) 
+    assert(convert_c_index_to_shifted_index(coarse_grid->fft_grid_layout->index_to_g[ref_index][dir], coarse_grid->fft_grid_layout->npts_global[dir]) ==
+    convert_c_index_to_shifted_index(fine_grid->fft_grid_layout->index_to_g[index][dir], fine_grid->fft_grid_layout->npts_global[dir]));
     coarse_grid->data[index] = fine_grid->data[ref_index];
   }
 }

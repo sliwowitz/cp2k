@@ -19,7 +19,8 @@ ALL_OBJECTS := ../offload/offload_buffer.o \
         grid_multigrid.o \
         grid_multigrid_test.o \
         grid_fft_reorder.o \
-        grid_fft_test.o \
+        grid_fft_reorder_test.o \
+        grid_fft_grid_test.o \
         grid_fft_grid.o \
         grid_fft_grid_layout.o \
         grid_fft_lib.o \

@@ -4,8 +4,8 @@
 /*                                                                            */
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
-#ifndef GRID_FFT_TEST_H
-#define GRID_FFT_TEST_H
+#ifndef GRID_FFT_GRID_TEST_H
+#define GRID_FFT_GRID_TEST_H
 
 /*******************************************************************************
  * \brief Function to test the 3D FFT backend.
@@ -19,6 +19,6 @@ int fft_test_3d();
  ******************************************************************************/
 int fft_test_add_copy();
 
-#endif /* GRID_FFT_TEST_H */
+#endif /* GRID_FFT_GRID_TEST_H */
 
 // EOF

@@ -11,10 +11,10 @@
 
 #include "../offload/offload_library.h"
 #include "common/grid_library.h"
+#include "grid_fft_grid_test.h"
 #include "grid_fft_lib.h"
 #include "grid_fft_lib_test.h"
 #include "grid_fft_reorder_test.h"
-#include "grid_fft_test.h"
 #include "grid_multigrid_test.h"
 #include "grid_replay.h"
 

@@ -5,7 +5,7 @@
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
 
-#include "grid_fft_test.h"
+#include "grid_fft_grid_test.h"
 
 #include "common/grid_common.h"
 #include "common/grid_mpi.h"
