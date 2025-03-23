@@ -484,24 +484,9 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
   grid_create_fft_grid_layout(&fft_grid_fine_layout, comm, npts_global_fine,
                               dh_inv);
 
-  for (int index = 0; index < fft_grid_fine_layout->npts_gs_local; index++) {
-    printf("%i index_to_g_fine %i: %i %i %i\n", grid_mpi_comm_rank(comm), index,
-           fft_grid_fine_layout->index_to_g[index][0],
-           fft_grid_fine_layout->index_to_g[index][1],
-           fft_grid_fine_layout->index_to_g[index][2]);
-  }
-
   grid_fft_grid_layout *fft_grid_coarse_layout = NULL;
   grid_create_fft_grid_layout_from_reference(
       &fft_grid_coarse_layout, npts_global_coarse, fft_grid_fine_layout);
-
-  for (int index = 0; index < fft_grid_coarse_layout->npts_gs_local; index++) {
-    printf("%i index_to_g_coarse %i: %i %i %i (%i)\n", grid_mpi_comm_rank(comm),
-           index, fft_grid_coarse_layout->index_to_g[index][0],
-           fft_grid_coarse_layout->index_to_g[index][1],
-           fft_grid_coarse_layout->index_to_g[index][2],
-           fft_grid_coarse_layout->local_index_to_ref_grid[index]);
-  }
 
   grid_fft_complex_gs_grid grid_fine;
   grid_create_complex_gs_grid(&grid_fine, fft_grid_fine_layout);

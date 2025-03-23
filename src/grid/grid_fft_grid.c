@@ -52,16 +52,6 @@ void grid_copy_to_coarse_grid(const grid_fft_complex_gs_grid *fine_grid,
     const int ref_index =
         coarse_grid->fft_grid_layout->local_index_to_ref_grid[index];
     for (int dir = 0; dir < 3; dir++) {
-      printf("%i DEBUG %i %i (%i): %i %i\n",
-             grid_mpi_comm_rank(coarse_grid->fft_grid_layout->comm), index,
-             ref_index, dir,
-             convert_c_index_to_shifted_index(
-                 coarse_grid->fft_grid_layout->index_to_g[index][dir],
-                 coarse_grid->fft_grid_layout->npts_global[dir]),
-             convert_c_index_to_shifted_index(
-                 fine_grid->fft_grid_layout->index_to_g[ref_index][dir],
-                 fine_grid->fft_grid_layout->npts_global[dir]));
-      fflush(stdout);
       assert(convert_c_index_to_shifted_index(
                  coarse_grid->fft_grid_layout->index_to_g[index][dir],
                  coarse_grid->fft_grid_layout->npts_global[dir]) ==
