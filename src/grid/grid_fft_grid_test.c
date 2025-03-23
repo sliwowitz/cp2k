@@ -478,15 +478,177 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
   const double dh_inv[3][3] = {
       {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
 
+  int errors = 0;
+
   grid_fft_grid_layout *fft_grid_fine_layout = NULL;
   grid_create_fft_grid_layout(&fft_grid_fine_layout, comm, npts_global_fine,
                               dh_inv);
+
+  for (int index = 0; index < fft_grid_fine_layout->npts_gs_local; index++) {
+    printf("%i index_to_g_fine %i: %i %i %i\n", grid_mpi_comm_rank(comm), index,
+           fft_grid_fine_layout->index_to_g[index][0],
+           fft_grid_fine_layout->index_to_g[index][1],
+           fft_grid_fine_layout->index_to_g[index][2]);
+  }
 
   grid_fft_grid_layout *fft_grid_coarse_layout = NULL;
   grid_create_fft_grid_layout_from_reference(
       &fft_grid_coarse_layout, npts_global_coarse, fft_grid_fine_layout);
 
-  int errors = 0;
+  for (int index = 0; index < fft_grid_coarse_layout->npts_gs_local; index++) {
+    printf("%i index_to_g_coarse %i: %i %i %i (%i)\n", grid_mpi_comm_rank(comm),
+           index, fft_grid_coarse_layout->index_to_g[index][0],
+           fft_grid_coarse_layout->index_to_g[index][1],
+           fft_grid_coarse_layout->index_to_g[index][2],
+           fft_grid_coarse_layout->local_index_to_ref_grid[index]);
+  }
+
+  grid_fft_complex_gs_grid grid_fine;
+  grid_create_complex_gs_grid(&grid_fine, fft_grid_fine_layout);
+
+  grid_fft_complex_gs_grid grid_coarse;
+  grid_create_complex_gs_grid(&grid_coarse, fft_grid_coarse_layout);
+
+  for (int index = 0; index < fft_grid_fine_layout->npts_gs_local; index++) {
+    const int index_g[3] = {fft_grid_fine_layout->index_to_g[index][0],
+                            fft_grid_fine_layout->index_to_g[index][1],
+                            fft_grid_fine_layout->index_to_g[index][2]};
+    const int shifted_index_g[3] = {
+        convert_c_index_to_shifted_index(index_g[0], npts_global_fine[0]),
+        convert_c_index_to_shifted_index(index_g[1], npts_global_fine[1]),
+        convert_c_index_to_shifted_index(index_g[2], npts_global_fine[2])};
+    grid_fine.data[index] = fabs((double)shifted_index_g[0]) +
+                            fabs((double)shifted_index_g[1]) +
+                            fabs((double)shifted_index_g[2]);
+  }
+  memset(grid_coarse.data, 0,
+         fft_grid_coarse_layout->npts_gs_local * sizeof(double complex));
+
+  grid_copy_to_coarse_grid(&grid_fine, &grid_coarse);
+
+  double max_error = 0.0;
+  for (int index = 0; index < fft_grid_coarse_layout->npts_gs_local; index++) {
+    const int index_g[3] = {fft_grid_coarse_layout->index_to_g[index][0],
+                            fft_grid_coarse_layout->index_to_g[index][1],
+                            fft_grid_coarse_layout->index_to_g[index][2]};
+    const int shifted_index_g[3] = {
+        convert_c_index_to_shifted_index(index_g[0], npts_global_coarse[0]),
+        convert_c_index_to_shifted_index(index_g[1], npts_global_coarse[1]),
+        convert_c_index_to_shifted_index(index_g[2], npts_global_coarse[2])};
+    const double complex my_value = grid_coarse.data[index];
+    for (int index_fine = 0; index_fine < fft_grid_fine_layout->npts_gs_local;
+         index_fine++) {
+      const int index_g_fine[3] = {
+          fft_grid_fine_layout->index_to_g[index_fine][0],
+          fft_grid_fine_layout->index_to_g[index_fine][1],
+          fft_grid_fine_layout->index_to_g[index_fine][2]};
+      const int shifted_index_g_fine[3] = {
+          convert_c_index_to_shifted_index(index_g_fine[0],
+                                           npts_global_fine[0]),
+          convert_c_index_to_shifted_index(index_g_fine[1],
+                                           npts_global_fine[1]),
+          convert_c_index_to_shifted_index(index_g_fine[2],
+                                           npts_global_fine[2])};
+      if (shifted_index_g_fine[0] == shifted_index_g[0] &&
+          shifted_index_g_fine[1] == shifted_index_g[1] &&
+          shifted_index_g_fine[2] == shifted_index_g[2]) {
+        const double complex ref_value = fabs((double)shifted_index_g_fine[0]) +
+                                         fabs((double)shifted_index_g_fine[1]) +
+                                         fabs((double)shifted_index_g_fine[2]);
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+        break;
+      }
+    }
+  }
+  grid_mpi_max_double(&max_error, 1, comm);
+
+  if (max_error > 1.0e-12) {
+    if (grid_mpi_comm_rank(comm) == 0)
+      printf("The copy between different grids does not work properly (%i "
+             "%i %i)/(%i %i %i): %f!\n",
+             npts_global_fine[0], npts_global_fine[1], npts_global_fine[2],
+             npts_global_coarse[0], npts_global_coarse[1],
+             npts_global_coarse[2], max_error);
+    errors++;
+  }
+
+  for (int index = 0; index < fft_grid_coarse_layout->npts_gs_local; index++) {
+    const int index_g[3] = {fft_grid_coarse_layout->index_to_g[index][0],
+                            fft_grid_coarse_layout->index_to_g[index][1],
+                            fft_grid_coarse_layout->index_to_g[index][2]};
+    const int shifted_index_g[3] = {
+        convert_c_index_to_shifted_index(index_g[0], npts_global_coarse[0]),
+        convert_c_index_to_shifted_index(index_g[1], npts_global_coarse[1]),
+        convert_c_index_to_shifted_index(index_g[2], npts_global_coarse[2])};
+    grid_coarse.data[index] = (double)shifted_index_g[0] +
+                              (double)shifted_index_g[1] +
+                              (double)shifted_index_g[2];
+  }
+
+  grid_add_to_fine_grid(&grid_coarse, &grid_fine);
+
+  max_error = 0.0;
+  for (int index = 0; index < fft_grid_fine_layout->npts_gs_local; index++) {
+    const int index_g[3] = {fft_grid_fine_layout->index_to_g[index][0],
+                            fft_grid_fine_layout->index_to_g[index][1],
+                            fft_grid_fine_layout->index_to_g[index][2]};
+    const int shifted_index_g[3] = {
+        convert_c_index_to_shifted_index(index_g[0], npts_global_fine[0]),
+        convert_c_index_to_shifted_index(index_g[1], npts_global_fine[1]),
+        convert_c_index_to_shifted_index(index_g[2], npts_global_fine[2])};
+    const double complex my_value = grid_fine.data[index];
+    bool found = false;
+    for (int index = 0; index < fft_grid_coarse_layout->npts_gs_local;
+         index++) {
+      const int index_g_coarse[3] = {
+          fft_grid_coarse_layout->index_to_g[index][0],
+          fft_grid_coarse_layout->index_to_g[index][1],
+          fft_grid_coarse_layout->index_to_g[index][2]};
+      const int shifted_index_g_coarse[3] = {
+          convert_c_index_to_shifted_index(index_g_coarse[0],
+                                           npts_global_coarse[0]),
+          convert_c_index_to_shifted_index(index_g_coarse[1],
+                                           npts_global_coarse[1]),
+          convert_c_index_to_shifted_index(index_g_coarse[2],
+                                           npts_global_coarse[2])};
+      if (shifted_index_g_coarse[0] == shifted_index_g[0] &&
+          shifted_index_g_coarse[1] == shifted_index_g[1] &&
+          shifted_index_g_coarse[2] == shifted_index_g[2]) {
+        const double complex ref_value =
+            fabs((double)shifted_index_g_coarse[0]) +
+            fabs((double)shifted_index_g_coarse[1]) +
+            fabs((double)shifted_index_g_coarse[2]) +
+            (double)shifted_index_g[0] + (double)shifted_index_g[1] +
+            (double)shifted_index_g[2];
+        double current_error = cabs(my_value - ref_value);
+        max_error = fmax(max_error, current_error);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      const double complex ref_value = (double)shifted_index_g[0] +
+                                       (double)shifted_index_g[1] +
+                                       (double)shifted_index_g[2];
+      double current_error = cabs(my_value - ref_value);
+      max_error = fmax(max_error, current_error);
+    }
+  }
+  grid_mpi_max_double(&max_error, 1, comm);
+
+  if (max_error > 1.0e-12) {
+    if (grid_mpi_comm_rank(comm) == 0)
+      printf("The addition between different grids does not work properly (%i "
+             "%i %i)/(%i %i %i): %f!\n",
+             npts_global_fine[0], npts_global_fine[1], npts_global_fine[2],
+             npts_global_coarse[0], npts_global_coarse[1],
+             npts_global_coarse[2], max_error);
+    errors++;
+  }
+
+  grid_free_complex_gs_grid(&grid_fine);
+  grid_free_complex_gs_grid(&grid_coarse);
 
   grid_free_fft_grid_layout(fft_grid_fine_layout);
   grid_free_fft_grid_layout(fft_grid_coarse_layout);
@@ -501,9 +663,14 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
 int fft_test_add_copy() {
   int errors = 0;
 
-  const int npts_globals[][3] = {{2, 4, 8}, {2, 3, 5}};
-
-  errors += fft_test_add_copy_low(npts_globals[0], npts_globals[1]);
+  errors +=
+      fft_test_add_copy_low((const int[3]){2, 4, 8}, (const int[3]){2, 4, 8});
+  errors +=
+      fft_test_add_copy_low((const int[3]){8, 4, 2}, (const int[3]){7, 3, 2});
+  errors +=
+      fft_test_add_copy_low((const int[3]){2, 4, 8}, (const int[3]){1, 2, 4});
+  errors +=
+      fft_test_add_copy_low((const int[3]){11, 7, 5}, (const int[3]){5, 3, 2});
 
   return errors;
 }
