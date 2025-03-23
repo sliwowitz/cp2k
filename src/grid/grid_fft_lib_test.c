@@ -1,0 +1,170 @@
+/*----------------------------------------------------------------------------*/
+/*  CP2K: A general program to perform molecular dynamics simulations         */
+/*  Copyright 2000-2025 CP2K developers group <https://cp2k.org>              */
+/*                                                                            */
+/*  SPDX-License-Identifier: BSD-3-Clause                                     */
+/*----------------------------------------------------------------------------*/
+
+#include "grid_fft_lib_test.h"
+
+#include "common/grid_common.h"
+#include "common/grid_mpi.h"
+#include "grid_fft_grid.h"
+#include "grid_fft_grid_layout.h"
+#include "grid_fft_lib.h"
+#include "grid_fft_reorder.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/*******************************************************************************
+ * \brief Function to test the local FFT backend.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_local_low(const int fft_size, const int number_of_ffts) {
+  const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
+
+  int errors = 0;
+
+  const double pi = acos(-1);
+
+  double complex *input_array =
+      calloc(fft_size * number_of_ffts, sizeof(double complex));
+  double complex *output_array =
+      calloc(fft_size * number_of_ffts, sizeof(double complex));
+
+  double max_error = 0.0;
+  // Check the forward FFT
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    input_array[(number_of_fft % fft_size) * number_of_ffts + number_of_fft] =
+        1.0;
+  }
+
+  fft_1d_fw_local(input_array, output_array, fft_size, number_of_ffts);
+
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    for (int index = 0; index < fft_size; index++) {
+      max_error =
+          fmax(max_error, cabs(output_array[number_of_fft * fft_size + index] -
+                               cexp(-2.0 * I * pi * (number_of_fft % fft_size) *
+                                    index / fft_size)));
+    }
+  }
+
+  if (max_error > 1.0e-12) {
+    if (my_process == 0)
+      printf("The 1D-FFT does not work properly (%i %i): %f!\n", fft_size,
+             number_of_ffts, max_error);
+    errors++;
+  }
+
+  // Check the backward FFT
+  memset(input_array, 0, fft_size * number_of_ffts * sizeof(double complex));
+
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    input_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
+  }
+
+  fft_1d_bw_local(input_array, output_array, fft_size, number_of_ffts);
+
+  max_error = 0.0;
+  for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
+    for (int index = 0; index < fft_size; index++) {
+      max_error = fmax(
+          max_error, cabs(output_array[index * number_of_ffts + number_of_fft] -
+                          cexp(2.0 * I * pi * (number_of_fft % fft_size) *
+                               index / fft_size)));
+    }
+  }
+
+  free(input_array);
+  free(output_array);
+
+  if (max_error > 1e-12) {
+    if (my_process == 0)
+      printf("The low-level FFTs do not work properly (%i %i): %f!\n", fft_size,
+             number_of_ffts, max_error);
+    errors++;
+  }
+
+  if (errors == 0 && my_process == 0)
+    printf("The 1D FFT does work properly (%i %i)!\n", fft_size,
+           number_of_ffts);
+  return errors;
+}
+
+int fft_test_local() {
+  int errors = 0;
+
+  errors += fft_test_local_low(1, 1);
+  errors += fft_test_local_low(2, 1);
+  errors += fft_test_local_low(3, 1);
+  errors += fft_test_local_low(4, 1);
+  errors += fft_test_local_low(5, 1);
+  errors += fft_test_local_low(16, 1);
+  errors += fft_test_local_low(18, 1);
+  errors += fft_test_local_low(20, 1);
+  errors += fft_test_local_low(1, 1);
+  errors += fft_test_local_low(2, 2);
+  errors += fft_test_local_low(3, 3);
+  errors += fft_test_local_low(4, 4);
+  errors += fft_test_local_low(5, 5);
+  errors += fft_test_local_low(16, 16);
+  errors += fft_test_local_low(18, 18);
+  errors += fft_test_local_low(20, 20);
+  errors += fft_test_local_low(16, 360);
+  errors += fft_test_local_low(18, 320);
+  errors += fft_test_local_low(20, 288);
+
+  return errors;
+}
+
+/*******************************************************************************
+ * \brief Function to test the local transposition operation.
+ * \author Frederick Stein
+ ******************************************************************************/
+int fft_test_transpose() {
+  const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
+  // Check a few fft sizes
+  const int fft_sizes[2] = {16, 18};
+
+  int max_size = fft_sizes[0] * fft_sizes[1];
+
+  double complex *input_array = calloc(max_size, sizeof(double complex));
+  double complex *output_array = calloc(max_size, sizeof(double complex));
+
+  for (int index_1 = 0; index_1 < fft_sizes[0]; index_1++) {
+    for (int index_2 = 0; index_2 < fft_sizes[1]; index_2++) {
+      input_array[index_1 * fft_sizes[1] + index_2] =
+          1.0 * index_1 - index_2 * I;
+    }
+  }
+
+  transpose_local(input_array, output_array, fft_sizes[1], fft_sizes[0]);
+
+  double error = 0.0;
+
+  for (int index_1 = 0; index_1 < fft_sizes[0]; index_1++) {
+    for (int index_2 = 0; index_2 < fft_sizes[1]; index_2++) {
+      error = fmax(error, cabs(output_array[index_2 * fft_sizes[0] + index_1] -
+                               (1.0 * index_1 - index_2 * I)));
+    }
+  }
+
+  free(input_array);
+  free(output_array);
+
+  if (error > 1e-12) {
+    if (my_process == 0)
+      printf("The low-level transpose does not work properly: %f!\n", error);
+    return 1;
+  } else {
+    if (my_process == 0)
+      printf("The local transpose does work properly!\n");
+    return 0;
+  }
+}
+
+// EOF

@@ -4,20 +4,14 @@
 /*                                                                            */
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
-#ifndef GRID_FFT_TEST_H
-#define GRID_FFT_TEST_H
+#ifndef GRID_FFT_REORDER_TEST_H
+#define GRID_FFT_REORDER_TEST_H
 
 /*******************************************************************************
- * \brief Function to test the 3D FFT backend.
+ * \brief Function to test the parallel transposition operation.
  * \author Frederick Stein
  ******************************************************************************/
-int fft_test_3d();
-
-/*******************************************************************************
- * \brief Function to test the addition/copy between different grids.
- * \author Frederick Stein
- ******************************************************************************/
-int fft_test_add_copy();
+int fft_test_transpose_parallel();
 
 #endif /* GRID_FFT_TEST_H */
 
