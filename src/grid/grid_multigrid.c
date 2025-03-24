@@ -145,7 +145,13 @@ void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
                             ((double)multigrid->npts_global[level][0]) /
                             ((double)multigrid->npts_global[level][1]) /
                             ((double)multigrid->npts_global[level][2]);
-      for (int index = 0; index < product3(multigrid->npts_local[level]);
+      const int(*my_bounds)[2] =
+          multigrid->fft_rs_grids[level]
+              .fft_grid_layout->proc2local_rs[grid_mpi_comm_rank(
+                  multigrid->fft_rs_grids[level].fft_grid_layout->comm)];
+      for (int index = 0; index < (my_bounds[0][1] - my_bounds[0][0] + 1) *
+                                      (my_bounds[1][1] - my_bounds[1][0] + 1) *
+                                      (my_bounds[2][1] - my_bounds[2][0] + 1);
            index++)
         multigrid->fft_rs_grids[level].data[index] *= factor;
       // Redistribute to the realspace grid
@@ -167,15 +173,16 @@ void grid_copy_from_multigrid_single(const grid_multigrid *multigrid,
                                      const int (*proc2local)[3][2]) {
   if (multigrid->nlevels > 1) {
     // Redistribute the data on the realspace grid to an FFT-optimal layout
-    grid_copy_to_multigrid_general_single(
-        multigrid, 0, grid, multigrid->fft_rs_grids[0].fft_grid_layout->comm,
+    grid_copy_from_multigrid_general_single(
+        multigrid, 0, multigrid->fft_rs_grids[0].data,
+        multigrid->fft_rs_grids[0].fft_grid_layout->comm,
         (const int *)multigrid->fft_rs_grids[0].fft_grid_layout->proc2local_rs);
     // FFT the data
     fft_3d_fw(&multigrid->fft_rs_grids[0], &multigrid->fft_gs_grids[0]);
     for (int level = 1; level < multigrid->nlevels; level++) {
       // Redistribute the data on the coarse grids
-      grid_copy_to_multigrid_general_single(
-          multigrid, level, grid,
+      grid_copy_from_multigrid_general_single(
+          multigrid, level, multigrid->fft_rs_grids[level].data,
           multigrid->fft_rs_grids[level].fft_grid_layout->comm,
           (const int *)multigrid->fft_rs_grids[level]
               .fft_grid_layout->proc2local_rs);
