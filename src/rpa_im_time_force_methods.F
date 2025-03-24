@@ -2870,7 +2870,7 @@ CONTAINS
 
             NULLIFY (rs_v)
             CALL pw_env_get(pw_env_ext, rs_grids=rs_v, multigrid=multigrid)
-            CALL potential_pw2rs(rs_v, rho_r, pw_env_ext)
+            CALL potential_pw2rs(rho_r, pw_env_ext)
 
             DO iatom = 1, natom
 

@@ -14,14 +14,12 @@
 MODULE rs_pw_interface
    USE gaussian_gridlevels,             ONLY: gridlevel_info_type
    USE grid_api,                        ONLY: grid_copy_from_multigrid_general,&
-                                              grid_copy_to_multigrid_general,&
+                                              grid_copy_to_multigrid_single,&
                                               grid_get_multigrid_nlevels,&
                                               grid_multigrid_type
-   USE kinds,                           ONLY: dp
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
    USE pw_methods,                      ONLY: pw_axpy,&
-                                              pw_copy,&
                                               pw_transfer,&
                                               pw_zero
    USE pw_pool_types,                   ONLY: pw_pool_p_type,&
@@ -30,7 +28,6 @@ MODULE rs_pw_interface
    USE pw_types,                        ONLY: pw_c1d_gs_type,&
                                               pw_r3d_rs_type
    USE realspace_grid_types,            ONLY: realspace_grid_type,&
-                                              transfer_pw2rs,&
                                               transfer_rs2pw
 #include "../base/base_uses.f90"
 
@@ -130,7 +127,6 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief transfers a potential from a pw_grid to a vector of
 !>      realspace multigrids
-!> \param rs_v OUTPUT: the potential on the realspace multigrids
 !> \param v_rspace INPUT : the potential on a planewave grid in Rspace
 !> \param pw_env ...
 !> \par History
@@ -140,63 +136,22 @@ CONTAINS
 !>      should contain all parallel communication of integrate_v_rspace in the
 !>      case of replicated grids.
 ! **************************************************************************************************
-   SUBROUTINE potential_pw2rs(rs_v, v_rspace, pw_env)
-
-      TYPE(realspace_grid_type), DIMENSION(:), &
-         INTENT(IN)                                      :: rs_v
+   SUBROUTINE potential_pw2rs(v_rspace, pw_env)
       TYPE(pw_r3d_rs_type), INTENT(IN)                   :: v_rspace
       TYPE(pw_env_type), INTENT(IN)                      :: pw_env
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'potential_pw2rs'
 
-      INTEGER                                            :: auxbas_grid, handle, igrid_level
-      REAL(KIND=dp)                                      :: scale
+      INTEGER                                            :: handle
       TYPE(grid_multigrid_type)                          :: multigrid
-      TYPE(gridlevel_info_type), POINTER                 :: gridlevel_info
-      TYPE(pw_c1d_gs_type), ALLOCATABLE, DIMENSION(:)    :: mgrid_gspace
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
-      TYPE(pw_r3d_rs_type), ALLOCATABLE, DIMENSION(:)    :: mgrid_rspace
 
       CALL timeset(routineN, handle)
 
       ! *** set up of the potential on the multigrids
-      CALL pw_env_get(pw_env, pw_pools=pw_pools, gridlevel_info=gridlevel_info, &
-                      auxbas_grid=auxbas_grid, multigrid=multigrid)
+      CALL pw_env_get(pw_env, pw_pools=pw_pools, multigrid=multigrid)
 
-      CALL pw_pools_create_pws(pw_pools, mgrid_rspace)
-
-      ! use either realspace or fft techniques to get the potential on the rs multigrids
-      CALL pw_pools_create_pws(pw_pools, mgrid_gspace)
-      CALL pw_transfer(v_rspace, mgrid_gspace(auxbas_grid))
-      DO igrid_level = 1, gridlevel_info%ngrid_levels
-         IF (igrid_level /= auxbas_grid) THEN
-            CALL pw_copy(mgrid_gspace(auxbas_grid), mgrid_gspace(igrid_level))
-            CALL pw_transfer(mgrid_gspace(igrid_level), mgrid_rspace(igrid_level))
-         ELSE
-            IF (mgrid_gspace(auxbas_grid)%pw_grid%spherical) THEN
-               CALL pw_transfer(mgrid_gspace(auxbas_grid), mgrid_rspace(auxbas_grid))
-            ELSE ! fft forward + backward should be identical
-               CALL pw_copy(v_rspace, mgrid_rspace(auxbas_grid))
-            END IF
-         END IF
-         ! *** Multiply by the grid volume element ratio ***
-         IF (igrid_level /= auxbas_grid) THEN
-            scale = mgrid_rspace(igrid_level)%pw_grid%dvol/ &
-                    mgrid_rspace(auxbas_grid)%pw_grid%dvol
-            mgrid_rspace(igrid_level)%array = &
-               scale*mgrid_rspace(igrid_level)%array
-         END IF
-      END DO
-      CALL pw_pools_give_back_pws(pw_pools, mgrid_gspace)
-
-      DO igrid_level = 1, gridlevel_info%ngrid_levels
-         CALL transfer_pw2rs(rs_v(igrid_level), &
-                             mgrid_rspace(igrid_level))
-      END DO
-
-      CALL grid_copy_to_multigrid_general(multigrid, mgrid_rspace)
-      ! *** give back the pw multi-grids
-      CALL pw_pools_give_back_pws(pw_pools, mgrid_rspace)
+      CALL grid_copy_to_multigrid_single(multigrid, v_rspace)
 
       CALL timestop(handle)
 

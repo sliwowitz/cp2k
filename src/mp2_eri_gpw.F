@@ -227,7 +227,7 @@ CONTAINS
 
          NULLIFY (rs_v)
          CALL pw_env_get(pw_env_sub, rs_grids=rs_v, multigrid=multigrid)
-         CALL potential_pw2rs(rs_v, rho_r, pw_env_sub)
+         CALL potential_pw2rs(rho_r, pw_env_sub)
 
          CALL timestop(handle2)
 
@@ -583,7 +583,7 @@ CONTAINS
       ! integrate potential with auxiliary basis function derivatives
       NULLIFY (rs_v)
       CALL pw_env_get(pw_env_sub, rs_grids=rs_v, multigrid=multigrid)
-      CALL potential_pw2rs(rs_v, rho_r, pw_env_sub)
+      CALL potential_pw2rs(rho_r, pw_env_sub)
 
       offset = 0
       DO iatom = 1, SIZE(kind_of)
@@ -829,7 +829,7 @@ CONTAINS
 
       NULLIFY (rs_v)
       CALL pw_env_get(pw_env_sub, rs_grids=rs_v, multigrid=multigrid)
-      CALL potential_pw2rs(rs_v, pot_r, pw_env_sub)
+      CALL potential_pw2rs(pot_r, pw_env_sub)
 
       offset = 0
       DO iatom = 1, SIZE(kind_of)

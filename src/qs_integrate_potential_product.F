@@ -45,8 +45,7 @@ MODULE qs_integrate_potential_product
                                               dbcsr_type
    USE cp_dbcsr_operations,             ONLY: dbcsr_deallocate_matrix_set
    USE gaussian_gridlevels,             ONLY: gridlevel_info_type
-   USE grid_api,                        ONLY: grid_copy_to_multigrid_local,&
-                                              grid_integrate_task_list,&
+   USE grid_api,                        ONLY: grid_integrate_task_list,&
                                               grid_multigrid_type,&
                                               integrate_pgf_product
    USE kinds,                           ONLY: default_string_length,&
@@ -193,8 +192,7 @@ CONTAINS
       group = rs_rho(1)%desc%group
 
       ! transform the potential on the rs_multigrids
-      CALL potential_pw2rs(rs_rho, v_rspace, pw_env)
-      CALL grid_copy_to_multigrid_local(multigrid, rs_rho)
+      CALL potential_pw2rs(v_rspace, pw_env)
 
       nkind = SIZE(qs_kind_set)
 
@@ -700,8 +698,7 @@ CONTAINS
       gridlevel_info => pw_env%gridlevel_info
 
       ! transform the potential on the rs_multigrids
-      CALL potential_pw2rs(rs_v, v_rspace, pw_env)
-      CALL grid_copy_to_multigrid_local(multigrid, rs_v)
+      CALL potential_pw2rs(v_rspace, pw_env)
 
       nimages = dft_control%nimages
       IF (nimages > 1) THEN

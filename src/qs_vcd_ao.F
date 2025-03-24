@@ -1176,7 +1176,7 @@ CONTAINS
       gridlevel_info => pw_env%gridlevel_info
 
       ! transform the potential on the rs_multigrids
-      CALL potential_pw2rs(rs_v, v_rspace, pw_env)
+      CALL potential_pw2rs(v_rspace, pw_env)
 
       nkind = SIZE(qs_kind_set)
 
