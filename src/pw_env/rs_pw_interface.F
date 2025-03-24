@@ -12,23 +12,15 @@
 !> \author JGH (04.2014)
 ! **************************************************************************************************
 MODULE rs_pw_interface
-   USE gaussian_gridlevels,             ONLY: gridlevel_info_type
-   USE grid_api,                        ONLY: grid_copy_from_multigrid_general,&
+   USE grid_api,                        ONLY: grid_copy_from_multigrid_single,&
                                               grid_copy_to_multigrid_single,&
-                                              grid_get_multigrid_nlevels,&
                                               grid_multigrid_type
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
-   USE pw_methods,                      ONLY: pw_axpy,&
-                                              pw_transfer,&
-                                              pw_zero
-   USE pw_pool_types,                   ONLY: pw_pool_p_type,&
-                                              pw_pools_create_pws,&
-                                              pw_pools_give_back_pws
+   USE pw_methods,                      ONLY: pw_transfer
+   USE pw_pool_types,                   ONLY: pw_pool_p_type
    USE pw_types,                        ONLY: pw_c1d_gs_type,&
                                               pw_r3d_rs_type
-   USE realspace_grid_types,            ONLY: realspace_grid_type,&
-                                              transfer_rs2pw
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -48,7 +40,6 @@ CONTAINS
 !>      computes the full density on the plane wave grids, both in real and
 !>      gspace
 !> \param pw_env ...
-!> \param rs_rho ...
 !> \param rho ...
 !> \param rho_gspace ...
 !> \param multigrid_ext ...
@@ -56,70 +47,30 @@ CONTAINS
 !>      should contain all communication in the collocation of the density
 !>      in the case of replicated grids
 ! **************************************************************************************************
-   SUBROUTINE density_rs2pw(pw_env, rs_rho, rho, rho_gspace, multigrid_ext)
+   SUBROUTINE density_rs2pw(pw_env, rho, rho_gspace, multigrid_ext)
 
       TYPE(pw_env_type), INTENT(IN)                      :: pw_env
-      TYPE(realspace_grid_type), DIMENSION(:), &
-         INTENT(IN)                                      :: rs_rho
       TYPE(pw_r3d_rs_type), INTENT(INOUT)                :: rho
       TYPE(pw_c1d_gs_type), INTENT(INOUT)                :: rho_gspace
       TYPE(grid_multigrid_type), INTENT(IN), OPTIONAL    :: multigrid_ext
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'density_rs2pw'
 
-      INTEGER                                            :: handle, igrid_level
+      INTEGER                                            :: handle
       TYPE(grid_multigrid_type)                          :: multigrid
-      TYPE(gridlevel_info_type), POINTER                 :: gridlevel_info
-      TYPE(pw_c1d_gs_type), ALLOCATABLE, DIMENSION(:)    :: mgrid_gspace
-      TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
-      TYPE(pw_r3d_rs_type), ALLOCATABLE, DIMENSION(:)    :: mgrid_rspace
 
       CALL timeset(routineN, handle)
-      NULLIFY (gridlevel_info, pw_pools)
-      CALL pw_env_get(pw_env, pw_pools=pw_pools, multigrid=multigrid)
+      CALL pw_env_get(pw_env, multigrid=multigrid)
 
-      gridlevel_info => pw_env%gridlevel_info
-      CPASSERT(gridlevel_info%ngrid_levels == SIZE(rs_rho))
-
-      CALL pw_pools_create_pws(pw_pools, mgrid_rspace)
-      CALL pw_pools_create_pws(pw_pools, mgrid_gspace)
-
-      IF (gridlevel_info%ngrid_levels == 1) THEN
-         CALL transfer_rs2pw(rs_rho(1), rho)
-         IF (PRESENT(multigrid_ext)) THEN
-            CALL grid_copy_from_multigrid_general(multigrid_ext, [rho])
-         ELSE
-            CPASSERT(grid_get_multigrid_nlevels(multigrid) == 1)
-            CALL grid_copy_from_multigrid_general(multigrid, [rho])
-         END IF
-         CALL pw_transfer(rho, rho_gspace)
-         IF (rho%pw_grid%spherical) THEN ! rho_gspace = rho
-            CALL pw_transfer(rho_gspace, rho)
-         END IF
+      IF (PRESENT(multigrid_ext)) THEN
+         CALL grid_copy_from_multigrid_single(multigrid_ext, rho)
       ELSE
-         DO igrid_level = 1, gridlevel_info%ngrid_levels
-            CALL transfer_rs2pw(rs_rho(igrid_level), &
-                                mgrid_rspace(igrid_level))
-         END DO
-         IF (PRESENT(multigrid_ext)) THEN
-            CALL grid_copy_from_multigrid_general(multigrid_ext, mgrid_rspace)
-         ELSE
-            CALL grid_copy_from_multigrid_general(multigrid, mgrid_rspace)
-         END IF
-
-         ! we want both rho and rho_gspace, the latter for Hartree and co-workers.
-         CALL pw_zero(rho_gspace)
-         DO igrid_level = 1, gridlevel_info%ngrid_levels
-            CALL pw_transfer(mgrid_rspace(igrid_level), &
-                             mgrid_gspace(igrid_level))
-            CALL pw_axpy(mgrid_gspace(igrid_level), rho_gspace)
-         END DO
-         CALL pw_transfer(rho_gspace, rho)
+         CALL grid_copy_from_multigrid_single(multigrid, rho)
       END IF
 
-      ! *** give back the pw multi-grids
-      CALL pw_pools_give_back_pws(pw_pools, mgrid_gspace)
-      CALL pw_pools_give_back_pws(pw_pools, mgrid_rspace)
+      CALL pw_transfer(rho, rho_gspace)
+      IF (rho_gspace%pw_grid%spherical) CALL pw_transfer(rho_gspace, rho)
+
       CALL timestop(handle)
 
    END SUBROUTINE density_rs2pw

@@ -1674,10 +1674,8 @@ CONTAINS
                                     pab_blocks=task_list%pab_buffer, &
                                     multigrid=multigrid)
 
-      CALL grid_copy_from_multigrid_local(multigrid, rs_rho)
-
       ! Merge realspace multi-grids into single planewave grid.
-      CALL density_rs2pw(pw_env, rs_rho, rho, rho_gspace, multigrid)
+      CALL density_rs2pw(pw_env, rho, rho_gspace, multigrid)
       IF (PRESENT(total_rho)) total_rho = pw_integrate_function(rho, isign=-1)
 
       CALL timestop(handle)
@@ -2050,8 +2048,7 @@ CONTAINS
 
          END DO loop_tasks
 
-         CALL grid_copy_from_multigrid_local(multigrid, rs_rho)
-         CALL density_rs2pw(pw_env, rs_rho, drho(idir), drho_gspace(idir))
+         CALL density_rs2pw(pw_env, drho(idir), drho_gspace(idir))
 
       END DO loop_xyz
 
@@ -2458,8 +2455,7 @@ CONTAINS
 
       END DO loop_tasks
 
-      CALL grid_copy_from_multigrid_local(multigrid, rs_rho)
-      CALL density_rs2pw(pw_env, rs_rho, drho, drho_gspace)
+      CALL density_rs2pw(pw_env, drho, drho_gspace)
 
       !   *** Release work storage ***
       IF (distributed_rs_grids) THEN
