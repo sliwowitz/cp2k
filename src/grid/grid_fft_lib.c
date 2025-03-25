@@ -98,7 +98,16 @@ void fft_free_complex(double complex *buffer) {
  ******************************************************************************/
 void fft_1d_fw_local(const double complex *grid_rs, double complex *grid_gs,
                      const int fft_size, const int number_of_ffts) {
-  fft_ref_1d_fw_local(grid_rs, grid_gs, fft_size, number_of_ffts);
+  switch (grid_fft_lib_choice) {
+  case GRID_FFT_LIB_REF:
+    fft_ref_1d_fw_local(grid_rs, grid_gs, fft_size, number_of_ffts);
+    break;
+  case GRID_FFT_LIB_FFTW:
+    fft_fftw_1d_fw_local(grid_rs, grid_gs, fft_size, number_of_ffts);
+    break;
+  default:
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
@@ -107,7 +116,16 @@ void fft_1d_fw_local(const double complex *grid_rs, double complex *grid_gs,
  ******************************************************************************/
 void fft_1d_bw_local(const double complex *grid_gs, double complex *grid_rs,
                      const int fft_size, const int number_of_ffts) {
-  fft_ref_1d_bw_local(grid_gs, grid_rs, fft_size, number_of_ffts);
+  switch (grid_fft_lib_choice) {
+  case GRID_FFT_LIB_REF:
+    fft_ref_1d_bw_local(grid_gs, grid_rs, fft_size, number_of_ffts);
+    break;
+  case GRID_FFT_LIB_FFTW:
+    fft_fftw_1d_bw_local(grid_gs, grid_rs, fft_size, number_of_ffts);
+    break;
+  default:
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
@@ -117,8 +135,18 @@ void fft_1d_bw_local(const double complex *grid_gs, double complex *grid_rs,
 void transpose_local(double complex *grid, double complex *grid_transposed,
                      const int number_of_columns_grid,
                      const int number_of_rows_grid) {
-  fft_ref_transpose_local(grid, grid_transposed, number_of_columns_grid,
-                          number_of_rows_grid);
+  switch (grid_fft_lib_choice) {
+  case GRID_FFT_LIB_REF:
+    fft_ref_transpose_local(grid, grid_transposed, number_of_columns_grid,
+                            number_of_rows_grid);
+    break;
+  case GRID_FFT_LIB_FFTW:
+    fft_fftw_transpose_local(grid, grid_transposed, number_of_columns_grid,
+                             number_of_rows_grid);
+    break;
+  default:
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
@@ -128,8 +156,18 @@ void transpose_local(double complex *grid, double complex *grid_transposed,
 void fft_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
                      const int size_of_first_fft, const int size_of_second_fft,
                      const int number_of_ffts) {
-  fft_ref_2d_fw_local(grid_rs, grid_gs, size_of_first_fft, size_of_second_fft,
-                      number_of_ffts);
+  switch (grid_fft_lib_choice) {
+  case GRID_FFT_LIB_REF:
+    fft_ref_2d_fw_local(grid_rs, grid_gs, size_of_first_fft, size_of_second_fft,
+                        number_of_ffts);
+    break;
+  case GRID_FFT_LIB_FFTW:
+    fft_fftw_2d_fw_local(grid_rs, grid_gs, size_of_first_fft,
+                         size_of_second_fft, number_of_ffts);
+    break;
+  default:
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
@@ -141,9 +179,18 @@ void fft_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
 void fft_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
                      const int size_of_first_fft, const int size_of_second_fft,
                      const int number_of_ffts) {
-
-  fft_ref_2d_bw_local(grid_gs, grid_rs, size_of_first_fft, size_of_second_fft,
-                      number_of_ffts);
+  switch (grid_fft_lib_choice) {
+  case GRID_FFT_LIB_REF:
+    fft_ref_2d_bw_local(grid_gs, grid_rs, size_of_first_fft, size_of_second_fft,
+                        number_of_ffts);
+    break;
+  case GRID_FFT_LIB_FFTW:
+    fft_fftw_2d_bw_local(grid_gs, grid_rs, size_of_first_fft,
+                         size_of_second_fft, number_of_ffts);
+    break;
+  default:
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
@@ -154,8 +201,16 @@ void fft_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
  ******************************************************************************/
 void fft_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
                      const int fft_size[3]) {
-
-  fft_ref_3d_fw_local(grid_rs, grid_gs, fft_size);
+  switch (grid_fft_lib_choice) {
+  case GRID_FFT_LIB_REF:
+    fft_ref_3d_fw_local(grid_rs, grid_gs, fft_size);
+    break;
+  case GRID_FFT_LIB_FFTW:
+    fft_fftw_3d_fw_local(grid_rs, grid_gs, fft_size);
+    break;
+  default:
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
@@ -166,8 +221,16 @@ void fft_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
  ******************************************************************************/
 void fft_3d_bw_local(double complex *grid_gs, double complex *grid_rs,
                      const int fft_size[3]) {
-
-  fft_ref_3d_bw_local(grid_gs, grid_rs, fft_size);
+  switch (grid_fft_lib_choice) {
+  case GRID_FFT_LIB_REF:
+    fft_ref_3d_bw_local(grid_gs, grid_rs, fft_size);
+    break;
+  case GRID_FFT_LIB_FFTW:
+    fft_fftw_3d_bw_local(grid_gs, grid_rs, fft_size);
+    break;
+  default:
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 // EOF
