@@ -6,6 +6,7 @@
 /*----------------------------------------------------------------------------*/
 
 #include "grid_fft_lib.h"
+#include "grid_fft_lib_fftw.h"
 #include "grid_fft_lib_ref.h"
 
 #include <assert.h>
@@ -14,24 +15,39 @@
 #include <stdlib.h>
 #include <string.h>
 
+grid_fft_lib grid_fft_lib_choice = GRID_FFT_LIB_REF;
+
 /*******************************************************************************
  * \brief Initialize the FFT library (if not done externally).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_init_lib() { fft_ref_init_lib(); }
+void fft_init_lib(const grid_fft_lib lib) {
+  grid_fft_lib_choice = lib;
+  fft_ref_init_lib();
+  fft_fftw_init_lib();
+}
 
 /*******************************************************************************
  * \brief Finalize the FFT library (if not done externally).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_finalize_lib() { fft_ref_finalize_lib(); }
+void fft_finalize_lib() {
+  fft_ref_finalize_lib();
+  fft_fftw_finalize_lib();
+}
 
 /*******************************************************************************
  * \brief Allocate buffer of type double.
  * \author Frederick Stein
  ******************************************************************************/
 void fft_allocate_double(const int length, double **buffer) {
-  fft_ref_allocate_double(length, buffer);
+  if (grid_fft_lib_choice == GRID_FFT_LIB_REF) {
+    fft_ref_allocate_double(length, buffer);
+  } else if (grid_fft_lib_choice == GRID_FFT_LIB_FFTW) {
+    fft_fftw_allocate_double(length, buffer);
+  } else {
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
@@ -39,20 +55,42 @@ void fft_allocate_double(const int length, double **buffer) {
  * \author Frederick Stein
  ******************************************************************************/
 void fft_allocate_complex(const int length, double complex **buffer) {
-  fft_ref_allocate_complex(length, buffer);
+  if (grid_fft_lib_choice == GRID_FFT_LIB_REF) {
+    fft_ref_allocate_complex(length, buffer);
+  } else if (grid_fft_lib_choice == GRID_FFT_LIB_FFTW) {
+    fft_fftw_allocate_complex(length, buffer);
+  } else {
+    assert(0 && "Unknown FFT library.");
+  }
 }
 
 /*******************************************************************************
  * \brief Allocate buffer of type double.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_free_double(double *buffer) { fft_ref_free_double(buffer); }
+void fft_free_double(double *buffer) {
+  if (grid_fft_lib_choice == GRID_FFT_LIB_REF) {
+    fft_ref_free_double(buffer);
+  } else if (grid_fft_lib_choice == GRID_FFT_LIB_FFTW) {
+    fft_fftw_free_double(buffer);
+  } else {
+    assert(0 && "Unknown FFT library.");
+  }
+}
 
 /*******************************************************************************
  * \brief Allocate buffer of type double complex.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_free_complex(double complex *buffer) { fft_ref_free_complex(buffer); }
+void fft_free_complex(double complex *buffer) {
+  if (grid_fft_lib_choice == GRID_FFT_LIB_REF) {
+    fft_ref_free_complex(buffer);
+  } else if (grid_fft_lib_choice == GRID_FFT_LIB_FFTW) {
+    fft_fftw_free_complex(buffer);
+  } else {
+    assert(0 && "Unknown FFT library.");
+  }
+}
 
 /*******************************************************************************
  * \brief Naive implementation of FFT from transposed format (for easier

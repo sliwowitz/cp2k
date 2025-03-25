@@ -1410,6 +1410,7 @@ set(CP2K_GRID_SRCS_C
     grid/grid_fft_grid.c
     grid/grid_fft_grid_test.c
     grid/grid_fft_lib.c
+    grid/grid_fft_lib_ref.c
     grid/grid_fft_lib_test.c
     grid/grid_fft_reorder.c
     grid/grid_fft_reorder_test.c

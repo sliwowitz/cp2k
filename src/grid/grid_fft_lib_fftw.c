@@ -5,7 +5,7 @@
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
 
-#include "grid_fft_lib_ref.h"
+#include "grid_fft_lib_fftw.h"
 
 #include <assert.h>
 #include <math.h>
@@ -21,56 +21,87 @@
  * \brief Initialize the FFT library (if not done externally).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_init_lib() {
-  // Nothing to be done
+void fft_fftw_init_lib() {
+#if defined(__FFTW3)
+  fftw_init_threads();
+#endif
 }
 
 /*******************************************************************************
  * \brief Finalize the FFT library (if not done externally).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_finalize_lib() {
-  // Nothing to be done
+void fft_fftw_finalize_lib() {
+#if defined(__FFTW3)
+  fftw_cleanup();
+#endif
 }
 
 /*******************************************************************************
  * \brief Allocate buffer of type double.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_allocate_double(const int length, double **buffer) {
+void fft_fftw_allocate_double(const int length, double **buffer) {
   assert(buffer != NULL);
   assert(*buffer == NULL);
-  *buffer = (double *)malloc(length * sizeof(double));
+#if defined(__FFTW3)
+  *buffer = fftw_alloc_real(length);
+#else
+  (void)length;
+  (void)buffer;
+  assert(0 && "The grid library was not compiled with FFTW support.");
+#endif
 }
 
 /*******************************************************************************
  * \brief Allocate buffer of type double complex.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_allocate_complex(const int length, double complex **buffer) {
+void fft_fftw_allocate_complex(const int length, double complex **buffer) {
   assert(buffer != NULL);
   assert(*buffer == NULL);
-  *buffer = (double complex *)malloc(length * sizeof(double complex));
+#if defined(__FFTW3)
+  *buffer = fftw_alloc_complex(length);
+#else
+  (void)length;
+  (void)buffer;
+  assert(0 && "The grid library was not compiled with FFTW support.");
+#endif
 }
 
 /*******************************************************************************
  * \brief Allocate buffer of type double.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_free_double(double *buffer) { free(buffer); }
+void fft_fftw_free_double(double *buffer) {
+#if defined(__FFTW3)
+  fftw_free(buffer);
+#else
+  (void)buffer;
+  assert(0 && "The grid library was not compiled with FFTW support.");
+#endif
+}
 
 /*******************************************************************************
  * \brief Allocate buffer of type double complex.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_free_complex(double complex *buffer) { free(buffer); }
+void fft_fftw_free_complex(double complex *buffer) {
+#if defined(__FFTW3)
+  fftw_free(buffer);
+#else
+  (void)buffer;
+  assert(0 && "The grid library was not compiled with FFTW support.");
+#endif
+}
 
 /*******************************************************************************
  * \brief Naive implementation of FFT from transposed format (for easier
  *transposition). \author Frederick Stein
  ******************************************************************************/
-void fft_ref_1d_fw_local(const double complex *grid_rs, double complex *grid_gs,
-                         const int fft_size, const int number_of_ffts) {
+void fft_fftw_1d_fw_local(const double complex *grid_rs,
+                          double complex *grid_gs, const int fft_size,
+                          const int number_of_ffts) {
   const double pi = acos(-1.0);
 #pragma omp parallel for default(none) collapse(2)                             \
     shared(grid_rs, grid_gs, fft_size, number_of_ffts, pi)
@@ -90,8 +121,9 @@ void fft_ref_1d_fw_local(const double complex *grid_rs, double complex *grid_gs,
  * \brief Naive implementation of backwards FFT to transposed format (for easier
  *transposition). \author Frederick Stein
  ******************************************************************************/
-void fft_ref_1d_bw_local(const double complex *grid_gs, double complex *grid_rs,
-                         const int fft_size, const int number_of_ffts) {
+void fft_fftw_1d_bw_local(const double complex *grid_gs,
+                          double complex *grid_rs, const int fft_size,
+                          const int number_of_ffts) {
   const double pi = acos(-1.0);
 #pragma omp parallel for default(none) collapse(2)                             \
     shared(grid_rs, grid_gs, fft_size, number_of_ffts, pi)
@@ -111,10 +143,10 @@ void fft_ref_1d_bw_local(const double complex *grid_gs, double complex *grid_rs,
  * \brief Local transposition.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_transpose_local(double complex *grid,
-                             double complex *grid_transposed,
-                             const int number_of_columns_grid,
-                             const int number_of_rows_grid) {
+void fft_fftw_transpose_local(double complex *grid,
+                              double complex *grid_transposed,
+                              const int number_of_columns_grid,
+                              const int number_of_rows_grid) {
 #pragma omp parallel for collapse(2) default(none)                             \
     shared(grid, grid_transposed, number_of_columns_grid, number_of_rows_grid)
   for (int column_index = 0; column_index < number_of_columns_grid;
@@ -130,18 +162,18 @@ void fft_ref_transpose_local(double complex *grid,
  * \brief Naive implementation of 2D FFT (transposed format, no normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
-                         const int size_of_first_fft,
-                         const int size_of_second_fft,
-                         const int number_of_ffts) {
+void fft_fftw_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
+                          const int size_of_first_fft,
+                          const int size_of_second_fft,
+                          const int number_of_ffts) {
 
   // Perform the first FFT along z
-  fft_ref_1d_fw_local(grid_rs, grid_gs, size_of_first_fft,
-                      size_of_second_fft * number_of_ffts);
+  fft_fftw_1d_fw_local(grid_rs, grid_gs, size_of_first_fft,
+                       size_of_second_fft * number_of_ffts);
 
   // Perform the second FFT along y
-  fft_ref_1d_fw_local(grid_gs, grid_rs, size_of_second_fft,
-                      size_of_first_fft * number_of_ffts);
+  fft_fftw_1d_fw_local(grid_gs, grid_rs, size_of_second_fft,
+                       size_of_first_fft * number_of_ffts);
 
   memcpy(grid_gs, grid_rs,
          size_of_first_fft * size_of_second_fft * number_of_ffts *
@@ -154,18 +186,18 @@ void fft_ref_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
  * fft_2d_rw_local(grid_rs, grid_gs, n1, n2, m) (ignoring normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
-                         const int size_of_first_fft,
-                         const int size_of_second_fft,
-                         const int number_of_ffts) {
+void fft_fftw_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
+                          const int size_of_first_fft,
+                          const int size_of_second_fft,
+                          const int number_of_ffts) {
 
   // Perform the second FFT along y
-  fft_ref_1d_bw_local(grid_gs, grid_rs, size_of_second_fft,
-                      size_of_first_fft * number_of_ffts);
+  fft_fftw_1d_bw_local(grid_gs, grid_rs, size_of_second_fft,
+                       size_of_first_fft * number_of_ffts);
 
   // Perform the third FFT along z
-  fft_ref_1d_bw_local(grid_rs, grid_gs, size_of_first_fft,
-                      size_of_second_fft * number_of_ffts);
+  fft_fftw_1d_bw_local(grid_rs, grid_gs, size_of_first_fft,
+                       size_of_second_fft * number_of_ffts);
 
   memcpy(grid_rs, grid_gs,
          size_of_first_fft * size_of_second_fft * number_of_ffts *
@@ -178,17 +210,20 @@ void fft_ref_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
  * fft_3d_rw_local(grid_rs, grid_gs, n) (ignoring normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
-                         const int fft_size[3]) {
+void fft_fftw_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
+                          const int fft_size[3]) {
 
   // Perform the first FFT along z
-  fft_ref_1d_fw_local(grid_rs, grid_gs, fft_size[2], fft_size[0] * fft_size[1]);
+  fft_fftw_1d_fw_local(grid_rs, grid_gs, fft_size[2],
+                       fft_size[0] * fft_size[1]);
 
   // Perform the second FFT along y
-  fft_ref_1d_fw_local(grid_gs, grid_rs, fft_size[1], fft_size[0] * fft_size[2]);
+  fft_fftw_1d_fw_local(grid_gs, grid_rs, fft_size[1],
+                       fft_size[0] * fft_size[2]);
 
   // Perform the third FFT along x
-  fft_ref_1d_fw_local(grid_rs, grid_gs, fft_size[0], fft_size[1] * fft_size[2]);
+  fft_fftw_1d_fw_local(grid_rs, grid_gs, fft_size[0],
+                       fft_size[1] * fft_size[2]);
 }
 
 /*******************************************************************************
@@ -197,17 +232,20 @@ void fft_ref_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
  * fft_3d_rw_local(grid_rs, grid_gs, n) (ignoring normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_ref_3d_bw_local(double complex *grid_gs, double complex *grid_rs,
-                         const int fft_size[3]) {
+void fft_fftw_3d_bw_local(double complex *grid_gs, double complex *grid_rs,
+                          const int fft_size[3]) {
 
   // Perform the first FFT along x
-  fft_ref_1d_bw_local(grid_gs, grid_rs, fft_size[0], fft_size[1] * fft_size[2]);
+  fft_fftw_1d_bw_local(grid_gs, grid_rs, fft_size[0],
+                       fft_size[1] * fft_size[2]);
 
   // Perform the second FFT along y
-  fft_ref_1d_bw_local(grid_rs, grid_gs, fft_size[1], fft_size[0] * fft_size[2]);
+  fft_fftw_1d_bw_local(grid_rs, grid_gs, fft_size[1],
+                       fft_size[0] * fft_size[2]);
 
   // Perform the third FFT along z
-  fft_ref_1d_bw_local(grid_gs, grid_rs, fft_size[2], fft_size[0] * fft_size[1]);
+  fft_fftw_1d_bw_local(grid_gs, grid_rs, fft_size[2],
+                       fft_size[0] * fft_size[1]);
 }
 
 // EOF
