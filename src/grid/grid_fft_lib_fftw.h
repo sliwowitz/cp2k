@@ -9,6 +9,13 @@
 
 #include <complex.h>
 
+#if defined(__FFTW3)
+#include <fftw3.h>
+typedef fftw_plan grid_fft_fftw_plan;
+#else
+typedef void *grid_fft_fftw_plan;
+#endif
+
 /*******************************************************************************
  * \brief Initialize the FFT library (if not done externally).
  * \author Frederick Stein
@@ -34,32 +41,63 @@ void fft_fftw_allocate_double(const int length, double **buffer);
 void fft_fftw_allocate_complex(const int length, double complex **buffer);
 
 /*******************************************************************************
- * \brief Allocate buffer of type double.
+ * \brief Free buffer of type double.
  * \author Frederick Stein
  ******************************************************************************/
 void fft_fftw_free_double(double *buffer);
 
 /*******************************************************************************
- * \brief Allocate buffer of type double complex.
+ * \brief Free buffer of type double complex.
  * \author Frederick Stein
  ******************************************************************************/
 void fft_fftw_free_complex(double complex *buffer);
 
 /*******************************************************************************
+ * \brief Creates a plan of a 1D FFT.
+ * \author Frederick Stein
+ ******************************************************************************/
+void fft_fftw_create_1d_plan(double complex *grid_rs, double complex *grid_gs,
+                             const int fft_size, const int number_of_ffts,
+                             grid_fft_fftw_plan *plan_fw,
+                             grid_fft_fftw_plan *plan_bw);
+
+/*******************************************************************************
+ * \brief Creates a plan of a 1D FFT.
+ * \author Frederick Stein
+ ******************************************************************************/
+void fft_fftw_create_2d_plan(double complex *grid_rs, double complex *grid_gs,
+                             const int fft_size[2], const int number_of_ffts,
+                             grid_fft_fftw_plan *plan_fw,
+                             grid_fft_fftw_plan *plan_bw);
+
+/*******************************************************************************
+ * \brief Creates a plan of a 1D FFT.
+ * \author Frederick Stein
+ ******************************************************************************/
+void fft_fftw_create_3d_plan(double complex *grid_rs, double complex *grid_gs,
+                             const int fft_size[3], grid_fft_fftw_plan *plan_fw,
+                             grid_fft_fftw_plan *plan_bw);
+
+/*******************************************************************************
+ * \brief Frees FFT plans.
+ * \author Frederick Stein
+ ******************************************************************************/
+void fft_fftw_free_plan(grid_fft_fftw_plan *plan_fw,
+                        grid_fft_fftw_plan *plan_bw);
+
+/*******************************************************************************
  * \brief 1D Forward FFT from transposed format.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_fftw_1d_fw_local(const double complex *grid_rs,
-                          double complex *grid_gs, const int fft_size,
-                          const int number_of_ffts);
+void fft_fftw_1d_fw_local(const grid_fft_fftw_plan plan_fw,
+                          double complex *grid_in, double complex *grid_out);
 
 /*******************************************************************************
  * \brief 1D Backward FFT to transposed format.
  * \author Frederick Stein
  ******************************************************************************/
-void fft_fftw_1d_bw_local(const double complex *grid_gs,
-                          double complex *grid_rs, const int fft_size,
-                          const int number_of_ffts);
+void fft_fftw_1d_bw_local(const grid_fft_fftw_plan plan_bw,
+                          double complex *grid_in, double complex *grid_out);
 
 /*******************************************************************************
  * \brief Local transposition.
@@ -74,10 +112,8 @@ void fft_fftw_transpose_local(double complex *grid,
  * \brief Naive implementation of 2D FFT (transposed format, no normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_fftw_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
-                          const int size_of_first_fft,
-                          const int size_of_second_fft,
-                          const int number_of_ffts);
+void fft_fftw_2d_fw_local(const grid_fft_fftw_plan plan_fw,
+                          double complex *grid_in, double complex *grid_out);
 
 /*******************************************************************************
  * \brief Performs local 2D FFT (reverse to fw routine, no normalization).
@@ -85,10 +121,8 @@ void fft_fftw_2d_fw_local(double complex *grid_rs, double complex *grid_gs,
  * fft_2d_rw_local(grid_rs, grid_gs, n1, n2, m) (ignoring normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_fftw_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
-                          const int size_of_first_fft,
-                          const int size_of_second_fft,
-                          const int number_of_ffts);
+void fft_fftw_2d_bw_local(const grid_fft_fftw_plan plan_bw,
+                          double complex *grid_in, double complex *grid_out);
 
 /*******************************************************************************
  * \brief Performs local 3D FFT (no normalization).
@@ -96,8 +130,8 @@ void fft_fftw_2d_bw_local(double complex *grid_gs, double complex *grid_rs,
  * fft_3d_rw_local(grid_rs, grid_gs, n) (ignoring normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_fftw_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
-                          const int fft_size[3]);
+void fft_fftw_3d_fw_local(const grid_fft_fftw_plan plan_fw,
+                          double complex *grid_in, double complex *grid_out);
 
 /*******************************************************************************
  * \brief Performs local 3D FFT (reverse to fw routine, no normalization).
@@ -105,8 +139,8 @@ void fft_fftw_3d_fw_local(double complex *grid_rs, double complex *grid_gs,
  * fft_3d_rw_local(grid_rs, grid_gs, n) (ignoring normalization).
  * \author Frederick Stein
  ******************************************************************************/
-void fft_fftw_3d_bw_local(double complex *grid_gs, double complex *grid_rs,
-                          const int fft_size[3]);
+void fft_fftw_3d_bw_local(const grid_fft_fftw_plan plan_bw,
+                          double complex *grid_in, double complex *grid_out);
 
 #endif /* GRID_FFT_LIB_FFTW_H */
 

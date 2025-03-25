@@ -8,6 +8,7 @@
 #define GRID_FFT_GRID_LAYOUT_H
 
 #include "common/grid_mpi.h"
+#include "grid_fft_lib.h"
 
 #include <complex.h>
 #include <stdbool.h>
@@ -54,6 +55,8 @@ typedef struct {
   // Buffers for FFTs
   double complex *buffer_1;
   double complex *buffer_2;
+  // Plans for FFTs
+  grid_fft_plan fft_plans[3];
   // buffers for different purposes
 } grid_fft_grid_layout;
 
@@ -120,6 +123,7 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
                        const int (*proc2local_rs)[3][2],
                        const int (*proc2local_ms)[3][2],
                        const int (*proc2local_gs)[3][2],
+                       const grid_fft_plan *fft_plans,
                        const grid_mpi_comm comm);
 
 /*******************************************************************************
@@ -131,6 +135,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
                        const int (*proc2local_rs)[3][2],
                        const int (*proc2local_ms)[3][2],
                        const int (*proc2local_gs)[3][2],
+                       const grid_fft_plan *fft_plans,
                        const grid_mpi_comm comm);
 
 /*******************************************************************************
@@ -141,7 +146,7 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
                    const int npts_global[3], const int (*proc2local_rs)[3][2],
                    const int (*proc2local_ms)[3][2], const int *yz_to_process,
                    const int *rays_per_process, const int (*ray_to_yz)[2],
-                   const grid_mpi_comm comm);
+                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm);
 
 /*******************************************************************************
  * \brief Performs a backward 3D-FFT using a ray distribution.
@@ -151,7 +156,7 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
                    const int npts_global[3], const int (*proc2local_rs)[3][2],
                    const int (*proc2local_ms)[3][2], const int *yz_to_process,
                    const int *rays_per_process, const int (*ray_to_yz)[2],
-                   const grid_mpi_comm comm);
+                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm);
 
 #endif
 

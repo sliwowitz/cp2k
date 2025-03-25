@@ -35,6 +35,10 @@ int fft_test_1d_local_low(const int fft_size, const int number_of_ffts) {
   double complex *output_array =
       calloc(fft_size * number_of_ffts, sizeof(double complex));
 
+  grid_fft_plan plan;
+  fft_create_1d_plan(input_array, output_array, fft_size, number_of_ffts,
+                     &plan);
+
   double max_error = 0.0;
   // Check the forward FFT
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
@@ -42,7 +46,7 @@ int fft_test_1d_local_low(const int fft_size, const int number_of_ffts) {
         1.0;
   }
 
-  fft_1d_fw_local(input_array, output_array, fft_size, number_of_ffts);
+  fft_1d_fw_local((const grid_fft_plan *)&plan, input_array, output_array);
 
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index = 0; index < fft_size; index++) {
@@ -61,24 +65,25 @@ int fft_test_1d_local_low(const int fft_size, const int number_of_ffts) {
   }
 
   // Check the backward FFT
-  memset(input_array, 0, fft_size * number_of_ffts * sizeof(double complex));
+  memset(output_array, 0, fft_size * number_of_ffts * sizeof(double complex));
 
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
-    input_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
+    output_array[number_of_fft * fft_size + number_of_fft % fft_size] = 1.0;
   }
 
-  fft_1d_bw_local(input_array, output_array, fft_size, number_of_ffts);
+  fft_1d_bw_local((const grid_fft_plan *)&plan, output_array, input_array);
 
   max_error = 0.0;
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index = 0; index < fft_size; index++) {
       max_error = fmax(
-          max_error, cabs(output_array[index * number_of_ffts + number_of_fft] -
+          max_error, cabs(input_array[index * number_of_ffts + number_of_fft] -
                           cexp(2.0 * I * pi * (number_of_fft % fft_size) *
                                index / fft_size)));
     }
   }
 
+  fft_free_plan(&plan);
   free(input_array);
   free(output_array);
 
@@ -111,6 +116,11 @@ int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
   double complex *output_array = calloc(
       fft_size[0] * fft_size[1] * number_of_ffts, sizeof(double complex));
 
+  grid_fft_plan plan;
+  fft_create_2d_plan(input_array, output_array,
+                     (const int[2]){fft_size[1], fft_size[0]}, number_of_ffts,
+                     &plan);
+
   double max_error = 0.0;
   // Check the forward FFT
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
@@ -118,8 +128,7 @@ int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
                 number_of_fft] = 1.0;
   }
 
-  fft_2d_fw_local(input_array, output_array, fft_size[0], fft_size[1],
-                  number_of_ffts);
+  fft_2d_fw_local(&plan, input_array, output_array);
 
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index_1 = 0; index_1 < fft_size[0]; index_1++) {
@@ -145,25 +154,24 @@ int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
   }
 
   // Check the backward FFT
-  memset(input_array, 0,
+  memset(output_array, 0,
          fft_size[0] * fft_size[1] * number_of_ffts * sizeof(double complex));
 
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
-    input_array[number_of_fft * fft_size[0] * fft_size[1] +
-                (number_of_fft / fft_size[1] % fft_size[0] * fft_size[1]) +
-                number_of_fft % fft_size[1]] = 1.0;
+    output_array[number_of_fft * fft_size[0] * fft_size[1] +
+                 (number_of_fft / fft_size[1] % fft_size[0] * fft_size[1]) +
+                 number_of_fft % fft_size[1]] = 1.0;
   }
 
-  fft_2d_bw_local(input_array, output_array, fft_size[0], fft_size[1],
-                  number_of_ffts);
+  fft_2d_bw_local((const grid_fft_plan *)&plan, output_array, input_array);
 
   max_error = 0.0;
   for (int number_of_fft = 0; number_of_fft < number_of_ffts; number_of_fft++) {
     for (int index_1 = 0; index_1 < fft_size[0]; index_1++) {
       for (int index_2 = 0; index_2 < fft_size[1]; index_2++) {
         const double complex my_value =
-            output_array[(index_1 * fft_size[1] + index_2) * number_of_ffts +
-                         number_of_fft];
+            input_array[(index_1 * fft_size[1] + index_2) * number_of_ffts +
+                        number_of_fft];
         const double complex ref_value = cexp(
             2.0 * I * pi *
             ((double)(number_of_fft / fft_size[1]) * index_1 / fft_size[0] +
@@ -174,6 +182,7 @@ int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
     }
   }
 
+  fft_free_plan(&plan);
   free(input_array);
   free(output_array);
 
@@ -206,6 +215,9 @@ int fft_test_3d_local_low(const int fft_size[3]) {
   double complex *output_array =
       calloc(fft_size[0] * fft_size[1] * fft_size[2], sizeof(double complex));
 
+  grid_fft_plan plan;
+  fft_create_3d_plan(input_array, output_array, fft_size, &plan);
+
   double max_error = 0.0;
   for (int mx = 0; mx < fft_size[0]; mx++) {
     for (int my = 0; my < fft_size[1]; my++) {
@@ -215,7 +227,8 @@ int fft_test_3d_local_low(const int fft_size[3]) {
                    sizeof(double complex));
         input_array[mz * fft_size[0] * fft_size[1] + my * fft_size[0] + mx] =
             1.0;
-        fft_3d_fw_local(input_array, output_array, fft_size);
+        fft_3d_fw_local((const grid_fft_plan *)&plan, input_array,
+                        output_array);
         for (int nx = 0; nx < fft_size[0]; nx++) {
           for (int ny = 0; ny < fft_size[1]; ny++) {
             for (int nz = 0; nz < fft_size[2]; nz++) {
@@ -247,18 +260,19 @@ int fft_test_3d_local_low(const int fft_size[3]) {
   for (int mx = 0; mx < fft_size[0]; mx++) {
     for (int my = 0; my < fft_size[1]; my++) {
       for (int mz = 0; mz < fft_size[2]; mz++) {
-        memset(input_array, 0,
+        memset(output_array, 0,
                fft_size[0] * fft_size[1] * fft_size[2] *
                    sizeof(double complex));
-        input_array[mz * fft_size[0] * fft_size[1] + my * fft_size[0] + mx] =
+        output_array[mz * fft_size[0] * fft_size[1] + my * fft_size[0] + mx] =
             1.0;
-        fft_3d_bw_local(input_array, output_array, fft_size);
+        fft_3d_bw_local((const grid_fft_plan *)&plan, output_array,
+                        input_array);
         for (int nx = 0; nx < fft_size[0]; nx++) {
           for (int ny = 0; ny < fft_size[1]; ny++) {
             for (int nz = 0; nz < fft_size[2]; nz++) {
               const double complex my_value =
-                  output_array[nz * fft_size[0] * fft_size[1] +
-                               ny * fft_size[0] + nx];
+                  input_array[nz * fft_size[0] * fft_size[1] +
+                              ny * fft_size[0] + nx];
               const double complex ref_value =
                   cexp(2.0 * I * pi *
                        (((double)mx) * nx / fft_size[0] +
@@ -273,6 +287,7 @@ int fft_test_3d_local_low(const int fft_size[3]) {
     }
   }
 
+  fft_free_plan(&plan);
   free(input_array);
   free(output_array);
 

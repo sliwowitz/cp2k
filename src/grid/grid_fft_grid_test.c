@@ -76,7 +76,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
             buffer_1_real, fft_grid_layout->buffer_2,
             fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
             fft_grid_layout->proc2local_ms, fft_grid_layout->proc2local_gs,
-            fft_grid_layout->comm);
+            fft_grid_layout->fft_plans, fft_grid_layout->comm);
 
         for (int mx = 0; mx < my_sizes_gs[0]; mx++) {
           for (int my = 0; my < my_sizes_gs[1]; my++) {
@@ -180,7 +180,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
             fft_grid_layout->buffer_2, buffer_1_real,
             fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
             fft_grid_layout->proc2local_ms, fft_grid_layout->proc2local_gs,
-            fft_grid_layout->comm);
+            fft_grid_layout->fft_plans, fft_grid_layout->comm);
 
         for (int mx = 0; mx < my_sizes_rs[0]; mx++) {
           for (int my = 0; my < my_sizes_rs[1]; my++) {
@@ -265,7 +265,9 @@ int fft_test_3d_blocked(const int npts_global[3]) {
   grid_free_fft_grid_layout(fft_grid_layout);
 
   if (errors == 0 && my_process == 0)
-    printf("The 3D FFTs with blocked layout do work properly!\n");
+    printf(
+        "The 3D FFT with blocked layout does work properly (sizes %i %i %i)!\n",
+        npts_global[0], npts_global[1], npts_global[2]);
   return errors;
 }
 
@@ -325,7 +327,7 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
             fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
             fft_grid_layout->proc2local_ms, fft_grid_layout->yz_to_process,
             fft_grid_layout->rays_per_process, fft_grid_layout->ray_to_yz,
-            fft_grid_layout->comm);
+            fft_grid_layout->fft_plans, fft_grid_layout->comm);
 
         for (int index_x = 0; index_x < npts_global[0]; index_x++) {
           for (int yz_ray = 0;
@@ -383,7 +385,7 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
           fft_grid_layout->npts_global, fft_grid_layout->proc2local_rs,
           fft_grid_layout->proc2local_ms, fft_grid_layout->yz_to_process,
           fft_grid_layout->rays_per_process, fft_grid_layout->ray_to_yz,
-          fft_grid_layout->comm);
+          fft_grid_layout->fft_plans, fft_grid_layout->comm);
 
       for (int mx = 0; mx < my_sizes_rs[0]; mx++) {
         for (int my = 0; my < my_sizes_rs[1]; my++) {
