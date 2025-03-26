@@ -365,12 +365,14 @@ bool grid_replay(const char *filename, const int cycles, const bool collocate,
     if (collocate) {
       // collocate
       offload_buffer *grids[1] = {grid_test};
+      // TODO: remove later
       grid_copy_to_multigrid_local(multigrid, (const offload_buffer **)grids);
       grid_collocate_task_list(task_list, func, multigrid, pab_blocks);
       grid_copy_from_multigrid_local(multigrid, grids);
     } else {
       // integrate
       const offload_buffer *grids[1] = {grid_ref};
+      // TODO: remove later
       grid_copy_to_multigrid_local(multigrid, grids);
       grid_integrate_task_list(task_list, compute_tau, natoms, multigrid,
                                pab_blocks, hab_blocks, forces_test,
@@ -392,6 +394,7 @@ bool grid_replay(const char *filename, const int cycles, const bool collocate,
     if (collocate) {
       // collocate
       memset(grid_test->host_buffer, 0, npts_local_total * sizeof(double));
+      // TODO: remove later
       grid_copy_to_multigrid_local_single(multigrid, grid_test->host_buffer, 0);
       for (int i = 0; i < cycles; i++) {
         grid_collocate_pgf_product(multigrid, 1, border_mask, func, la_max,
@@ -405,6 +408,7 @@ bool grid_replay(const char *filename, const int cycles, const bool collocate,
       memset(hab_test, 0, n2 * n1 * sizeof(double));
       memset(forces_test, 0, 2 * 3 * sizeof(double));
       double virials_test[2][3][3] = {0};
+      // TODO: remove later
       grid_copy_to_multigrid_local_single(multigrid, grid_ref->host_buffer, 0);
       for (int i = 0; i < cycles; i++) {
         grid_integrate_pgf_product(

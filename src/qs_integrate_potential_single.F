@@ -46,7 +46,6 @@ MODULE qs_integrate_potential_single
    USE gaussian_gridlevels,             ONLY: gaussian_gridlevel,&
                                               gridlevel_info_type
    USE grid_api,                        ONLY: grid_copy_to_multigrid_general_single,&
-                                              grid_copy_to_multigrid_local_single,&
                                               grid_multigrid_type,&
                                               integrate_pgf_product
    USE kinds,                           ONLY: dp
@@ -67,8 +66,7 @@ MODULE qs_integrate_potential_single
                                               qs_kind_type
    USE realspace_grid_types,            ONLY: map_gaussian_here,&
                                               realspace_grid_type,&
-                                              rs_grid_zero,&
-                                              transfer_pw2rs
+                                              rs_grid_zero
    USE rs_pw_interface,                 ONLY: potential_pw2rs
    USE virial_types,                    ONLY: virial_type
 #include "./base/base_uses.f90"
@@ -135,8 +133,6 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v, multigrid=multigrid, auxbas_grid=auxbas_grid)
 
-      CALL transfer_pw2rs(rs_v, rho_rspace)
-      CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, auxbas_grid)
       CALL grid_copy_to_multigrid_general_single(multigrid, rho_rspace, auxbas_grid)
 
       CALL get_qs_env(qs_env=qs_env, &
@@ -324,8 +320,6 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v, multigrid=multigrid, auxbas_grid=auxbas_grid)
 
-      CALL transfer_pw2rs(rs_v, rho_rspace)
-      CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, auxbas_grid)
       CALL grid_copy_to_multigrid_general_single(multigrid, rho_rspace, auxbas_grid)
 
       CALL get_qs_env(qs_env=qs_env, &
@@ -540,8 +534,6 @@ CONTAINS
          CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
          CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v, multigrid=multigrid, auxbas_grid=auxbas_grid)
 
-         CALL transfer_pw2rs(rs_v, v_rspace)
-         CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, auxbas_grid)
          CALL grid_copy_to_multigrid_general_single(multigrid, v_rspace, auxbas_grid)
 
          CALL get_qs_env(qs_env=qs_env, &
@@ -695,8 +687,6 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v, multigrid=multigrid, auxbas_grid=auxbas_grid)
 
-      CALL transfer_pw2rs(rs_v, v_rspace)
-      CALL grid_copy_to_multigrid_local_single(multigrid, rs_v, auxbas_grid)
       CALL grid_copy_to_multigrid_general_single(multigrid, v_rspace, auxbas_grid)
 
       CALL get_qs_env(qs_env=qs_env, &

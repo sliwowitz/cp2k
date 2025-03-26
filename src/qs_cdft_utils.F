@@ -33,7 +33,6 @@ MODULE qs_cdft_utils
    USE grid_api,                        ONLY: GRID_FUNC_AB,&
                                               collocate_pgf_product,&
                                               grid_copy_from_multigrid_general_single,&
-                                              grid_copy_from_multigrid_local_single,&
                                               grid_copy_to_multigrid_local_single,&
                                               grid_multigrid_type
    USE hirshfeld_methods,               ONLY: create_shape_function
@@ -72,8 +71,7 @@ MODULE qs_cdft_utils
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
                                               qs_subsys_type
    USE realspace_grid_types,            ONLY: realspace_grid_type,&
-                                              rs_grid_zero,&
-                                              transfer_rs2pw
+                                              rs_grid_zero
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -396,8 +394,6 @@ CONTAINS
          END DO
          DEALLOCATE (pab)
          CALL auxbas_pw_pool%create_pw(becke_control%cavity)
-         CALL grid_copy_from_multigrid_local_single(multigrid, rs_cavity, auxbas_grid)
-         CALL transfer_rs2pw(rs_cavity, becke_control%cavity)
          CALL grid_copy_from_multigrid_general_single(multigrid, becke_control%cavity, auxbas_grid)
          ! Grid points where the Gaussian density falls below eps_cavity are ignored
          ! We can calculate the smallest/largest values along z-direction outside

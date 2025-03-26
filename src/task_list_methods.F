@@ -345,6 +345,7 @@ CONTAINS
          END DO
          ! There is no need to update multigrid in pw_env because buffers will be reused
          CALL grid_create_multigrid(rs_grids, multigrid)
+         pw_env%multigrid = multigrid
       END IF
 
       CALL create_grid_task_list(task_list=task_list, &
