@@ -16,7 +16,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__FFTW3)
+grid_fft_lib grid_fft_lib_choice = GRID_FFT_LIB_FFTW;
+#else
 grid_fft_lib grid_fft_lib_choice = GRID_FFT_LIB_REF;
+#endif
 bool grid_fft_lib_initialized = false;
 
 /*******************************************************************************
