@@ -562,66 +562,25 @@ void grid_create_fft_grid_layout_from_reference(
   // should be available on the reference grid
   my_fft_grid->local_index_to_ref_grid =
       calloc(my_fft_grid->npts_gs_local, sizeof(int));
+
   int own_index = 0;
-  for (int ref_index = 0; ref_index < fft_grid_ref->npts_gs_local;
-       ref_index++) {
-    // Loop over all points on the reference grid
-    bool is_on_new_grid = true;
-    // Check whether the current point is also on the new grid
-    for (int dir = 0; dir < 3; dir++) {
-      const int shifted_index = convert_c_index_to_shifted_index(
-          fft_grid_ref->index_to_g[ref_index][dir],
-          fft_grid_ref->npts_global[dir]);
-      if (!is_on_grid(shifted_index, npts_global[dir])) {
-        is_on_new_grid = false;
-        break;
-      }
-    }
-    // If it is also on the new grid, add update the index array accordingly
-    if (is_on_new_grid) {
+  for (int ref_index = 0; ref_index < fft_grid_ref->npts_gs_local; ref_index++) {
+    const int shifted_indices[3] = {
+        convert_c_index_to_shifted_index(fft_grid_ref->index_to_g[ref_index][0],
+          fft_grid_ref->npts_global[0]),
+        convert_c_index_to_shifted_index(fft_grid_ref->index_to_g[ref_index][1],
+          fft_grid_ref->npts_global[1]),
+        convert_c_index_to_shifted_index(fft_grid_ref->index_to_g[ref_index][2],
+          fft_grid_ref->npts_global[2])};
+    if (is_on_grid(shifted_indices[0], my_fft_grid->npts_global[0]) && is_on_grid(shifted_indices[1], my_fft_grid->npts_global[1]) && is_on_grid(shifted_indices[2], my_fft_grid->npts_global[2])) {
       for (int dir = 0; dir < 3; dir++) {
-        const int shifted_index = convert_c_index_to_shifted_index(
-            fft_grid_ref->index_to_g[ref_index][dir],
-            fft_grid_ref->npts_global[dir]);
-        my_fft_grid->index_to_g[own_index][dir] =
-            convert_shifted_index_to_c_index(shifted_index, npts_global[dir]);
+        my_fft_grid->index_to_g[own_index][dir] = convert_shifted_index_to_c_index(shifted_indices[dir], my_fft_grid->npts_global[dir]);
+        my_fft_grid->local_index_to_ref_grid[own_index] = ref_index;
       }
       own_index++;
-    } else {
     }
   }
   assert(own_index == my_fft_grid->npts_gs_local);
-
-  sort_g_vectors(my_fft_grid);
-
-  for (int index = 0; index < my_fft_grid->npts_gs_local; index++) {
-    const int shifted_indices[3] = {
-        convert_c_index_to_shifted_index(my_fft_grid->index_to_g[index][0],
-                                         npts_global[0]),
-        convert_c_index_to_shifted_index(my_fft_grid->index_to_g[index][1],
-                                         npts_global[1]),
-        convert_c_index_to_shifted_index(my_fft_grid->index_to_g[index][2],
-                                         npts_global[2])};
-    for (int index_fine = 0; index_fine < fft_grid_ref->npts_gs_local;
-         index_fine++) {
-      const int shifted_indices_fine[3] = {
-          convert_c_index_to_shifted_index(
-              fft_grid_ref->index_to_g[index_fine][0],
-              fft_grid_ref->npts_global[0]),
-          convert_c_index_to_shifted_index(
-              fft_grid_ref->index_to_g[index_fine][1],
-              fft_grid_ref->npts_global[1]),
-          convert_c_index_to_shifted_index(
-              fft_grid_ref->index_to_g[index_fine][2],
-              fft_grid_ref->npts_global[2])};
-      if (shifted_indices[0] == shifted_indices_fine[0] &&
-          shifted_indices[1] == shifted_indices_fine[1] &&
-          shifted_indices[2] == shifted_indices_fine[2]) {
-        my_fft_grid->local_index_to_ref_grid[index] = index_fine;
-        break;
-      }
-    }
-  }
 
   if (my_fft_grid->proc_grid[0] == 1 && my_fft_grid->proc_grid[1] == 1) {
     // Local 3D FFT
