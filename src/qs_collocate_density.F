@@ -1604,7 +1604,6 @@ CONTAINS
       ! Get grids.
       CALL pw_env_get(pw_env, rs_grids=rs_rho, multigrid=multigrid)
       nlevels = SIZE(rs_rho)
-      WRITE (*, *) "nlevels rs_rho", nlevels, grid_get_multigrid_nlevels(multigrid), PRESENT(pw_env_external)
       group = rs_rho(1)%desc%group
 
       ! Check if any of the grids is distributed.
