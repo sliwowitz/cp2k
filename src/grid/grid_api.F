@@ -85,7 +85,7 @@ MODULE grid_api
    PUBLIC :: grid_copy_from_multigrid_single, grid_copy_to_multigrid_single
    PUBLIC :: grid_get_multigrid_borderwidth, grid_get_multigrid_dh
    PUBLIC :: grid_get_multigrid_dh_inv, grid_get_multigrid_nlevels
-   PUBLIC :: grid_get_multigrid_comm
+   PUBLIC :: grid_get_multigrid_comm, grid_get_multigrid_npts_global, grid_get_multigrid_npts_local
 
    TYPE grid_basis_set_type
       PRIVATE

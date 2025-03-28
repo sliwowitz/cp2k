@@ -2484,6 +2484,7 @@ void grid_free_multigrid(grid_multigrid *multigrid) {
     grid_mpi_comm_free(&multigrid->comm);
     grid_ref_free_multigrid(multigrid->ref);
     grid_cpu_free_multigrid(multigrid->cpu);
+    multigrid->nlevels = -1;
     free(multigrid);
   }
 }

@@ -30,6 +30,8 @@ MODULE qs_linres_module
                                               force_env_type,&
                                               use_qmmm,&
                                               use_qs_force
+   USE grid_api,                        ONLY: grid_get_multigrid_nlevels,&
+                                              grid_multigrid_type
    USE input_constants,                 ONLY: lr_current,&
                                               lr_none,&
                                               ot_precond_full_all,&
@@ -43,6 +45,8 @@ MODULE qs_linres_module
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
+   USE pw_env_types,                    ONLY: pw_env_get,&
+                                              pw_env_type
    USE qs_dcdr,                         ONLY: apt_dR,&
                                               apt_dR_localization,&
                                               dcdr_build_op_dR,&
@@ -333,6 +337,14 @@ CONTAINS
 
       qs_env%linres_run = .TRUE.
 
+      BLOCK
+         TYPE(pw_env_type), POINTER :: pw_env
+         TYPE(grid_multigrid_type) :: multigrid
+         CALL get_qs_env(qs_env, pw_env=pw_env)
+         CALL pw_env_get(pw_env, multigrid=multigrid)
+         WRITE (*, *) "linres_calculation:", grid_get_multigrid_nlevels(multigrid)
+      END BLOCK
+
       CALL linres_calculation_low(qs_env)
 
       CALL timestop(handle)
@@ -367,6 +379,14 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: lr_section, prop_section
 
       CALL timeset(routineN, handle)
+
+      BLOCK
+         TYPE(pw_env_type), POINTER :: pw_env
+         TYPE(grid_multigrid_type) :: multigrid
+         CALL get_qs_env(qs_env, pw_env=pw_env)
+         CALL pw_env_get(pw_env, multigrid=multigrid)
+         WRITE (*, *) "linres_calculation_low:", grid_get_multigrid_nlevels(multigrid)
+      END BLOCK
 
       lr_calculation = .FALSE.
       nmr_present = .FALSE.
@@ -615,6 +635,14 @@ CONTAINS
       linres_control%property = lr_current
 
       CALL cite_reference(Weber2009)
+
+      BLOCK
+         TYPE(pw_env_type), POINTER :: pw_env
+         TYPE(grid_multigrid_type) :: multigrid
+         CALL get_qs_env(qs_env, pw_env=pw_env)
+         CALL pw_env_get(pw_env, multigrid=multigrid)
+         WRITE (*, *) "nmr_epr_linres:", grid_get_multigrid_nlevels(multigrid)
+      END BLOCK
 
       IF (.NOT. linres_control%localized_psi0) THEN
          CALL cp_abort(__LOCATION__, &

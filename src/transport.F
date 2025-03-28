@@ -44,6 +44,8 @@ MODULE transport
                                               cp_print_key_should_output,&
                                               cp_print_key_unit_nr
    USE cp_realspace_grid_cube,          ONLY: cp_pw_to_cube
+   USE grid_api,                        ONLY: grid_get_multigrid_nlevels,&
+                                              grid_multigrid_type
    USE input_section_types,             ONLY: section_get_ivals,&
                                               section_vals_get,&
                                               section_vals_get_subs_vals,&
@@ -675,6 +677,11 @@ CONTAINS
       CALL qs_subsys_get(subsys, particles=particles)
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
       CALL qs_rho_get(rho, rho_r=rho_r, rho_g=rho_g)
+      BLOCK
+         TYPE(grid_multigrid_type) :: multigrid
+         CALL pw_env_get(pw_env, multigrid=multigrid)
+         WRITE (*, *) "transport_current:", grid_get_multigrid_nlevels(multigrid)
+      END BLOCK
 
       do_current_cube = BTEST(cp_print_key_should_output(logger%iter_info, input, &
                                                          "DFT%TRANSPORT%PRINT%CURRENT"), cp_p_file)

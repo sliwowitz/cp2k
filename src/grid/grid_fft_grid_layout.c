@@ -564,17 +564,22 @@ void grid_create_fft_grid_layout_from_reference(
       calloc(my_fft_grid->npts_gs_local, sizeof(int));
 
   int own_index = 0;
-  for (int ref_index = 0; ref_index < fft_grid_ref->npts_gs_local; ref_index++) {
+  for (int ref_index = 0; ref_index < fft_grid_ref->npts_gs_local;
+       ref_index++) {
     const int shifted_indices[3] = {
         convert_c_index_to_shifted_index(fft_grid_ref->index_to_g[ref_index][0],
-          fft_grid_ref->npts_global[0]),
+                                         fft_grid_ref->npts_global[0]),
         convert_c_index_to_shifted_index(fft_grid_ref->index_to_g[ref_index][1],
-          fft_grid_ref->npts_global[1]),
+                                         fft_grid_ref->npts_global[1]),
         convert_c_index_to_shifted_index(fft_grid_ref->index_to_g[ref_index][2],
-          fft_grid_ref->npts_global[2])};
-    if (is_on_grid(shifted_indices[0], my_fft_grid->npts_global[0]) && is_on_grid(shifted_indices[1], my_fft_grid->npts_global[1]) && is_on_grid(shifted_indices[2], my_fft_grid->npts_global[2])) {
+                                         fft_grid_ref->npts_global[2])};
+    if (is_on_grid(shifted_indices[0], my_fft_grid->npts_global[0]) &&
+        is_on_grid(shifted_indices[1], my_fft_grid->npts_global[1]) &&
+        is_on_grid(shifted_indices[2], my_fft_grid->npts_global[2])) {
       for (int dir = 0; dir < 3; dir++) {
-        my_fft_grid->index_to_g[own_index][dir] = convert_shifted_index_to_c_index(shifted_indices[dir], my_fft_grid->npts_global[dir]);
+        my_fft_grid->index_to_g[own_index][dir] =
+            convert_shifted_index_to_c_index(shifted_indices[dir],
+                                             my_fft_grid->npts_global[dir]);
         my_fft_grid->local_index_to_ref_grid[own_index] = ref_index;
       }
       own_index++;
