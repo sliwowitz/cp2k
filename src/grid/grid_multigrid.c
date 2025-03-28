@@ -2391,8 +2391,12 @@ void grid_create_multigrid(
             pgrid_dims[level][2] == 1));
   }
 
-  if (multigrid_out != NULL)
-    grid_free_multigrid(*multigrid_out);
+  if (multigrid_out != NULL) {
+    multigrid = *multigrid_out;
+    grid_free_multigrid(multigrid);
+    *multigrid_out = NULL;
+    multigrid = NULL;
+  }
   multigrid = calloc(1, sizeof(grid_multigrid));
   grid_multigrid_allocate_buffers(multigrid, nlevels, comm);
 
@@ -2435,28 +2439,20 @@ void grid_create_multigrid(
  ******************************************************************************/
 void grid_free_multigrid(grid_multigrid *multigrid) {
   if (multigrid != NULL) {
-    if (multigrid->npts_global != NULL)
-      free(multigrid->npts_global);
-    if (multigrid->npts_local != NULL)
-      free(multigrid->npts_local);
-    if (multigrid->shift_local != NULL)
-      free(multigrid->shift_local);
-    if (multigrid->border_width != NULL)
-      free(multigrid->border_width);
-    if (multigrid->dh != NULL)
-      free(multigrid->dh);
-    if (multigrid->dh_inv != NULL)
-      free(multigrid->dh_inv);
+    free(multigrid->npts_global);
+    free(multigrid->npts_local);
+    free(multigrid->shift_local);
+    free(multigrid->border_width);
+    free(multigrid->dh);
+    free(multigrid->dh_inv);
     if (multigrid->grids != NULL) {
       for (int level = 0; level < multigrid->nlevels; level++) {
         offload_free_buffer(multigrid->grids[level]);
       }
       free(multigrid->grids);
     }
-    if (multigrid->pgrid_dims != NULL)
-      free(multigrid->pgrid_dims);
-    if (multigrid->proc2local != NULL)
-      free(multigrid->proc2local);
+    free(multigrid->pgrid_dims);
+    free(multigrid->proc2local);
     if (multigrid->redistribute != NULL) {
       for (int level = 0; level < multigrid->nlevels; level++) {
         grid_free_redistribute(&multigrid->redistribute[level]);
