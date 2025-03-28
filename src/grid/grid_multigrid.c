@@ -2391,9 +2391,51 @@ void grid_create_multigrid(
             pgrid_dims[level][2] == 1));
   }
 
-  if (multigrid_out != NULL) {
+  if (*multigrid_out != NULL) {
     multigrid = *multigrid_out;
-    grid_free_multigrid(multigrid);
+    free(multigrid->npts_global);
+    free(multigrid->npts_local);
+    free(multigrid->shift_local);
+    free(multigrid->border_width);
+    free(multigrid->dh);
+    free(multigrid->dh_inv);
+    if (multigrid->grids != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        offload_free_buffer(multigrid->grids[level]);
+      }
+      free(multigrid->grids);
+    }
+    free(multigrid->pgrid_dims);
+    free(multigrid->proc2local);
+    if (multigrid->redistribute != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_redistribute(&multigrid->redistribute[level]);
+      }
+      free(multigrid->redistribute);
+    }
+    if (multigrid->fft_grid_layouts != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_fft_grid_layout(multigrid->fft_grid_layouts[level]);
+      }
+      free(multigrid->fft_grid_layouts);
+    }
+    if (multigrid->fft_rs_grids != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_real_rs_grid(&multigrid->fft_rs_grids[level]);
+      }
+      free(multigrid->fft_rs_grids);
+    }
+    if (multigrid->fft_gs_grids != NULL) {
+      for (int level = 0; level < multigrid->nlevels; level++) {
+        grid_free_complex_gs_grid(&multigrid->fft_gs_grids[level]);
+      }
+      free(multigrid->fft_gs_grids);
+    }
+    grid_mpi_comm_free(&multigrid->comm);
+    grid_ref_free_multigrid(multigrid->ref);
+    grid_cpu_free_multigrid(multigrid->cpu);
+    multigrid->nlevels = -1;
+    free(multigrid);
     *multigrid_out = NULL;
     multigrid = NULL;
   }
