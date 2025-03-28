@@ -2260,19 +2260,17 @@ void grid_multigrid_allocate_buffers(grid_multigrid *multigrid,
                                      const grid_mpi_comm comm) {
   const grid_library_config config = grid_library_get_config();
 
-  const int num_int = 3 * nlevels;
-  const int num_double = 9 * nlevels;
-
-  multigrid->npts_global = calloc(num_int, sizeof(int));
-  multigrid->npts_local = calloc(num_int, sizeof(int));
-  multigrid->shift_local = calloc(num_int, sizeof(int));
-  multigrid->border_width = calloc(num_int, sizeof(int));
-  multigrid->dh = calloc(num_double, sizeof(double));
-  multigrid->dh_inv = calloc(num_double, sizeof(double));
+  multigrid->nlevels = nlevels;
+  multigrid->npts_global = calloc(nlevels, sizeof(int[3]));
+  multigrid->npts_local = calloc(nlevels, sizeof(int[3]));
+  multigrid->shift_local = calloc(nlevels, sizeof(int[3]));
+  multigrid->border_width = calloc(nlevels, sizeof(int[3]));
+  multigrid->dh = calloc(nlevels, sizeof(double[3][3]));
+  multigrid->dh_inv = calloc(nlevels, sizeof(double[3][3]));
   multigrid->grids = calloc(nlevels, sizeof(offload_buffer *));
-  multigrid->pgrid_dims = calloc(num_int, sizeof(int));
+  multigrid->pgrid_dims = calloc(nlevels, sizeof(int[3]));
   multigrid->proc2local =
-      calloc(nlevels * grid_mpi_comm_size(comm) * 6, sizeof(int));
+      calloc(nlevels * grid_mpi_comm_size(comm), sizeof(int[3][2]));
   multigrid->redistribute = calloc(nlevels, sizeof(grid_redistribute));
   multigrid->fft_grid_layouts = calloc(nlevels, sizeof(grid_fft_grid_layout *));
   multigrid->fft_rs_grids = calloc(nlevels, sizeof(grid_fft_real_rs_grid));
@@ -2308,7 +2306,6 @@ void grid_multigrid_setup_distribution(
                           &multigrid->grids[level]);
   }
 
-  multigrid->nlevels = nlevels;
   multigrid->orthorhombic = orthorhombic;
   memcpy(multigrid->npts_global, npts_global, num_int * sizeof(int));
   memcpy(multigrid->npts_local, npts_local, num_int * sizeof(int));
@@ -2435,11 +2432,10 @@ void grid_create_multigrid(
     grid_ref_free_multigrid(multigrid->ref);
     grid_cpu_free_multigrid(multigrid->cpu);
     multigrid->nlevels = -1;
-    free(multigrid);
-    *multigrid_out = NULL;
-    multigrid = NULL;
+    memset(multigrid, 0, sizeof(grid_multigrid));
+  } else {
+    multigrid = calloc(1, sizeof(grid_multigrid));
   }
-  multigrid = calloc(1, sizeof(grid_multigrid));
   grid_multigrid_allocate_buffers(multigrid, nlevels, comm);
 
   grid_multigrid_setup_distribution(multigrid, orthorhombic, nlevels,
@@ -2471,8 +2467,6 @@ void grid_create_multigrid(
   }
 
   *multigrid_out = multigrid;
-
-  grid_mpi_barrier(multigrid->comm);
 }
 
 /*******************************************************************************

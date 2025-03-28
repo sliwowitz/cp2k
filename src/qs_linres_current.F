@@ -1319,7 +1319,6 @@ CONTAINS
       END DO
       WRITE (error_unit, *) "calculate_jrho_resp6", grid_get_multigrid_nlevels(multigrid)
       WRITE (error_unit, *) "calculate_jrho_resp6a", grid_get_multigrid_nlevels(pw_env%multigrid)
-      IF (.NOT. my_retain_rsgrid) CALL grid_free_multigrid(pw_env%multigrid)
 
       ! Free the array of grids (grids themselves are released in density_rs2pw)
       DEALLOCATE (rs_current)
