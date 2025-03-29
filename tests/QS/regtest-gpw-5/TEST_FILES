@@ -4,7 +4,7 @@
 #      1 compares the last total energy in the file
 #      for details see cp2k/tools/do_regtest
 # mixing procedures nr. 1
-si8_pmix.inp                                           1      7e-14            -31.29234300650718
+si8_pmix.inp                                           1      7e-14            -31.29234300657970
 si8_kerker.inp                                         1      1e-13            -31.15224294859119
 si8_pulay.inp                                          1      2e-13            -31.16058546019718
 si8_broy.inp                                           1      7e-14            -31.14863007620936

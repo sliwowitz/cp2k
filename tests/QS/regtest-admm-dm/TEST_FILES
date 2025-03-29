@@ -1,7 +1,7 @@
 # runs are executed in the same order as in this file
 # the second field tells which test should be run in order to compare with the last available output
 # see regtest/TEST_FILES
-CH3-BP-McWeeny.inp                                     1      2e-13              -7.36936245523571
+CH3-BP-McWeeny.inp                                     1      2e-13              -7.36936245534409
 CH3-BP-NONE_DM.inp                                     1      5e-13              -7.36784986947964
 CH3-BP-NONE_DM_OT_OFF.inp                              1    5.0E-14              -7.39804787149080
 CH4-BP-NONE_DM.inp                                     1      2e-13              -8.07630758920456

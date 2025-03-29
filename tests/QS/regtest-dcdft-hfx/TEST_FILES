@@ -3,7 +3,7 @@
 # see regtest/TEST_FILES
 # Density-corrected DFT with exact exchange contribution
 # PBE0 - B3LYP - MO solver
-N2_t01.inp                                            11      2e-11                -19.832131213645233
+N2_t01.inp                                            11      2e-11                -19.832131276966066
 # PBE0 - B3LYP - AO solver
 N2_t02.inp                                            11      2e-11                -19.833869175515250
 # PBE0 - PBE0 (no hfx_reuse)

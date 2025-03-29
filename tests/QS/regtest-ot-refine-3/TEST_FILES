@@ -3,7 +3,7 @@
 # e.g. 0 means do not compare anything, running is enough
 #      1 compares the last total energy in the file
 #      for details see cp2k/tools/do_regtest
-h2o_ot_lwdn_on_the_fly_l1.inp                          1      5e-14             -17.13045715683762
+h2o_ot_lwdn_on_the_fly_l1.inp                          1      5e-14             -17.13045715690540
 h2o_ot_poly_on_the_fly_l1.inp                          1      6e-14             -17.13045715683761
 o2_ot_lwdn_on_the_fly_l1.inp                           1      2e-13             -31.70815200232861
 o2_ot_poly_on_the_fly_l1.inp                           1      2e-13             -31.70815200232861

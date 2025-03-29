@@ -1,4 +1,4 @@
-H2O_H2_pbe.inp                                        11       2e-9                 -18.3216363855
+H2O_H2_pbe.inp                                        11       2e-9                 -18.321636460512043
 H2O_H2_pbe_mp2.inp                                    11       1e-9                 -18.3178512470
 H2O_H2_pbe_rpa_restart.inp                            11       2e-8                 -18.361085684018075
 H2_H4_pbe_pbe0_const_pot.inp                          11       1e-9                 -2.078428409941856

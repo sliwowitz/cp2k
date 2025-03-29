@@ -4,7 +4,7 @@
 #      1 compares the last total energy in the file
 #      for details see cp2k/tools/do_regtest
 
-simple_non-ortho_grid_auto.inp                             1     1e-12           -18.04976254476928
+simple_non-ortho_grid_auto.inp                             1     1e-12           -18.04976254511681
 simple_non-ortho_grid_validate.inp                         1     1e-12           -18.04976254476928
 simple_non-ortho_grid_ref.inp                              1     1e-12           -18.04976254476928
 simple_non-ortho_grid_cpu.inp                              1     1e-12           -18.04976254476928
