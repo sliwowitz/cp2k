@@ -103,7 +103,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
   if (max_error > 1e-12) {
     if (my_process == 0)
       printf(
-          "The 3D forward FFT with blocked layout does not work properly (%i "
+          "The 3D forward FFT with blocked layout does not work correctly (%i "
           "%i %i): %f!\n",
           npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -152,7 +152,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
   if (max_error > 1e-12) {
     if (my_process == 0)
       printf("The 3D forward FFT (blocked) to ordered layout does not work "
-             "properly (%i "
+             "correctly (%i "
              "%i %i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -205,7 +205,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The backwards 3D FFT with blocked layout does not work properly "
+      printf("The backwards 3D FFT with blocked layout does not work correctly "
              "(%i %i %i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -254,7 +254,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
   if (max_error > 1e-12) {
     if (my_process == 0)
       printf("The backwards 3D FFT (blocked) to ordered layout does not work "
-             "properly "
+             "correctly "
              "(%i %i %i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -266,7 +266,7 @@ int fft_test_3d_blocked(const int npts_global[3]) {
 
   if (errors == 0 && my_process == 0)
     printf(
-        "The 3D FFT with blocked layout does work properly (sizes %i %i %i)!\n",
+        "The 3D FFT with blocked layout does work correctly (sizes %i %i %i)!\n",
         npts_global[0], npts_global[1], npts_global[2]);
   return errors;
 }
@@ -355,7 +355,7 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The 3D forward FFT with ray layout does not work properly (%i %i "
+      printf("The 3D forward FFT with ray layout does not work correctly (%i %i "
              "%i)/(%i %i %i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], npts_global_ref[0],
              npts_global_ref[1], npts_global_ref[2], max_error);
@@ -412,7 +412,7 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The backwards 3D FFT with ray layout does not work properly (%i "
+      printf("The backwards 3D FFT with ray layout does not work correctly (%i "
              "%i %i)/(%i %i %i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], npts_global_ref[0],
              npts_global_ref[1], npts_global_ref[2], max_error);
@@ -420,7 +420,7 @@ int fft_test_3d_ray(const int npts_global[3], const int npts_global_ref[3]) {
   }
 
   if (errors == 0 && my_process == 0)
-    printf("The 3D FFT with ray layout does work properly (%i %i %i)/(%i %i "
+    printf("The 3D FFT with ray layout does work correctly (%i %i %i)/(%i %i "
            "%i)!\n",
            npts_global[0], npts_global[1], npts_global[2], npts_global_ref[0],
            npts_global_ref[1], npts_global_ref[2]);
@@ -470,7 +470,7 @@ int fft_test_3d() {
       fft_test_3d_ray(npts_global_small_reverse, npts_global_small_reverse);
 
   if (errors == 0 && my_process == 0)
-    printf("\n The 3D FFT routines work properly!\n");
+    fprintf(stdout, "\n The 3D FFT routines work correctly!\n");
   return errors;
 }
 
@@ -552,7 +552,7 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
 
   if (max_error > 1.0e-12) {
     if (grid_mpi_comm_rank(comm) == 0)
-      printf("The copy between different grids does not work properly (%i "
+      fprintf(stderr, "The copy between different grids does not work correctly (%i "
              "%i %i)/(%i %i %i): %f!\n",
              npts_global_fine[0], npts_global_fine[1], npts_global_fine[2],
              npts_global_coarse[0], npts_global_coarse[1],
@@ -626,7 +626,7 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
 
   if (max_error > 1.0e-12) {
     if (grid_mpi_comm_rank(comm) == 0)
-      printf("The addition between different grids does not work properly (%i "
+      fprintf(stderr, "The addition between different grids does not work correctly (%i "
              "%i %i)/(%i %i %i): %f!\n",
              npts_global_fine[0], npts_global_fine[1], npts_global_fine[2],
              npts_global_coarse[0], npts_global_coarse[1],
@@ -639,6 +639,14 @@ int fft_test_add_copy_low(const int npts_global_fine[3],
 
   grid_free_fft_grid_layout(fft_grid_fine_layout);
   grid_free_fft_grid_layout(fft_grid_coarse_layout);
+
+  if (errors == 0 && grid_mpi_comm_rank(comm) == 0) {
+      fprintf(stdout, "The addition between different grids works correctly (%i "
+             "%i %i)/(%i %i %i)\n",
+             npts_global_fine[0], npts_global_fine[1], npts_global_fine[2],
+             npts_global_coarse[0], npts_global_coarse[1],
+             npts_global_coarse[2]);
+  }
 
   return errors;
 }

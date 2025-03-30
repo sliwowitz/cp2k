@@ -440,7 +440,7 @@ void redistribute_grids(
       assert(proc2local_out[process][dir][1] < npts_global[dir] &&
              "The bounds of the output grid contains too many points!");
       assert(
-          proc2local_out[process][dir][1] >= proc2local_out[process][dir][0] &&
+          proc2local_out[process][dir][1] >= proc2local_out[process][dir][0]-1 &&
           "The number of points on the output grid on one processor cannot be "
           "negative!");
       assert(proc2local_in[process][dir][0] >= 0 &&
@@ -448,7 +448,7 @@ void redistribute_grids(
       assert(proc2local_in[process][dir][1] < npts_global[dir] &&
              "The input grid cannot have points outside of the inner RS grid!");
       assert(
-          proc2local_in[process][dir][1] >= proc2local_in[process][dir][0] &&
+          proc2local_in[process][dir][1] >= proc2local_in[process][dir][0]-1 &&
           "The number of points on the input grid on one processor cannot be "
           "negative!");
     }
@@ -457,6 +457,7 @@ void redistribute_grids(
     assert(npts_global[dir] >= 0 &&
            "Global number of points cannot be negative!");
   }
+  if (grid_mpi_comm_rank(comm_in) == 0) fprintf(stderr, "Start redistribution\n");
 
   // Prepare the intermediate buffer
   int my_bounds_out[3][2];
@@ -477,9 +478,15 @@ void redistribute_grids(
 
   int received_elements = 0;
 
+  for (int process = 0; process< number_of_processes; process++) {
+    printf("%i proc2local_in %i: %i %i / %i %i / %i %i\n", my_process_in, process, proc2local_in[process][0][0], proc2local_in[process][0][1], proc2local_in[process][1][0], proc2local_in[process][1][1], proc2local_in[process][2][0], proc2local_in[process][2][1]);
+    printf("%i proc2local_out %i: %i %i / %i %i / %i %i\n", my_process_in, process, proc2local_out[process][0][0], proc2local_out[process][0][1], proc2local_out[process][1][0], proc2local_out[process][1][1], proc2local_out[process][2][0], proc2local_out[process][2][1]);
+  }
+
   // Step A: Collect the inner local block
   int *map_in2out = malloc(number_of_processes * sizeof(int));
   grid_mpi_allgather_int(&my_process_out, 1, map_in2out, comm_in);
+  if (grid_mpi_comm_rank(comm_in) == 0) fprintf(stderr, "Prepare receive requests\n");
 
   // Determine from which processes we will receive data
   int number_of_elements_to_recv = 0;
@@ -493,6 +500,7 @@ void redistribute_grids(
       recv_size[dir] =
           imin(proc2local_in[recv_process][dir][1], my_bounds_out[dir][1]) -
           imax(proc2local_in[recv_process][dir][0], my_bounds_out[dir][0]) + 1;
+          printf("%i recv_sizes for %i: %i %i %i\n", my_process_in, recv_process, recv_size[0], recv_size[1], recv_size[2]);
 
     if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0)
       continue;
@@ -509,6 +517,8 @@ void redistribute_grids(
   int *processes_to_recv_from =
       calloc(number_of_processes_to_recv_from, sizeof(int));
 
+     fprintf(stdout, "%i Post receive requests\n", my_process_in);
+
   // Initiate the receive operations
   int recv_offset = 0;
   int recv_counter = 0;
@@ -518,9 +528,13 @@ void redistribute_grids(
         modulo(my_process_in - process_shift, number_of_processes);
     int recv_size[3];
     for (int dir = 0; dir < 3; dir++)
-      recv_size[dir] =
+      {
+        recv_size[dir] =
           imin(proc2local_in[recv_process][dir][1], my_bounds_out[dir][1]) -
           imax(proc2local_in[recv_process][dir][0], my_bounds_out[dir][0]) + 1;
+          printf("%i sizes for %i dir %i: %i %i/%i %i = %i\n", my_process_in, recv_process, dir, proc2local_in[recv_process][dir][0], proc2local_in[recv_process][dir][1], my_bounds_out[dir][0], my_bounds_out[dir][1], recv_size[dir]);
+        }
+    printf("%i Post recv request to process %i\n", my_process_in, recv_process);
 
     if (recv_size[0] <= 0 || recv_size[1] <= 0 || recv_size[2] <= 0)
       continue;
@@ -538,6 +552,8 @@ void redistribute_grids(
   assert(recv_counter == number_of_processes_to_recv_from);
   assert(recv_offset == number_of_elements_to_recv);
 
+  if (grid_mpi_comm_rank(comm_in) == 0) fprintf(stderr, "Prepare send requests\n");
+
   int number_of_elements_to_send = 0;
   int number_of_processes_to_send_to = 0;
   for (int process_shift = 1; process_shift < number_of_processes;
@@ -551,6 +567,7 @@ void redistribute_grids(
           imin(my_bounds_in[dir][1], proc2local_out[send_process_out][dir][1]) -
           imax(my_bounds_in[dir][0], proc2local_out[send_process_out][dir][0]) +
           1;
+          printf("%i send_sizes for %i: %i %i %i\n", my_process_in, send_process, send_size[0], send_size[1], send_size[2]);
     if (send_size[0] <= 0 || send_size[1] <= 0 || send_size[2] <= 0)
       continue;
     const int current_number_of_elements_to_send = product3(send_size);
@@ -563,6 +580,7 @@ void redistribute_grids(
       calloc(number_of_processes_to_send_to, sizeof(double *));
   grid_mpi_request *send_requests =
       calloc(number_of_processes_to_send_to, sizeof(grid_mpi_request));
+      fprintf(stdout, "%i Post send requests\n", my_process_in);
 
   int send_offset = 0;
   int send_counter = 0;
@@ -604,6 +622,7 @@ void redistribute_grids(
                send_size[0] * sizeof(double));
       }
     }
+    printf("%i Post send request to process %i\n", my_process_in, send_process);
 
     grid_mpi_isend_double(send_buffers[send_counter],
                           current_number_of_elements_to_send, send_process, 1,
@@ -614,6 +633,7 @@ void redistribute_grids(
   }
   assert(send_offset == number_of_elements_to_send);
   assert(send_counter == number_of_processes_to_send_to);
+  printf("%i Copy local data\n", my_process_in);
 
   // A2) Copy local data
   {
@@ -649,6 +669,7 @@ void redistribute_grids(
     }
     received_elements += product3(sizes_rs);
   }
+  printf("%i Wait for receive requests\n", my_process_in);
 
   // A2) Send around local data of the input grid and copy it to our local
   // buffer
@@ -658,6 +679,7 @@ void redistribute_grids(
     grid_mpi_waitany(number_of_processes_to_recv_from, recv_requests,
                      &recv_counter);
     const int recv_process = processes_to_recv_from[recv_counter];
+    fprintf(stderr, "%i Process request from %i\n", my_process_in, recv_process);
 
     int starts_out[3];
     for (int dir = 0; dir < 3; dir++)
@@ -698,6 +720,7 @@ void redistribute_grids(
     }
     received_elements += product3(recv_size);
   }
+  printf("%i Wait for send requests to finish\n", my_process_in);
 
   grid_mpi_waitall(number_of_processes_to_send_to, send_requests);
 
@@ -713,6 +736,12 @@ void redistribute_grids(
 
   assert(received_elements == my_number_of_elements_out &&
          "Not elements of the inner part of the RS grid were received");
+         grid_mpi_barrier(comm_in);
+         if (grid_mpi_comm_rank(comm_in) == 0) fprintf(stderr, "Done redistribute_grids\n");
+
+grid_mpi_barrier(comm_in);
+         fflush(stdout);
+grid_mpi_barrier(comm_in);
 }
 
 void distribute_data_to_boundaries(

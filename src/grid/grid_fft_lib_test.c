@@ -59,7 +59,7 @@ int fft_test_1d_local_low(const int fft_size, const int number_of_ffts) {
 
   if (max_error > 1.0e-12) {
     if (my_process == 0)
-      printf("The 1D-FFT does not work properly (%i %i): %f!\n", fft_size,
+      printf("The 1D-FFT does not work correctly (%i %i): %f!\n", fft_size,
              number_of_ffts, max_error);
     errors++;
   }
@@ -89,13 +89,13 @@ int fft_test_1d_local_low(const int fft_size, const int number_of_ffts) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The low-level FFTs do not work properly (%i %i): %f!\n", fft_size,
+      printf("The low-level FFTs do not work correctly (%i %i): %f!\n", fft_size,
              number_of_ffts, max_error);
     errors++;
   }
 
   if (errors == 0 && my_process == 0)
-    printf("The 1D FFT does work properly (%i %i)!\n", fft_size,
+    printf("The 1D FFT does work correctly (%i %i)!\n", fft_size,
            number_of_ffts);
   return errors;
 }
@@ -148,7 +148,7 @@ int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
 
   if (max_error > 1.0e-12) {
     if (my_process == 0)
-      printf("The fw 2D-FFT does not work properly (%i %i/%i): %f!\n",
+      printf("The fw 2D-FFT does not work correctly (%i %i/%i): %f!\n",
              fft_size[0], fft_size[1], number_of_ffts, max_error);
     errors++;
   }
@@ -188,13 +188,13 @@ int fft_test_2d_local_low(const int fft_size[2], const int number_of_ffts) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The bw 2D-FFT does not work properly (%i %i/%i): %f!\n",
+      printf("The bw 2D-FFT does not work correctly (%i %i/%i): %f!\n",
              fft_size[0], fft_size[1], number_of_ffts, max_error);
     errors++;
   }
 
   if (errors == 0 && my_process == 0)
-    printf("The 1D FFT does work properly (%i %i/%i)!\n", fft_size[0],
+    printf("The 2D FFT does work correctly (%i %i/%i)!\n", fft_size[0],
            fft_size[1], number_of_ffts);
   return errors;
 }
@@ -251,7 +251,7 @@ int fft_test_3d_local_low(const int fft_size[3]) {
 
   if (max_error > 1.0e-12) {
     if (my_process == 0)
-      printf("The fw 2D-FFT does not work properly (%i %i %i): %f!\n",
+      printf("The fw 2D-FFT does not work correctly (%i %i %i): %f!\n",
              fft_size[0], fft_size[1], fft_size[2], max_error);
     errors++;
   }
@@ -293,13 +293,13 @@ int fft_test_3d_local_low(const int fft_size[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The bw 2D-FFT does not work properly (%i %i %i): %f!\n",
+      printf("The bw 2D-FFT does not work correctly (%i %i %i): %f!\n",
              fft_size[0], fft_size[1], fft_size[2], max_error);
     errors++;
   }
 
   if (errors == 0 && my_process == 0)
-    printf("The 1D FFT does work properly (%i %i %i)!\n", fft_size[0],
+    printf("The 3D FFT does work correctly (%i %i %i)!\n", fft_size[0],
            fft_size[1], fft_size[2]);
   return errors;
 }
@@ -394,11 +394,11 @@ int fft_test_transpose() {
 
   if (error > 1e-12) {
     if (my_process == 0)
-      printf("The low-level transpose does not work properly: %f!\n", error);
+      printf("The low-level transpose does not work correctly: %f!\n", error);
     return 1;
   } else {
     if (my_process == 0)
-      printf("The local transpose does work properly!\n");
+      printf("The local transpose does work correctly!\n");
     return 0;
   }
 }

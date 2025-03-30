@@ -93,7 +93,7 @@ double fft_test_transpose_ray(const int npts_global[3],
 
   if (max_error > 1e-12) {
     if (my_process == 0) {
-      printf("The transpose xz_to_yz_ray does not work properly: %f!\n",
+      printf("The transpose xz_to_yz_ray does not work correctly: %f!\n",
              max_error);
     }
     errors++;
@@ -172,13 +172,13 @@ double fft_test_transpose_ray(const int npts_global[3],
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose yz_to_xz_ray does not work properly: %f!\n",
+      printf("The transpose yz_to_xz_ray does not work correctly: %f!\n",
              max_error);
     errors++;
   }
 
   if (errors == 0 && my_process == 0)
-    printf("The transpose from the ray distribution works properly "
+    printf("The transpose from the ray distribution works correctly "
            "(sizes: %i %i %i)!\n",
            npts_global[0], npts_global[1], npts_global[2]);
 
@@ -257,7 +257,7 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose xy_to_xz_blocked does not work properly (%i %i "
+      printf("The transpose xy_to_xz_blocked does not work correctly (%i %i "
              "%i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -304,7 +304,7 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose xz_to_xy_blocked does not work properly (%i %i "
+      printf("The transpose xz_to_xy_blocked does not work correctly (%i %i "
              "%i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -349,7 +349,7 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose xz_to_yz_blocked does not work properly (%i %i "
+      printf("The transpose xz_to_yz_blocked does not work correctly (%i %i "
              "%i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -395,7 +395,7 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose yz_to_xz_blocked does not work properly (%i %i "
+      printf("The transpose yz_to_xz_blocked does not work correctly (%i %i "
              "%i): %f!\n",
              npts_global[0], npts_global[1], npts_global[2], max_error);
     errors++;
@@ -440,7 +440,7 @@ int fft_test_transpose_parallel() {
       fft_test_transpose_ray(npts_global_small_reverse, npts_global_reverse);
 
   if (errors == 0 && my_process == 0)
-    printf("\n The parallel transposition routines work properly!\n");
+    printf("\n The parallel transposition routines work correctly!\n");
   return errors;
 }
 
