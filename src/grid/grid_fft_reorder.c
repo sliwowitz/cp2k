@@ -24,125 +24,87 @@ void collect_y_and_distribute_z_blocked(
     const double complex *grid, double complex *transposed,
     const int npts_global[3], const int (*proc2local)[3][2],
     const int (*proc2local_transposed)[3][2], const grid_mpi_comm comm) {
-  const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
-  (void)npts_global;
 
-  int max_number_of_elements = 0;
-  for (int process = 0; process < number_of_processes; process++) {
-    max_number_of_elements =
-        imax(max_number_of_elements,
-             (proc2local[process][0][1] - proc2local[process][0][0] + 1) *
-                 (proc2local[process][1][1] - proc2local[process][1][0] + 1) *
-                 (proc2local[process][2][1] - proc2local[process][2][0] + 1));
-  }
-  double complex *recv_buffer =
-      malloc(max_number_of_elements * sizeof(double complex));
-  grid_mpi_request recv_request, send_request;
+  int proc_coord[2];
+  int dims[2];
+  int periods[2];
+  grid_mpi_cart_get(comm, 2, dims, periods, proc_coord);
 
-  const int my_number_of_elements =
-      (proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1) *
-      (proc2local[my_process][1][1] - proc2local[my_process][1][0] + 1) *
-      (proc2local[my_process][2][1] - proc2local[my_process][2][0] + 1);
+  const int my_sizes[3] = {
+      proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1,
+      proc2local[my_process][1][1] - proc2local[my_process][1][0] + 1,
+      npts_global[2]};
+  const int my_sizes_transposed[3] = {
+      proc2local_transposed[my_process][0][1] -
+          proc2local_transposed[my_process][0][0] + 1,
+      npts_global[1],
+      proc2local_transposed[my_process][1][1] -
+          proc2local_transposed[my_process][1][0] + 1};
+  assert(my_sizes[0] == my_sizes_transposed[0]);
 
-  int my_original_sizes[3];
-  for (int dir = 0; dir < 3; dir++)
-    my_original_sizes[dir] =
-        proc2local[my_process][dir][1] - proc2local[my_process][dir][0] + 1;
+  int *send_displacements = calloc(dims[1], sizeof(int));
+  int *recv_displacements = calloc(dims[1], sizeof(int));
+  int *send_counts = calloc(dims[1], sizeof(int));
+  int *recv_counts = calloc(dims[1], sizeof(int));
+  double complex *send_buffer =
+      calloc(product3(my_sizes), sizeof(double complex));
 
-  int my_transposed_sizes[3];
-  for (int dir = 0; dir < 3; dir++)
-    my_transposed_sizes[dir] = proc2local_transposed[my_process][dir][1] -
-                               proc2local_transposed[my_process][dir][0] + 1;
-
-  // Copy and transpose the data
-  for (int index_x = imax(proc2local[my_process][0][0],
-                          proc2local_transposed[my_process][0][0]);
-       index_x <= imin(proc2local[my_process][0][1],
-                       proc2local_transposed[my_process][0][1]);
-       index_x++) {
-    for (int index_y = imax(proc2local[my_process][1][0],
-                            proc2local_transposed[my_process][1][0]);
-         index_y <= imin(proc2local[my_process][1][1],
-                         proc2local_transposed[my_process][1][1]);
-         index_y++) {
-      for (int index_z = imax(proc2local[my_process][2][0],
-                              proc2local_transposed[my_process][2][0]);
-           index_z <= imin(proc2local[my_process][2][1],
-                           proc2local_transposed[my_process][2][1]);
-           index_z++) {
-        transposed[(index_y - proc2local_transposed[my_process][1][0]) *
-                       my_transposed_sizes[0] * my_transposed_sizes[2] +
-                   (index_x - proc2local_transposed[my_process][0][0]) *
-                       my_transposed_sizes[2] +
-                   (index_z - proc2local_transposed[my_process][2][0])] =
-            grid[(index_y - proc2local[my_process][1][0]) *
-                     my_original_sizes[0] * my_original_sizes[2] +
-                 (index_x - proc2local[my_process][0][0]) *
-                     my_original_sizes[2] +
-                 (index_z - proc2local[my_process][2][0])];
+  int send_offset = 0;
+  int recv_offset = 0;
+  for (int process = 0; process < dims[1]; process++) {
+    // Setup arrays
+    send_displacements[process] = send_offset;
+    recv_displacements[process] = recv_offset;
+    int rank;
+    grid_mpi_cart_rank(comm, (const int[2]){proc_coord[0], process}, &rank);
+    const int current_send_count = my_sizes[0] * my_sizes[1] *
+                                   (proc2local_transposed[rank][2][1] -
+                                    proc2local_transposed[rank][2][0] + 1);
+    send_counts[process] = current_send_count;
+    send_offset += current_send_count;
+    const int current_recv_count =
+        my_sizes_transposed[0] *
+        (proc2local[rank][1][1] - proc2local[rank][1][0] + 1) *
+        my_sizes_transposed[2];
+    recv_counts[process] = current_recv_count;
+    recv_offset += current_recv_count;
+// Copy the data to the send buffer
+#pragma omp parallel for collapse(2) default(none)                             \
+    shared(my_sizes, my_sizes_transposed, proc2local, proc2local_transposed,   \
+               send_buffer, grid, send_displacements, process, rank)
+    for (int index_y = 0; index_y <= my_sizes[1]; index_y++) {
+      for (int index_x = 0; index_x <= my_sizes[0]; index_x++) {
+        memcpy(send_buffer + send_displacements[process] +
+                   (index_y * my_sizes[0] + index_x) *
+                       (proc2local_transposed[rank][2][1] -
+                        proc2local_transposed[rank][2][0] + 1),
+               grid + (index_y * my_sizes[0] + index_x) * my_sizes[2] +
+                   proc2local_transposed[rank][2][0],
+               (proc2local_transposed[rank][2][1] -
+                proc2local_transposed[rank][2][0] + 1) *
+                   sizeof(double complex));
       }
     }
   }
+  assert(send_offset == product3(my_sizes));
+  assert(recv_offset == product3(my_sizes_transposed));
 
-  for (int process_shift = 1; process_shift < number_of_processes;
-       process_shift++) {
-    const int send_process =
-        modulo(my_process + process_shift, number_of_processes);
-    const int recv_process =
-        modulo(my_process - process_shift, number_of_processes);
+  grid_mpi_comm sub_comm;
+  const int remained_dims[2] = {0, 1};
+  grid_mpi_cart_sub(comm, remained_dims, &sub_comm);
 
-    int recv_sizes[3];
-    for (int dir = 0; dir < 3; dir++)
-      recv_sizes[dir] = proc2local[recv_process][dir][1] -
-                        proc2local[recv_process][dir][0] + 1;
+  // Use collective MPI communication
+  grid_mpi_alltoallv_double_complex(send_buffer, send_counts,
+                                    send_displacements, transposed, recv_counts,
+                                    recv_displacements, sub_comm);
 
-    // Post receive request
-    grid_mpi_irecv_double_complex(recv_buffer, product3(recv_sizes),
-                                  recv_process, 1, comm, &recv_request);
-
-    // Post send request
-    grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
-                                  comm, &send_request);
-
-    // Wait for the receive process and copy the data
-    grid_mpi_wait(&recv_request);
-
-    // Copy and transpose the data
-    for (int index_x = imax(proc2local[recv_process][0][0],
-                            proc2local_transposed[my_process][0][0]);
-         index_x <= imin(proc2local[recv_process][0][1],
-                         proc2local_transposed[my_process][0][1]);
-         index_x++) {
-      for (int index_y = imax(proc2local[recv_process][1][0],
-                              proc2local_transposed[my_process][1][0]);
-           index_y <= imin(proc2local[recv_process][1][1],
-                           proc2local_transposed[my_process][1][1]);
-           index_y++) {
-        for (int index_z = imax(proc2local[recv_process][2][0],
-                                proc2local_transposed[my_process][2][0]);
-             index_z <= imin(proc2local[recv_process][2][1],
-                             proc2local_transposed[my_process][2][1]);
-             index_z++) {
-          transposed[(index_y - proc2local_transposed[my_process][1][0]) *
-                         my_transposed_sizes[0] * my_transposed_sizes[2] +
-                     (index_x - proc2local_transposed[my_process][0][0]) *
-                         my_transposed_sizes[2] +
-                     (index_z - proc2local_transposed[my_process][2][0])] =
-              recv_buffer[(index_y - proc2local[recv_process][1][0]) *
-                              recv_sizes[0] * recv_sizes[2] +
-                          (index_x - proc2local[recv_process][0][0]) *
-                              recv_sizes[2] +
-                          (index_z - proc2local[recv_process][2][0])];
-        }
-      }
-    }
-
-    // Wait for the send request
-    grid_mpi_wait(&send_request);
-  }
-
-  free(recv_buffer);
+  free(send_buffer);
+  free(send_counts);
+  free(send_displacements);
+  free(recv_counts);
+  free(recv_displacements);
+  grid_mpi_comm_free(&sub_comm);
 }
 
 /*******************************************************************************

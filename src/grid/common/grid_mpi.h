@@ -45,6 +45,8 @@ int grid_mpi_comm_rank(const grid_mpi_comm comm);
 void grid_mpi_cart_get(const grid_mpi_comm comm, int maxdims, int *dims,
                        int *periods, int *coords);
 
+void grid_mpi_cart_rank(const grid_mpi_comm comm, const int *coords, int *rank);
+
 grid_mpi_comm grid_mpi_comm_f2c(const grid_mpi_fint fortran_comm);
 
 grid_mpi_fint grid_mpi_comm_c2f(const grid_mpi_comm comm);
@@ -115,12 +117,23 @@ void grid_mpi_sum_int(int *buffer, const int count, const grid_mpi_comm comm);
 void grid_mpi_max_double(double *buffer, const int count,
                          const grid_mpi_comm comm);
 
+void grid_mpi_alltoallv_double_complex(const double complex *send_buffer,
+                                       const int *send_counts,
+                                       const int *send_displacements,
+                                       double complex *recv_buffer,
+                                       const int *recv_count,
+                                       const int *recv_displacements,
+                                       const grid_mpi_comm comm);
+
 void grid_mpi_dims_create(const int number_of_processes,
                           const int number_of_dimensions, int *dimensions);
 
 void grid_mpi_cart_create(const grid_mpi_comm comm_old, const int ndims,
                           const int dims[ndims], const int periods[ndims],
                           const int reorder, grid_mpi_comm *comm_cart);
+
+void grid_mpi_cart_sub(const grid_mpi_comm comm_old, const int *remain_dims,
+                       grid_mpi_comm *sub_comm);
 
 void grid_mpi_cart_coords(const grid_mpi_comm comm, const int rank, int maxdims,
                           int coords[]);

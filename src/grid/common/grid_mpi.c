@@ -70,6 +70,17 @@ void grid_mpi_cart_get(const grid_mpi_comm comm, int maxdims, int *dims,
 #endif
 }
 
+void grid_mpi_cart_rank(const grid_mpi_comm comm, const int *coords,
+                        int *rank) {
+#if defined(__parallel)
+  error_check(MPI_Cart_rank(comm, coords, rank));
+#else
+  (void)comm;
+  (void)coords;
+  *rank = 0;
+#endif
+}
+
 grid_mpi_comm grid_mpi_comm_f2c(const grid_mpi_fint fortran_comm) {
 #if defined(__parallel)
   return MPI_Comm_f2c(fortran_comm);
@@ -419,6 +430,33 @@ void grid_mpi_max_double(double *buffer, const int count,
 #endif
 }
 
+void grid_mpi_alltoallv_double_complex(const double complex *send_buffer,
+                                       const int *send_counts,
+                                       const int *send_displacements,
+                                       double complex *recv_buffer,
+                                       const int *recv_counts,
+                                       const int *recv_displacements,
+                                       const grid_mpi_comm comm) {
+  assert(send_buffer != NULL);
+  assert(recv_buffer != NULL);
+  assert(send_counts != NULL);
+  assert(recv_counts != NULL);
+  assert(send_displacements != NULL);
+  assert(recv_displacements != NULL);
+#if defined(__parallel)
+  error_check(MPI_Alltoallv(send_buffer, send_counts, send_displacements,
+                            MPI_C_DOUBLE_COMPLEX, recv_buffer, recv_counts,
+                            recv_displacements, MPI_C_DOUBLE_COMPLEX, comm));
+#else
+  assert(*send_counts == *recv_counts);
+  (void)comm;
+  (void)recv_counts;
+  memcpy(recv_buffer + (*recv_displacements),
+         send_buffer + (*send_displacements),
+         (*send_counts) * sizeof(double complex));
+#endif
+}
+
 void grid_mpi_dims_create(int number_of_processes, int number_of_dimensions,
                           int *dimensions) {
 #if defined(__parallel)
@@ -448,6 +486,19 @@ void grid_mpi_cart_create(grid_mpi_comm comm_old, int ndims, const int dims[],
   (void)periods;
   (void)reorder;
   *comm_cart = comm_old - 43;
+#endif
+}
+
+void grid_mpi_cart_sub(const grid_mpi_comm comm_old, const int *remain_dims,
+                       grid_mpi_comm *sub_comm) {
+#if defined(__parallel)
+  assert(remain_dims != NULL);
+  assert(sub_comm != NULL);
+  error_check(MPI_Cart_sub(comm_old, remain_dims, sub_comm));
+#else
+  (void)comm_old;
+  (void)remain_dims;
+  *sub_comm = comm_old - 47;
 #endif
 }
 
