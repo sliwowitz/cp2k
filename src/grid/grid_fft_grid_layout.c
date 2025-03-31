@@ -726,7 +726,7 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
     // Perform second transpose
     collect_y_and_distribute_x_blocked(grid_buffer_2, grid_buffer_1,
                                        npts_global, proc2local_ms,
-                                       proc2local_gs, comm);
+                                       proc2local_gs, comm, sub_comm);
 
     // Perform the third FFT
     fft_1d_fw_local(&fft_plans[2], grid_buffer_1, grid_gs);
@@ -737,7 +737,7 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
     // Perform second transpose
     collect_y_and_distribute_x_blocked(grid_buffer_2, grid_buffer_1,
                                        npts_global, proc2local_ms,
-                                       proc2local_gs, comm);
+                                       proc2local_gs, comm, sub_comm);
 
     // Perform the third FFT
     fft_1d_fw_local(&fft_plans[1], grid_buffer_1, grid_gs);
@@ -758,8 +758,8 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
                        const int (*proc2local_rs)[3][2],
                        const int (*proc2local_ms)[3][2],
                        const int (*proc2local_gs)[3][2],
-                       const grid_fft_plan *fft_plans,
-                       const grid_mpi_comm comm) {
+                       const grid_fft_plan *fft_plans, const grid_mpi_comm comm,
+                       const grid_mpi_comm sub_comm[2]) {
   const int my_process = grid_mpi_comm_rank(comm);
 
   // Collect the local sizes (for buffer sizes and FFT dimensions)
@@ -798,7 +798,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
     // Collect data in y-direction and distribute x-direction
     collect_y_and_distribute_x_blocked(grid_buffer_1, grid_buffer_2,
                                        npts_global, proc2local_gs,
-                                       proc2local_ms, comm);
+                                       proc2local_ms, comm, sub_comm);
 
     // Perform the second FFT and one transposition (x,z,y)->(y,x,z)
     fft_1d_bw_local(&fft_plans[1], grid_buffer_2, grid_buffer_1);
@@ -806,7 +806,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
     // Collect data in z-direction and distribute y-direction
     collect_z_and_distribute_y_blocked(grid_buffer_1, grid_buffer_2,
                                        npts_global, proc2local_ms,
-                                       proc2local_rs, comm);
+                                       proc2local_rs, comm, sub_comm);
 
     // Perform the third FFT and one transposition (y,x,z)->(z,y,x)
     fft_1d_bw_local(&fft_plans[0], grid_buffer_2, grid_buffer_1);
@@ -817,7 +817,7 @@ void fft_3d_bw_blocked(double complex *grid_gs, double *grid_rs,
     // Collect data in y-direction and distribute x-direction
     collect_y_and_distribute_x_blocked(grid_buffer_1, grid_buffer_2,
                                        npts_global, proc2local_gs,
-                                       proc2local_ms, comm);
+                                       proc2local_ms, comm, sub_comm);
 
     // Perform the second FFT and one transposition (x,z,y)->(y,x,z)
     fft_2d_bw_local(&fft_plans[0], grid_buffer_2, grid_buffer_1);
@@ -941,7 +941,8 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
                    const int npts_global[3], const int (*proc2local_rs)[3][2],
                    const int (*proc2local_ms)[3][2], const int *yz_to_process,
                    const int *rays_per_process, const int (*ray_to_yz)[2],
-                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm) {
+                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm,
+                   const grid_mpi_comm sub_comm[2]) {
   const int my_process = grid_mpi_comm_rank(comm);
 
   // Collect the local sizes (for buffer sizes and FFT dimensions)
@@ -989,7 +990,7 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
     // Perform second transpose
     collect_z_and_distribute_y_blocked(grid_buffer_1, grid_buffer_2,
                                        npts_global, proc2local_ms,
-                                       proc2local_rs, comm);
+                                       proc2local_rs, comm, sub_comm);
 
     // Perform the third FFT
     fft_1d_bw_local(&fft_plans[0], grid_buffer_2, grid_buffer_1);

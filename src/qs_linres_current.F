@@ -15,7 +15,6 @@
 !> \author MI
 ! **************************************************************************************************
 MODULE qs_linres_current
-   USE ISO_FORTRAN_ENV,                 ONLY: error_unit
    USE ao_util,                         ONLY: exp_radius_very_extended
    USE basis_set_types,                 ONLY: get_gto_basis_set,&
                                               gto_basis_set_p_type,&
@@ -65,7 +64,7 @@ MODULE qs_linres_current
         collocate_pgf_product, grid_copy_from_multigrid_local, &
         grid_copy_from_multigrid_local_single, grid_copy_to_multigrid_local, &
         grid_copy_to_multigrid_local_single, grid_create_multigrid, grid_free_multigrid, &
-        grid_get_multigrid_nlevels, grid_multigrid_type
+        grid_multigrid_type
    USE input_constants,                 ONLY: current_gauge_atom
    USE input_section_types,             ONLY: section_get_ivals,&
                                               section_get_lval,&
@@ -259,13 +258,6 @@ CONTAINS
                       particle_set=particle_set, &
                       qs_kind_set=qs_kind_set, &
                       dbcsr_dist=dbcsr_dist)
-      BLOCK
-         TYPE(pw_env_type), POINTER :: pw_env
-         TYPE(grid_multigrid_type) :: multigrid
-         CALL get_qs_env(qs_env, pw_env=pw_env)
-         CALL pw_env_get(pw_env, multigrid=multigrid)
-         WRITE (*, *) "current_build_current1:", grid_get_multigrid_nlevels(multigrid)
-      END BLOCK
 
       CALL qs_subsys_get(subsys, particles=particles)
 
@@ -412,13 +404,6 @@ CONTAINS
          CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=density_matrix_ii(ispin)%matrix, &
                                     matrix_v=mo_coeff, matrix_g=psi1_p(ispin, iiB), &
                                     ncol=nmo, alpha=maxocc)
-         BLOCK
-            TYPE(pw_env_type), POINTER :: pw_env
-            TYPE(grid_multigrid_type) :: multigrid
-            CALL get_qs_env(qs_env, pw_env=pw_env)
-            CALL pw_env_get(pw_env, multigrid=multigrid)
-            WRITE (*, *) "current_build_current2:", grid_get_multigrid_nlevels(multigrid)
-         END BLOCK
          DO idir = 1, 3
             !
             ! Calculate the current density on the pw grid (only soft if GAPW)
@@ -430,15 +415,7 @@ CONTAINS
             ASSOCIATE (jrho_rspace => jrho1_r(ispin), jrho_gspace => jrho1_g(ispin))
                CALL pw_zero(jrho_rspace)
                CALL pw_zero(jrho_gspace)
-               WRITE (error_unit, *) "dir", idir
 
-               BLOCK
-                  TYPE(pw_env_type), POINTER :: pw_env
-                  TYPE(grid_multigrid_type) :: multigrid
-                  CALL get_qs_env(qs_env, pw_env=pw_env)
-                  CALL pw_env_get(pw_env, multigrid=multigrid)
-                  WRITE (*, *) "current_build_currentdir", idir, ":", grid_get_multigrid_nlevels(multigrid)
-               END BLOCK
                CALL calculate_jrho_resp(density_matrix0(ispin)%matrix, &
                                         density_matrix_a(ispin)%matrix, &
                                         density_matrix_ii(ispin)%matrix, &
@@ -464,22 +441,8 @@ CONTAINS
          !
          ! Deallocate buffer vectors
          DEALLOCATE (ddk)
-         BLOCK
-            TYPE(pw_env_type), POINTER :: pw_env
-            TYPE(grid_multigrid_type) :: multigrid
-            CALL get_qs_env(qs_env, pw_env=pw_env)
-            CALL pw_env_get(pw_env, multigrid=multigrid)
-            WRITE (*, *) "current_build_current2b", ispin, ":", grid_get_multigrid_nlevels(multigrid)
-         END BLOCK
          !
       END DO ! ispin
-      BLOCK
-         TYPE(pw_env_type), POINTER :: pw_env
-         TYPE(grid_multigrid_type) :: multigrid
-         CALL get_qs_env(qs_env, pw_env=pw_env)
-         CALL pw_env_get(pw_env, multigrid=multigrid)
-         WRITE (*, *) "current_build_current2end:", grid_get_multigrid_nlevels(multigrid)
-      END BLOCK
 
       IF (gapw) THEN
          DO idir = 1, 3
@@ -688,7 +651,6 @@ CONTAINS
       NULLIFY (atom_pair_send, atom_pair_recv)
 
       CALL timeset(routineN, handle)
-      WRITE (error_unit, *) "calculate_jrho_resp start"
 
       !
       ! Set pointers for the different gauge
@@ -734,15 +696,6 @@ CONTAINS
       ! *** set up the pw multi-grids
       CPASSERT(ASSOCIATED(pw_env))
       CALL pw_env_get(pw_env, rs_descs=rs_descs, rs_grids=rs_rho, multigrid=multigrid)
-      IF (ASSOCIATED(pw_env)) THEN
-      IF (ASSOCIATED(rs_rho)) THEN
-         WRITE (error_unit, *) "calculate_jrho_resp1a", grid_get_multigrid_nlevels(pw_env%multigrid)
-      ELSE
-         WRITE (error_unit, *) "calculate_jrho_resp1a rs_rho not associated"
-      END IF
-      ELSE
-      WRITE (error_unit, *) "calculate_jrho_resp1a pw_env not associated"
-      END IF
 
       distributed_rs_grids = .FALSE.
       DO igrid_level = 1, gridlevel_info%ngrid_levels
@@ -838,8 +791,6 @@ CONTAINS
          END IF
       END DO
 
-      WRITE (error_unit, *) "calculate_jrho_resp enter loop"
-
       CALL neighbor_list_iterator_create(nl_iterator, sab_orb)
       DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
          CALL get_iterator_info(nl_iterator, ikind=ikind, jkind=jkind, iatom=iatom, jatom=jatom, r=rab)
@@ -909,7 +860,6 @@ CONTAINS
             jpblock_c => jp_block_c
             IF (do_igaim) jpblock_d => jp_block_d
          END IF
-         WRITE (error_unit, *) "calculate_jrho_resp start task task_list_inner_loop"
 
          CALL task_list_inner_loop(tasks, ntasks, curr_tasks, rs_descs, &
                                    dft_control, cube_info, gridlevel_info, cindex, &
@@ -1202,8 +1152,6 @@ CONTAINS
                                     ra, rab, scale, jpab_a, na1 - 1, nb1 - 1, &
                                     multigrid_current, igrid_level, &
                                     radius=radius, ga_gb_function=adbmdab_func)
-         WRITE (error_unit, *) "calculate_jrho_resp3", grid_get_multigrid_nlevels(multigrid)
-         WRITE (error_unit, *) "calculate_jrho_resp3a", grid_get_multigrid_nlevels(pw_env%multigrid)
          IF (do_igaim) THEN
             ! here the decontracted mat_jb_{ab} is multiplied by
             !     f_{ab} = g_{a} * g_{b} ! THIS GOES OUTSIDE THE LOOP !
@@ -1279,8 +1227,6 @@ CONTAINS
          END IF
 
       END DO loop_tasks
-      WRITE (error_unit, *) "calculate_jrho_resp4", grid_get_multigrid_nlevels(multigrid)
-      WRITE (error_unit, *) "calculate_jrho_resp4a", grid_get_multigrid_nlevels(pw_env%multigrid)
       !
       ! Scale the density with the gauge rho * ( r - d(r) ) if needed
       CALL grid_copy_from_multigrid_local(multigrid, rs_rho)
@@ -1291,7 +1237,6 @@ CONTAINS
                                       rs_gauge(idir2, igrid_level), 1.0_dp)
          END DO
       END IF
-      WRITE (error_unit, *) "calculate_jrho_resp5", grid_get_multigrid_nlevels(multigrid)
       !   *** Release work storage ***
 
       IF (distributed_rs_grids) THEN
@@ -1317,8 +1262,6 @@ CONTAINS
             CALL rs_grid_release(rs_rho(i))
          END IF
       END DO
-      WRITE (error_unit, *) "calculate_jrho_resp6", grid_get_multigrid_nlevels(multigrid)
-      WRITE (error_unit, *) "calculate_jrho_resp6a", grid_get_multigrid_nlevels(pw_env%multigrid)
 
       ! Free the array of grids (grids themselves are released in density_rs2pw)
       DEALLOCATE (rs_current)
