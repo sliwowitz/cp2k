@@ -23,7 +23,8 @@
 void collect_y_and_distribute_z_blocked(
     const double complex *grid, double complex *transposed,
     const int npts_global[3], const int (*proc2local)[3][2],
-    const int (*proc2local_transposed)[3][2], const grid_mpi_comm comm) {
+    const int (*proc2local_transposed)[3][2], const grid_mpi_comm comm,
+    const grid_mpi_comm sub_comm[2]) {
   const int my_process = grid_mpi_comm_rank(comm);
 
   int proc_coord[2];
@@ -90,21 +91,16 @@ void collect_y_and_distribute_z_blocked(
   assert(send_offset == product3(my_sizes));
   assert(recv_offset == product3(my_sizes_transposed));
 
-  grid_mpi_comm sub_comm;
-  const int remained_dims[2] = {0, 1};
-  grid_mpi_cart_sub(comm, remained_dims, &sub_comm);
-
   // Use collective MPI communication
   grid_mpi_alltoallv_double_complex(send_buffer, send_counts,
                                     send_displacements, transposed, recv_counts,
-                                    recv_displacements, sub_comm);
+                                    recv_displacements, sub_comm[1]);
 
   free(send_buffer);
   free(send_counts);
   free(send_displacements);
   free(recv_counts);
   free(recv_displacements);
-  grid_mpi_comm_free(&sub_comm);
 }
 
 /*******************************************************************************

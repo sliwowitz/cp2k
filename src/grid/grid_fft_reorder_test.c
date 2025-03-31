@@ -236,7 +236,7 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
   collect_y_and_distribute_z_blocked(
       fft_grid_layout->buffer_1, fft_grid_layout->buffer_2, npts_global,
       fft_grid_layout->proc2local_rs, fft_grid_layout->proc2local_ms,
-      fft_grid_layout->comm);
+      fft_grid_layout->comm, fft_grid_layout->sub_comm);
 
   for (int nx = 0; nx < my_sizes_ms[0]; nx++) {
     for (int ny = 0; ny < my_sizes_ms[1]; ny++) {

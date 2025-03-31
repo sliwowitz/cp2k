@@ -140,6 +140,8 @@ void grid_free_fft_grid_layout(grid_fft_grid_layout *fft_grid) {
     fft_grid->ref_counter--;
     if (fft_grid->ref_counter == 0) {
       grid_mpi_comm_free(&fft_grid->comm);
+      grid_mpi_comm_free(&fft_grid->sub_comm[0]);
+      grid_mpi_comm_free(&fft_grid->sub_comm[1]);
       free(fft_grid->proc2local_rs);
       free(fft_grid->proc2local_ms);
       free(fft_grid->proc2local_gs);
@@ -283,6 +285,11 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
 
   grid_mpi_cart_get(my_fft_grid->comm, 2, my_fft_grid->proc_grid,
                     my_fft_grid->periodic, my_fft_grid->proc_coords);
+
+  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
+                    &my_fft_grid->sub_comm[0]);
+  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
+                    &my_fft_grid->sub_comm[1]);
 
   setup_proc2local(my_fft_grid, npts_global);
 
@@ -446,6 +453,11 @@ void grid_create_fft_grid_layout_from_reference(
 
   grid_mpi_cart_get(my_fft_grid->comm, 2, my_fft_grid->proc_grid,
                     my_fft_grid->periodic, my_fft_grid->proc_coords);
+
+  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
+                    &my_fft_grid->sub_comm[0]);
+  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
+                    &my_fft_grid->sub_comm[1]);
 
   setup_proc2local(my_fft_grid, npts_global);
 
@@ -661,8 +673,8 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
                        const int (*proc2local_rs)[3][2],
                        const int (*proc2local_ms)[3][2],
                        const int (*proc2local_gs)[3][2],
-                       const grid_fft_plan *fft_plans,
-                       const grid_mpi_comm comm) {
+                       const grid_fft_plan *fft_plans, const grid_mpi_comm comm,
+                       const grid_mpi_comm sub_comm[2]) {
   const int my_process = grid_mpi_comm_rank(comm);
 
   // Collect the local sizes (for buffer sizes and FFT dimensions)
@@ -706,7 +718,7 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
     // Perform transpose
     collect_y_and_distribute_z_blocked(grid_buffer_2, grid_buffer_1,
                                        npts_global, proc2local_rs,
-                                       proc2local_ms, comm);
+                                       proc2local_ms, comm, sub_comm);
 
     // Perform the second FFT
     fft_1d_fw_local(&fft_plans[1], grid_buffer_1, grid_buffer_2);
@@ -830,7 +842,8 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
                    const int npts_global[3], const int (*proc2local_rs)[3][2],
                    const int (*proc2local_ms)[3][2], const int *yz_to_process,
                    const int *rays_per_process, const int (*ray_to_yz)[2],
-                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm) {
+                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm,
+                   const grid_mpi_comm sub_comm[2]) {
   const int my_process = grid_mpi_comm_rank(comm);
 
   // Collect the local sizes (for buffer sizes and FFT dimensions)
@@ -875,7 +888,7 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
     // Perform transpose
     collect_y_and_distribute_z_blocked(grid_buffer_2, grid_buffer_1,
                                        npts_global, proc2local_rs,
-                                       proc2local_ms, comm);
+                                       proc2local_ms, comm, sub_comm);
 
     // Perform the second FFT
     fft_1d_fw_local(&fft_plans[1], grid_buffer_1, grid_buffer_2);

@@ -39,6 +39,7 @@ typedef struct {
   int *local_index_to_ref_grid;
   // New communicator
   grid_mpi_comm comm;
+  grid_mpi_comm sub_comm[2];
   int proc_grid[2];
   int periodic[2];
   int proc_coords[2];
@@ -123,8 +124,8 @@ void fft_3d_fw_blocked(double *grid_rs, double complex *grid_gs,
                        const int (*proc2local_rs)[3][2],
                        const int (*proc2local_ms)[3][2],
                        const int (*proc2local_gs)[3][2],
-                       const grid_fft_plan *fft_plans,
-                       const grid_mpi_comm comm);
+                       const grid_fft_plan *fft_plans, const grid_mpi_comm comm,
+                       const grid_mpi_comm sub_comm[2]);
 
 /*******************************************************************************
  * \brief Performs a backward 3D-FFT using a blocked distribution.
@@ -146,7 +147,8 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
                    const int npts_global[3], const int (*proc2local_rs)[3][2],
                    const int (*proc2local_ms)[3][2], const int *yz_to_process,
                    const int *rays_per_process, const int (*ray_to_yz)[2],
-                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm);
+                   const grid_fft_plan *fft_plans, const grid_mpi_comm comm,
+                   const grid_mpi_comm sub_comm[2]);
 
 /*******************************************************************************
  * \brief Performs a backward 3D-FFT using a ray distribution.
