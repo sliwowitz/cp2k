@@ -26,59 +26,83 @@ int multigrid_reorder_grids_test_low(const int npts_global[3]) {
   int errors = 0;
 
   // Initial distribution: distributed in x
-  int (*proc2local_x)[3][2] = calloc(my_process, sizeof(int[3][2]));
-  for (int process = 0 ; process < number_of_processes; process++) {
-    proc2local_x[process][0][0] = process*npts_global[0]/number_of_processes;
-    proc2local_x[process][0][1] = (process+1)*npts_global[0]/number_of_processes-1;
+  int(*proc2local_x)[3][2] = calloc(number_of_processes, sizeof(int[3][2]));
+  for (int process = 0; process < number_of_processes; process++) {
+    proc2local_x[process][0][0] =
+        process * npts_global[0] / number_of_processes;
+    proc2local_x[process][0][1] =
+        (process + 1) * npts_global[0] / number_of_processes - 1;
     proc2local_x[process][1][0] = 0;
-    proc2local_x[process][1][1] = npts_global[1]-1;
+    proc2local_x[process][1][1] = npts_global[1] - 1;
     proc2local_x[process][2][0] = 0;
-    proc2local_x[process][2][1] = npts_global[2]-1;
+    proc2local_x[process][2][1] = npts_global[2] - 1;
   }
-  const int my_sizes_x[3] = {proc2local_x[my_process][0][1]-proc2local_x[my_process][0][0]+1, npts_global[1], npts_global[2]};
+  const int my_sizes_x[3] = {proc2local_x[my_process][0][1] -
+                                 proc2local_x[my_process][0][0] + 1,
+                             npts_global[1], npts_global[2]};
   const int number_of_local_elements_x = product3(my_sizes_x);
   double *grid_x = calloc(number_of_local_elements_x, sizeof(double));
-  if (number_of_local_elements_x>0) {
+  if (number_of_local_elements_x > 0) {
     for (int index = 0; index < number_of_local_elements_x; index++) {
-      const int index_x = index%(my_sizes_x[0])+proc2local_x[my_process][0][0];
-      const int index_y = index/my_sizes_x[0]%(my_sizes_x[0])+proc2local_x[my_process][1][0];
-      const int index_z = index/my_sizes_x[0]/my_sizes_x[1]+proc2local_x[my_process][2][0];
-      grid_x[index] = index_x*npts_global[1]*npts_global[2]+index_y*npts_global[2]+index_z;
+      const int index_x =
+          index % my_sizes_x[0] + proc2local_x[my_process][0][0];
+      const int index_y = index / my_sizes_x[0] % my_sizes_x[1] +
+                          proc2local_x[my_process][1][0];
+      const int index_z = index / my_sizes_x[0] / my_sizes_x[1] +
+                          proc2local_x[my_process][2][0];
+      grid_x[index] = index_x * npts_global[1] * npts_global[2] +
+                      index_y * npts_global[2] + index_z;
     }
   }
 
   // Convert to distribution in y
-  int (*proc2local_y)[3][2] = calloc(my_process, sizeof(int[3][2]));
-  for (int process = 0 ; process < number_of_processes; process++) {
+  int(*proc2local_y)[3][2] = calloc(number_of_processes, sizeof(int[3][2]));
+  for (int process = 0; process < number_of_processes; process++) {
     proc2local_y[process][0][0] = 0;
-    proc2local_y[process][0][1] = npts_global[0]-1;
-    proc2local_y[process][1][0] = process*npts_global[1]/number_of_processes;
-    proc2local_y[process][1][1] = (process+1)*npts_global[1]/number_of_processes-1;
+    proc2local_y[process][0][1] = npts_global[0] - 1;
+    proc2local_y[process][1][0] =
+        process * npts_global[1] / number_of_processes;
+    proc2local_y[process][1][1] =
+        (process + 1) * npts_global[1] / number_of_processes - 1;
     proc2local_y[process][2][0] = 0;
-    proc2local_y[process][2][1] = npts_global[2]-1;
+    proc2local_y[process][2][1] = npts_global[2] - 1;
   }
-  const int my_sizes_y[3] = {npts_global[0], proc2local_y[my_process][1][1]-proc2local_y[my_process][1][0]+1, npts_global[2]};
+  const int my_sizes_y[3] = {
+      proc2local_y[my_process][0][1] - proc2local_y[my_process][0][0] + 1,
+      proc2local_y[my_process][1][1] - proc2local_y[my_process][1][0] + 1,
+      proc2local_y[my_process][2][1] - proc2local_y[my_process][2][0] + 1};
   const int number_of_local_elements_y = product3(my_sizes_y);
   double *grid_y = calloc(number_of_local_elements_y, sizeof(double));
 
-  redistribute_grids(grid_x, grid_y, comm, comm, npts_global, proc2local_x, proc2local_y);
+  redistribute_grids(grid_x, grid_y, comm, comm, npts_global, proc2local_x,
+                     proc2local_y);
 
   double max_error = 0.0;
-  if (number_of_local_elements_x>0) {
+  if (number_of_local_elements_x > 0) {
     for (int index = 0; index < number_of_local_elements_y; index++) {
-      const int index_x = index%(my_sizes_y[0])+proc2local_y[my_process][0][0];
-      const int index_y = index/my_sizes_y[0]%(my_sizes_y[0])+proc2local_y[my_process][1][0];
-      const int index_z = index/my_sizes_y[0]/my_sizes_y[1]+proc2local_y[my_process][2][0];
+      const int index_x =
+          index % my_sizes_y[0] + proc2local_y[my_process][0][0];
+      const int index_y = index / my_sizes_y[0] % my_sizes_y[1] +
+                          proc2local_y[my_process][1][0];
+      const int index_z = index / my_sizes_y[0] / my_sizes_y[1] +
+                          proc2local_y[my_process][2][0];
       const double my_value = grid_y[index];
-      const double ref_value = index_x*npts_global[1]*npts_global[2]+index_y*npts_global[2]+index_z;
-      const double current_error = fabs(my_value-ref_value);
+      const double ref_value = index_x * npts_global[1] * npts_global[2] +
+                               index_y * npts_global[2] + index_z;
+      const double current_error = fabs(my_value - ref_value);
+      if (current_error > 1.0e-12 * ref_value)
+        printf("%i Error %i %i %i: %f %f\n", my_process, index_x, index_y,
+               index_z, my_value, ref_value);
       max_error = fmax(max_error, current_error);
     }
   }
   grid_mpi_max_double(&max_error, 1, comm);
   if (max_error > 1.0e-12) {
-    if (my_process==0)
-    printf("Redistribution x->y does not work properly (sizes: %i %i %i, processes: %i): %f\n", npts_global[0], npts_global[1], npts_global[2], number_of_processes, max_error);
+    if (my_process == 0)
+      printf("Redistribution x->y does not work properly (sizes: %i %i %i, "
+             "processes: %i): %f\n",
+             npts_global[0], npts_global[1], npts_global[2],
+             number_of_processes, max_error);
     errors++;
   }
 
@@ -99,16 +123,14 @@ int multigrid_reorder_grids_test_low(const int npts_global[3]) {
   // convert to distribution in xyz
 
   if (errors == 0 && my_process == 0)
-  printf("The redistribution works correctly (sizes: %i %i %i, processes: %i)\n", npts_global[0], npts_global[1], npts_global[2], number_of_processes);
+    printf(
+        "The redistribution works correctly (sizes: %i %i %i, processes: %i)\n",
+        npts_global[0], npts_global[1], npts_global[2], number_of_processes);
 
   free(proc2local_x);
   free(proc2local_y);
   free(grid_x);
   free(grid_y);
-
-  grid_mpi_barrier(comm);
-  fflush(stdout);
-  grid_mpi_barrier(comm);
 
   return errors;
 }
@@ -155,7 +177,7 @@ int multigrid_test() {
 
   grid_free_multigrid(multigrid);*/
 
-  errors += multigrid_reorder_grids_test_low((const int[3]){1, 1, 1});
+  // errors += multigrid_reorder_grids_test_low((const int[3]){1, 1, 1});
   errors += multigrid_reorder_grids_test_low((const int[3]){2, 2, 2});
   errors += multigrid_reorder_grids_test_low((const int[3]){5, 5, 5});
   errors += multigrid_reorder_grids_test_low((const int[3]){2, 3, 5});

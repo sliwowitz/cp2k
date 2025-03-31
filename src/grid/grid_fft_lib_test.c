@@ -89,8 +89,8 @@ int fft_test_1d_local_low(const int fft_size, const int number_of_ffts) {
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The low-level FFTs do not work correctly (%i %i): %f!\n", fft_size,
-             number_of_ffts, max_error);
+      printf("The low-level FFTs do not work correctly (%i %i): %f!\n",
+             fft_size, number_of_ffts, max_error);
     errors++;
   }
 
