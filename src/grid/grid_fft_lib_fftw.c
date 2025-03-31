@@ -194,8 +194,10 @@ void fft_fftw_create_3d_plan(double complex *grid_rs, double complex *grid_gs,
 void fft_fftw_free_plan(grid_fft_fftw_plan *plan_fw,
                         grid_fft_fftw_plan *plan_bw) {
 #if defined(__FFTW3)
-  fftw_destroy_plan(*plan_fw);
-  fftw_destroy_plan(*plan_bw);
+  if (plan_fw != NULL)
+    fftw_destroy_plan(*plan_fw);
+  if (plan_bw != NULL)
+    fftw_destroy_plan(*plan_bw);
 #else
   (void)plan_fw;
   (void)plan_bw;

@@ -334,6 +334,10 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
 
   sort_g_vectors(my_fft_grid);
 
+  for (int dir = 0; dir < 3; dir++) {
+    my_fft_grid->fft_plans[dir].fftw_plan_fw = NULL;
+    my_fft_grid->fft_plans[dir].fftw_plan_bw = NULL;
+  }
   if (my_fft_grid->proc_grid[0] == 1 && my_fft_grid->proc_grid[1] == 1) {
     // Local 3D FFT
     fft_create_3d_plan(my_fft_grid->buffer_1, my_fft_grid->buffer_2,
@@ -599,6 +603,10 @@ void grid_create_fft_grid_layout_from_reference(
   }
   assert(own_index == my_fft_grid->npts_gs_local);
 
+  for (int dir = 0; dir < 3; dir++) {
+    my_fft_grid->fft_plans[dir].fftw_plan_fw = NULL;
+    my_fft_grid->fft_plans[dir].fftw_plan_bw = NULL;
+  }
   if (my_fft_grid->proc_grid[0] == 1 && my_fft_grid->proc_grid[1] == 1) {
     // Local 3D FFT
     fft_create_3d_plan(my_fft_grid->buffer_1, my_fft_grid->buffer_2,
