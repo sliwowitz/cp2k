@@ -147,11 +147,13 @@ int multigrid_gather_scatter_halo_test() {
  ******************************************************************************/
 int multigrid_test() {
 
-  int errors = 0;
-
-  /*const int npts_global[2][3] = {{4, 4, 4}, {2, 2, 2}};
-  const int npts_local[2][3] = {{4, 4, 4}, {2, 2, 2}};
-  const int shift_local[2][3] = {{-2, -2, -2}, {-1, -1, -1}};
+  const int number_of_processes = grid_mpi_comm_size(grid_mpi_comm_world);
+  const int my_process = grid_mpi_comm_rank(grid_mpi_comm_world);
+  const int npts_global[2][3] = {{4 * number_of_processes, 4, 4},
+                                 {2 * number_of_processes, 2, 2}};
+  const int npts_local[2][3] = {{8, 8, 8}, {4, 4, 4}};
+  const int shift_local[2][3] = {{-2 + 4 * my_process, -2, -2},
+                                 {-1 + 2 * my_process, -1, -1}};
   const int border_width[2][3] = {{2, 2, 2}, {1, 1, 1}};
   const double dh[2][3][3] = {
       {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
@@ -159,23 +161,36 @@ int multigrid_test() {
   const double dh_inv[2][3][3] = {
       {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
       {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
-  const int pgrid_dims[2][3] = {{1, 1, 1}, {1, 1, 1}};
-
+  const int pgrid_dims[2][3] = {{number_of_processes, 1, 1},
+                                {number_of_processes, 1, 1}};
   grid_multigrid *multigrid = NULL;
   grid_create_multigrid(true, 2, npts_global, npts_local, shift_local,
                         border_width, dh, dh_inv, pgrid_dims,
-                        grid_mpi_comm_self, &multigrid);
+                        grid_mpi_comm_world, &multigrid);
   for (int level = 0; level < multigrid->nlevels; level++) {
     assert(multigrid->fft_grid_layouts[level]->grid_id > 0);
   }
 
-  double grid[64];
-  memset(grid, 0, 64 * sizeof(double));
+  grid_fft_grid_layout *fft_grid_layout = NULL;
+  grid_create_fft_grid_layout(&fft_grid_layout, grid_mpi_comm_world,
+                              npts_global[0], dh_inv[0]);
 
-  // grid_copy_to_multigrid_single(multigrid, grid);
-  // grid_copy_from_multigrid_single(multigrid, grid);
+  grid_fft_real_rs_grid rs_grid;
+  memset(&rs_grid, 0, sizeof(grid_fft_real_rs_grid));
+  grid_create_real_rs_grid(&rs_grid, fft_grid_layout);
 
-  grid_free_multigrid(multigrid);*/
+  grid_copy_to_multigrid_single(multigrid, rs_grid.data,
+                                rs_grid.fft_grid_layout->comm,
+                                rs_grid.fft_grid_layout->proc2local_rs);
+  grid_copy_from_multigrid_single(multigrid, rs_grid.data,
+                                  rs_grid.fft_grid_layout->comm,
+                                  rs_grid.fft_grid_layout->proc2local_rs);
+
+  grid_free_real_rs_grid(&rs_grid);
+  grid_free_fft_grid_layout(fft_grid_layout);
+  grid_free_multigrid(multigrid);
+
+  int errors = 0;
 
   // errors += multigrid_reorder_grids_test_low((const int[3]){1, 1, 1});
   errors += multigrid_reorder_grids_test_low((const int[3]){2, 2, 2});
