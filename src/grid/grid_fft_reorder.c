@@ -26,6 +26,7 @@ void collect_y_and_distribute_z_blocked(
     const int (*proc2local_transposed)[3][2], const grid_mpi_comm comm,
     const grid_mpi_comm sub_comm[2]) {
   const int my_process = grid_mpi_comm_rank(comm);
+  (void)grid;
 
   int proc_coord[2];
   int dims[2];
@@ -50,6 +51,22 @@ void collect_y_and_distribute_z_blocked(
   int *recv_counts = calloc(dims[1], sizeof(int));
   double complex *send_buffer =
       calloc(product3(my_sizes), sizeof(double complex));
+  printf("%i sizes %i %i: %i\n", my_process, dims[0], dims[1],
+         product3(my_sizes));
+
+  for (int process = 0; process < grid_mpi_comm_size(comm); process++) {
+    printf("%i proc2local %i: %i %i %i %i %i %i\n", my_process, process,
+           proc2local[process][0][0], proc2local[process][0][1],
+           proc2local[process][1][0], proc2local[process][1][1],
+           proc2local[process][2][0], proc2local[process][2][1]);
+    printf("%i proc2local_transposed %i: %i %i %i %i %i %i\n", my_process,
+           process, proc2local_transposed[process][0][0],
+           proc2local_transposed[process][0][1],
+           proc2local_transposed[process][1][0],
+           proc2local_transposed[process][1][1],
+           proc2local_transposed[process][2][0],
+           proc2local_transposed[process][2][1]);
+  }
 
   int send_offset = 0;
   int recv_offset = 0;
@@ -63,19 +80,22 @@ void collect_y_and_distribute_z_blocked(
                                    (proc2local_transposed[rank][2][1] -
                                     proc2local_transposed[rank][2][0] + 1);
     send_counts[process] = current_send_count;
-    send_offset += current_send_count;
     const int current_recv_count =
         my_sizes_transposed[0] *
         (proc2local[rank][1][1] - proc2local[rank][1][0] + 1) *
         my_sizes_transposed[2];
     recv_counts[process] = current_recv_count;
+    printf("%i process %i (%i): %i %i / %i %i\n", my_process, process, rank,
+           send_offset, recv_offset, current_send_count, current_recv_count);
+    fflush(stdout);
+    send_offset += current_send_count;
     recv_offset += current_recv_count;
 // Copy the data to the send buffer
 #pragma omp parallel for collapse(2) default(none)                             \
     shared(my_sizes, my_sizes_transposed, proc2local, proc2local_transposed,   \
                send_buffer, grid, send_displacements, process, rank)
-    for (int index_y = 0; index_y <= my_sizes[1]; index_y++) {
-      for (int index_x = 0; index_x <= my_sizes[0]; index_x++) {
+    for (int index_y = 0; index_y < my_sizes[1]; index_y++) {
+      for (int index_x = 0; index_x < my_sizes[0]; index_x++) {
         memcpy(send_buffer + send_displacements[process] +
                    (index_y * my_sizes[0] + index_x) *
                        (proc2local_transposed[rank][2][1] -
@@ -90,6 +110,9 @@ void collect_y_and_distribute_z_blocked(
   }
   assert(send_offset == product3(my_sizes));
   assert(recv_offset == product3(my_sizes_transposed));
+
+  printf("%i start alltoallv\n", my_process);
+  fflush(stdout);
 
   // Use collective MPI communication
   grid_mpi_alltoallv_double_complex(send_buffer, send_counts,
@@ -121,14 +144,17 @@ void collect_z_and_distribute_y_blocked(
 
   const int my_sizes[3] = {
       proc2local[my_process][0][1] - proc2local[my_process][0][0] + 1,
-      npts_global[1],
+      proc2local[my_process][1][1] - proc2local[my_process][1][0] + 1,
       proc2local[my_process][2][1] - proc2local[my_process][2][0] + 1};
+  assert(my_sizes[1] == npts_global[1]);
   const int my_sizes_transposed[3] = {
       proc2local_transposed[my_process][0][1] -
           proc2local_transposed[my_process][0][0] + 1,
       proc2local_transposed[my_process][1][1] -
           proc2local_transposed[my_process][1][0] + 1,
-      npts_global[2]};
+      proc2local_transposed[my_process][2][1] -
+          proc2local_transposed[my_process][2][0] + 1};
+  assert(my_sizes_transposed[2] == npts_global[2]);
   assert(my_sizes[0] == my_sizes_transposed[0]);
 
   int *send_displacements = calloc(dims[1], sizeof(int));
@@ -146,15 +172,15 @@ void collect_z_and_distribute_y_blocked(
     recv_displacements[process] = recv_offset;
     int rank;
     grid_mpi_cart_rank(comm, (const int[2]){proc_coord[0], process}, &rank);
-    const int current_send_count =
-        my_sizes[0] * (proc2local[rank][1][1] - proc2local[rank][1][0] + 1) *
-        my_sizes[2];
+    const int current_send_count = my_sizes[0] *
+                                   (proc2local_transposed[rank][1][1] -
+                                    proc2local_transposed[rank][1][0] + 1) *
+                                   my_sizes[2];
     send_counts[process] = current_send_count;
     send_offset += current_send_count;
-    const int current_recv_count = my_sizes_transposed[0] *
-                                   my_sizes_transposed[1] *
-                                   (proc2local_transposed[rank][2][1] -
-                                    proc2local_transposed[rank][2][0] + 1);
+    const int current_recv_count =
+        my_sizes_transposed[0] * my_sizes_transposed[1] *
+        (proc2local[rank][2][1] - proc2local[rank][2][0] + 1);
     recv_counts[process] = current_recv_count;
     recv_offset += current_recv_count;
   }
@@ -173,8 +199,8 @@ void collect_z_and_distribute_y_blocked(
 #pragma omp parallel for collapse(2) default(none)                             \
     shared(my_sizes, my_sizes_transposed, proc2local, proc2local_transposed,   \
                recv_buffer, transposed, recv_displacements, process, rank)
-    for (int index_y = 0; index_y <= my_sizes[1]; index_y++) {
-      for (int index_x = 0; index_x <= my_sizes[0]; index_x++) {
+    for (int index_y = 0; index_y < my_sizes_transposed[1]; index_y++) {
+      for (int index_x = 0; index_x < my_sizes_transposed[0]; index_x++) {
         memcpy(transposed +
                    (index_y * my_sizes_transposed[0] + index_x) *
                        my_sizes_transposed[2] +
@@ -187,6 +213,8 @@ void collect_z_and_distribute_y_blocked(
       }
     }
   }
+
+  (void)transposed;
 
   free(recv_buffer);
   free(send_counts);
@@ -253,8 +281,8 @@ void collect_x_and_distribute_y_blocked(
 #pragma omp parallel for collapse(2) default(none)                             \
     shared(my_sizes, my_sizes_transposed, proc2local, proc2local_transposed,   \
                send_buffer, grid, send_displacements, process, rank)
-    for (int index_x = 0; index_x <= my_sizes[0]; index_x++) {
-      for (int index_z = 0; index_z <= my_sizes[2]; index_z++) {
+    for (int index_x = 0; index_x < my_sizes[0]; index_x++) {
+      for (int index_z = 0; index_z < my_sizes[2]; index_z++) {
         memcpy(send_buffer + send_displacements[process] +
                    (index_x * my_sizes[2] + index_z) *
                        (proc2local_transposed[rank][1][1] -

@@ -288,7 +288,7 @@ void grid_create_fft_grid_layout(grid_fft_grid_layout **fft_grid,
 
   grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
                     &my_fft_grid->sub_comm[0]);
-  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
+  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){0, 1},
                     &my_fft_grid->sub_comm[1]);
 
   setup_proc2local(my_fft_grid, npts_global);
@@ -460,7 +460,7 @@ void grid_create_fft_grid_layout_from_reference(
 
   grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
                     &my_fft_grid->sub_comm[0]);
-  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){1, 0},
+  grid_mpi_cart_sub(my_fft_grid->comm, (const int[2]){0, 1},
                     &my_fft_grid->sub_comm[1]);
 
   setup_proc2local(my_fft_grid, npts_global);
