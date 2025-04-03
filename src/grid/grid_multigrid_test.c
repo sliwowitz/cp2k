@@ -192,7 +192,7 @@ int multigrid_test() {
 
   int errors = 0;
 
-  // errors += multigrid_reorder_grids_test_low((const int[3]){1, 1, 1});
+  errors += multigrid_reorder_grids_test_low((const int[3]){1, 1, 1});
   errors += multigrid_reorder_grids_test_low((const int[3]){2, 2, 2});
   errors += multigrid_reorder_grids_test_low((const int[3]){5, 5, 5});
   errors += multigrid_reorder_grids_test_low((const int[3]){2, 3, 5});
