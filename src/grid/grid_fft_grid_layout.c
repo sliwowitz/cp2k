@@ -903,8 +903,8 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
 
     // Perform second transpose
     collect_x_and_distribute_y_ray(grid_buffer_2, grid_buffer_1, npts_global,
-                                   proc2local_ms, yz_to_process,
-                                   rays_per_process, ray_to_yz, comm);
+                                   proc2local_ms, rays_per_process, ray_to_yz,
+                                   comm);
 
     // Perform the third FFT
     fft_1d_fw_local(&fft_plans[2], grid_buffer_1, grid_gs);
@@ -914,8 +914,8 @@ void fft_3d_fw_ray(double *grid_rs, double complex *grid_gs,
 
     // Perform second transpose
     collect_x_and_distribute_y_ray(grid_buffer_2, grid_buffer_1, npts_global,
-                                   proc2local_ms, yz_to_process,
-                                   rays_per_process, ray_to_yz, comm);
+                                   proc2local_ms, rays_per_process, ray_to_yz,
+                                   comm);
 
     // Perform the third FFT
     fft_1d_fw_local(&fft_plans[1], grid_buffer_1, grid_gs);
@@ -989,8 +989,8 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
 
     // Perform transpose
     collect_y_and_distribute_x_ray(grid_buffer_1, grid_buffer_2, npts_global,
-                                   yz_to_process, proc2local_ms,
-                                   rays_per_process, ray_to_yz, comm);
+                                   proc2local_ms, rays_per_process, ray_to_yz,
+                                   comm);
 
     // Perform the second FFT
     fft_1d_bw_local(&fft_plans[1], grid_buffer_2, grid_buffer_1);
@@ -1008,8 +1008,8 @@ void fft_3d_bw_ray(double complex *grid_gs, double *grid_rs,
 
     // Perform transpose
     collect_y_and_distribute_x_ray(grid_buffer_1, grid_buffer_2, npts_global,
-                                   yz_to_process, proc2local_ms,
-                                   rays_per_process, ray_to_yz, comm);
+                                   proc2local_ms, rays_per_process, ray_to_yz,
+                                   comm);
 
     // Perform the second FFT
     fft_2d_bw_local(&fft_plans[0], grid_buffer_2, grid_buffer_1);

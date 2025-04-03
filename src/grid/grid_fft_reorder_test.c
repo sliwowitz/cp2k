@@ -64,8 +64,8 @@ double fft_test_transpose_ray(const int npts_global[3],
   collect_x_and_distribute_y_ray(
       fft_grid_ray_layout->buffer_1, fft_grid_ray_layout->buffer_2,
       fft_grid_ray_layout->npts_global, fft_grid_ray_layout->proc2local_ms,
-      fft_grid_ray_layout->yz_to_process, fft_grid_ray_layout->rays_per_process,
-      fft_grid_ray_layout->ray_to_yz, fft_grid_ray_layout->comm);
+      fft_grid_ray_layout->rays_per_process, fft_grid_ray_layout->ray_to_yz,
+      fft_grid_ray_layout->comm);
 
   max_error = 0.0;
   int ray_index_offset = 0;
@@ -124,9 +124,9 @@ double fft_test_transpose_ray(const int npts_global[3],
   }
   collect_y_and_distribute_x_ray(
       fft_grid_ray_layout->buffer_1, fft_grid_ray_layout->buffer_2,
-      fft_grid_ray_layout->npts_global, fft_grid_ray_layout->yz_to_process,
-      fft_grid_ray_layout->proc2local_ms, fft_grid_ray_layout->rays_per_process,
-      fft_grid_ray_layout->ray_to_yz, fft_grid_ray_layout->comm);
+      fft_grid_ray_layout->npts_global, fft_grid_ray_layout->proc2local_ms,
+      fft_grid_ray_layout->rays_per_process, fft_grid_ray_layout->ray_to_yz,
+      fft_grid_ray_layout->comm);
 
   max_error = 0.0;
   for (int index_y = 0; index_y < my_sizes_ms_ray[1]; index_y++) {

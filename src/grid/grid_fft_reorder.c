@@ -445,19 +445,15 @@ void collect_y_and_distribute_x_blocked(
  * \brief Performs a transposition of (z,x,y)->(y,z,x).
  * \author Frederick Stein
  ******************************************************************************/
-void collect_x_and_distribute_y_ray(
-    const double complex *grid, double complex *transposed,
-    const int npts_global[3], const int (*proc2local)[3][2],
-    const int *yz_to_process, const int *number_of_rays,
-    const int (*ray_to_yz)[2], const grid_mpi_comm comm) {
+void collect_x_and_distribute_y_ray(const double complex *grid,
+                                    double complex *transposed,
+                                    const int npts_global[3],
+                                    const int (*proc2local)[3][2],
+                                    const int *number_of_rays,
+                                    const int (*ray_to_yz)[2],
+                                    const grid_mpi_comm comm) {
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
-  (void)npts_global;
-  (void)yz_to_process;
-  (void)grid;
-  (void)transposed;
-  (void)number_of_rays;
-  (void)ray_to_yz;
 
   int max_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++) {
@@ -470,15 +466,11 @@ void collect_x_and_distribute_y_ray(
   double complex *recv_buffer =
       malloc(max_number_of_elements * sizeof(double complex));
   grid_mpi_request recv_request, send_request;
-  (void)recv_request;
-  (void)send_request;
 
+  const int(*my_bounds)[2] = proc2local[my_process];
   int my_original_sizes[3];
   for (int dir = 0; dir < 3; dir++)
-    my_original_sizes[dir] =
-        proc2local[my_process][dir][1] - proc2local[my_process][dir][0] + 1;
-  const int my_number_of_elements = product3(my_original_sizes);
-  (void)my_number_of_elements;
+    my_original_sizes[dir] = my_bounds[dir][1] - my_bounds[dir][0] + 1;
 
   // Copy and transpose the local data
   int number_of_received_rays = 0;
@@ -489,21 +481,15 @@ void collect_x_and_distribute_y_ray(
     const int index_y = ray_to_yz[my_ray_offset + yz_ray][0];
     const int index_z = ray_to_yz[my_ray_offset + yz_ray][1];
 
-    if (index_y < proc2local[my_process][1][0] ||
-        index_y > proc2local[my_process][1][1])
-      continue;
-    if (index_z < proc2local[my_process][2][0] ||
-        index_z > proc2local[my_process][2][1])
+    if (index_z < my_bounds[2][0] || index_z > my_bounds[2][1])
       continue;
 
     // Copy the data
-    for (int index_x = proc2local[my_process][0][0];
-         index_x <= proc2local[my_process][0][1]; index_x++) {
+    for (int index_x = my_bounds[0][0]; index_x <= my_bounds[0][1]; index_x++) {
       transposed[index_x * number_of_rays[my_process] + yz_ray] =
-          grid[(index_x - proc2local[my_process][0][0]) * my_original_sizes[1] *
+          grid[(index_x - my_bounds[0][0]) * npts_global[1] *
                    my_original_sizes[2] +
-               (index_z - proc2local[my_process][2][0]) * my_original_sizes[1] +
-               (index_y - proc2local[my_process][1][0])];
+               (index_z - my_bounds[2][0]) * npts_global[1] + index_y];
     }
     number_of_received_rays++;
   }
@@ -525,8 +511,8 @@ void collect_x_and_distribute_y_ray(
                                   recv_process, 1, comm, &recv_request);
 
     // Post send request
-    grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
-                                  comm, &send_request);
+    grid_mpi_isend_double_complex(grid, product3(my_original_sizes),
+                                  send_process, 1, comm, &send_request);
 
     // Wait for the receive process and copy the data
     grid_mpi_wait(&recv_request);
@@ -569,15 +555,15 @@ void collect_x_and_distribute_y_ray(
  * \brief Performs a transposition of (z,x,y)->(y,z,x).
  * \author Frederick Stein
  ******************************************************************************/
-void collect_y_and_distribute_x_ray(
-    const double complex *grid, double complex *transposed,
-    const int npts_global[3], const int *yz_to_process,
-    const int (*proc2local_transposed)[3][2], const int *number_of_rays,
-    const int (*ray_to_yz)[2], const grid_mpi_comm comm) {
+void collect_y_and_distribute_x_ray(const double complex *grid,
+                                    double complex *transposed,
+                                    const int npts_global[3],
+                                    const int (*proc2local_transposed)[3][2],
+                                    const int *number_of_rays,
+                                    const int (*ray_to_yz)[2],
+                                    const grid_mpi_comm comm) {
   const int number_of_processes = grid_mpi_comm_size(comm);
   const int my_process = grid_mpi_comm_rank(comm);
-  (void)npts_global;
-  (void)yz_to_process;
 
   int max_number_of_elements = 0;
   for (int process = 0; process < number_of_processes; process++)
@@ -589,10 +575,11 @@ void collect_y_and_distribute_x_ray(
 
   const int my_number_of_elements = npts_global[0] * number_of_rays[my_process];
 
+  const int(*my_bounds)[2] = proc2local_transposed[my_process];
   int my_transposed_sizes[3];
   for (int dir = 0; dir < 3; dir++)
-    my_transposed_sizes[dir] = proc2local_transposed[my_process][dir][1] -
-                               proc2local_transposed[my_process][dir][0] + 1;
+    my_transposed_sizes[dir] = my_bounds[dir][1] - my_bounds[dir][0] + 1;
+  assert(my_transposed_sizes[1] == npts_global[1]);
 
   memset(transposed, 0, product3(my_transposed_sizes) * sizeof(double complex));
 
@@ -606,21 +593,14 @@ void collect_y_and_distribute_x_ray(
     const int index_z = ray_to_yz[my_ray_offset + yz_ray][1];
 
     // Check whether we carry that ray after the transposition
-    if (index_y < proc2local_transposed[my_process][1][0] ||
-        index_y > proc2local_transposed[my_process][1][1])
-      continue;
-    if (index_z < proc2local_transposed[my_process][2][0] ||
-        index_z > proc2local_transposed[my_process][2][1])
+    if (index_z < my_bounds[2][0] || index_z > my_bounds[2][1])
       continue;
 
     // Copy the data
-    for (int index_x = proc2local_transposed[my_process][0][0];
-         index_x <= proc2local_transposed[my_process][0][1]; index_x++) {
-      transposed[(index_x - proc2local_transposed[my_process][0][0]) *
-                     my_transposed_sizes[1] * my_transposed_sizes[2] +
-                 (index_z - proc2local_transposed[my_process][2][0]) *
-                     my_transposed_sizes[1] +
-                 (index_y - proc2local_transposed[my_process][1][0])] =
+    for (int index_x = my_bounds[0][0]; index_x <= my_bounds[0][1]; index_x++) {
+      transposed[(index_x - my_bounds[0][0]) * npts_global[1] *
+                     my_transposed_sizes[2] +
+                 (index_z - my_bounds[2][0]) * npts_global[1] + index_y] =
           grid[index_x * number_of_rays[my_process] + yz_ray];
     }
     number_of_received_rays++;
@@ -656,21 +636,15 @@ void collect_y_and_distribute_x_ray(
       const int index_y = ray_to_yz[recv_ray_offset + yz_ray][0];
       const int index_z = ray_to_yz[recv_ray_offset + yz_ray][1];
 
-      if (index_y < proc2local_transposed[my_process][1][0] ||
-          index_y > proc2local_transposed[my_process][1][1])
-        continue;
-      if (index_z < proc2local_transposed[my_process][2][0] ||
-          index_z > proc2local_transposed[my_process][2][1])
+      if (index_z < my_bounds[2][0] || index_z > my_bounds[2][1])
         continue;
 
       // Copy the data
-      for (int index_x = proc2local_transposed[my_process][0][0];
-           index_x <= proc2local_transposed[my_process][0][1]; index_x++) {
-        transposed[(index_x - proc2local_transposed[my_process][0][0]) *
-                       my_transposed_sizes[1] * my_transposed_sizes[2] +
-                   (index_z - proc2local_transposed[my_process][2][0]) *
-                       my_transposed_sizes[1] +
-                   (index_y - proc2local_transposed[my_process][1][0])] =
+      for (int index_x = my_bounds[0][0]; index_x <= my_bounds[0][1];
+           index_x++) {
+        transposed[(index_x - my_bounds[0][0]) * npts_global[1] *
+                       my_transposed_sizes[2] +
+                   (index_z - my_bounds[2][0]) * npts_global[1] + index_y] =
             recv_buffer[index_x * number_of_rays[recv_process] + yz_ray];
       }
       number_of_received_rays++;
