@@ -93,8 +93,10 @@ double fft_test_transpose_ray(const int npts_global[3],
 
   if (max_error > 1e-12) {
     if (my_process == 0) {
-      printf("The transpose xz_to_yz_ray does not work correctly: %f!\n",
-             max_error);
+      printf("The transpose xz_to_yz_ray does not work correctly (%i %i %i/%i "
+             "%i %i): %f!\n",
+             npts_global[0], npts_global[1], npts_global[2], npts_global_ref[0],
+             npts_global_ref[1], npts_global_ref[2], max_error);
     }
     errors++;
   }
@@ -147,6 +149,10 @@ double fft_test_transpose_ray(const int npts_global[3],
                (index_z + my_bounds_ms_ray[2][0])) +
               I * (index_x + my_bounds_ms_ray[0][0]);
           double current_error = cabs(my_value - ref_value);
+          if (current_error > 1e-12)
+            printf("%i ERROR %i %i %i: (%f %f) (%f %f)\n", my_process, index_x,
+                   index_y, index_z, creal(my_value), cimag(my_value),
+                   creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       } else {
@@ -161,26 +167,35 @@ double fft_test_transpose_ray(const int npts_global[3],
           // The value is assumed to be zero if absent
           const double complex ref_value = 0.0;
           double current_error = cabs(my_value - ref_value);
+          if (current_error > 1e-12)
+            printf("%i ERROR %i %i %i: (%f %f) (%f %f)\n", my_process, index_x,
+                   index_y, index_z, creal(my_value), cimag(my_value),
+                   creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       }
     }
   }
+  fflush(stdout);
+  grid_mpi_barrier(comm);
 
   grid_free_fft_grid_layout(fft_grid_ray_layout);
   grid_free_fft_grid_layout(ref_grid_layout);
 
   if (max_error > 1e-12) {
     if (my_process == 0)
-      printf("The transpose yz_to_xz_ray does not work correctly: %f!\n",
-             max_error);
+      printf("The transpose yz_to_xz_ray does not work correctly (%i %i %i/%i "
+             "%i %i): %f!\n",
+             npts_global[0], npts_global[1], npts_global[2], npts_global_ref[0],
+             npts_global_ref[1], npts_global_ref[2], max_error);
     errors++;
   }
 
   if (errors == 0 && my_process == 0)
-    printf("The transpose from the ray distribution works correctly "
-           "(sizes: %i %i %i)!\n",
-           npts_global[0], npts_global[1], npts_global[2]);
+    printf("The transpose from the ray distribution works correctly (%i %i "
+           "%i/%i %i %i)!\n",
+           npts_global[0], npts_global[1], npts_global[2], npts_global_ref[0],
+           npts_global_ref[1], npts_global_ref[2]);
 
   return errors;
 }

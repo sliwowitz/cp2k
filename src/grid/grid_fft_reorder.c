@@ -569,17 +569,21 @@ void collect_y_and_distribute_x_ray(const double complex *grid,
   for (int process = 0; process < number_of_processes; process++)
     max_number_of_elements =
         imax(max_number_of_elements, number_of_rays[process]);
-  double complex *recv_buffer =
-      malloc(max_number_of_elements * npts_global[0] * sizeof(double complex));
-  grid_mpi_request recv_request, send_request;
-
-  const int my_number_of_elements = npts_global[0] * number_of_rays[my_process];
 
   const int(*my_bounds)[2] = proc2local_transposed[my_process];
   int my_transposed_sizes[3];
   for (int dir = 0; dir < 3; dir++)
     my_transposed_sizes[dir] = my_bounds[dir][1] - my_bounds[dir][0] + 1;
   assert(my_transposed_sizes[1] == npts_global[1]);
+  max_number_of_elements = imax(max_number_of_elements * npts_global[0],
+                                product3(my_transposed_sizes));
+
+  double complex *recv_buffer =
+      malloc(max_number_of_elements * sizeof(double complex));
+  double complex *send_buffer =
+      malloc(max_number_of_elements * sizeof(double complex));
+  grid_mpi_request recv_request = grid_mpi_request_null,
+                   send_request = grid_mpi_request_null;
 
   memset(transposed, 0, product3(my_transposed_sizes) * sizeof(double complex));
 
@@ -613,54 +617,86 @@ void collect_y_and_distribute_x_ray(const double complex *grid,
     const int recv_process =
         modulo(my_process - process_shift, number_of_processes);
 
-    const int number_of_yz_rays = number_of_rays[recv_process];
-
-    // Post receive request
-    grid_mpi_irecv_double_complex(recv_buffer,
-                                  npts_global[0] * number_of_yz_rays,
-                                  recv_process, 1, comm, &recv_request);
-
-    // Post send request
-    grid_mpi_isend_double_complex(grid, my_number_of_elements, send_process, 1,
-                                  comm, &send_request);
-
+    int number_of_rays_to_recv = 0;
     int recv_ray_offset = 0;
     for (int process = 0; process < recv_process; process++)
       recv_ray_offset += number_of_rays[process];
+    for (int ray = recv_ray_offset;
+         ray < recv_ray_offset + number_of_rays[recv_process]; ray++) {
+      const int index_z = ray_to_yz[ray][1];
+      if (index_z >= my_bounds[2][0] && index_z <= my_bounds[2][1]) {
+        number_of_rays_to_recv++;
+      }
+    }
+    memset(recv_buffer, 0, max_number_of_elements * sizeof(double complex));
+
+    // Post receive request
+    grid_mpi_irecv_double_complex(
+        recv_buffer, my_transposed_sizes[0] * number_of_rays_to_recv,
+        recv_process, 1, comm, &recv_request);
+
+    memset(send_buffer, 0, max_number_of_elements * sizeof(double complex));
+    int number_of_rays_to_send = 0;
+    for (int ray = my_ray_offset;
+         ray < my_ray_offset + number_of_rays[my_process]; ray++) {
+      const int index_z = ray_to_yz[ray][1];
+      if (index_z >= proc2local_transposed[send_process][2][0] &&
+          index_z <= proc2local_transposed[send_process][2][1]) {
+        number_of_rays_to_send++;
+      }
+    }
+    for (int index_x = proc2local_transposed[send_process][0][0];
+         index_x <= proc2local_transposed[send_process][0][1]; index_x++) {
+      int ray_position = 0;
+      for (int ray = my_ray_offset;
+           ray < my_ray_offset + number_of_rays[my_process]; ray++) {
+        const int index_z = ray_to_yz[ray][1];
+        if (index_z >= proc2local_transposed[send_process][2][0] &&
+            index_z <= proc2local_transposed[send_process][2][1]) {
+          send_buffer[(index_x - proc2local_transposed[send_process][0][0]) *
+                          number_of_rays_to_send +
+                      ray_position] =
+              grid[index_x * number_of_rays[my_process] +
+                   (ray - my_ray_offset)];
+          ray_position++;
+        }
+      }
+      assert(ray_position == number_of_rays_to_send);
+    }
+
+    // Post send request
+    grid_mpi_isend_double_complex(
+        send_buffer,
+        number_of_rays_to_send *
+            (proc2local_transposed[send_process][0][1] -
+             proc2local_transposed[send_process][0][0] + 1),
+        send_process, 1, comm, &send_request);
 
     // Wait for the receive process and copy the data
     grid_mpi_wait(&recv_request);
 
-    // Copy and transpose the data
-    for (int yz_ray = 0; yz_ray < number_of_rays[recv_process]; yz_ray++) {
-      const int index_y = ray_to_yz[recv_ray_offset + yz_ray][0];
-      const int index_z = ray_to_yz[recv_ray_offset + yz_ray][1];
-
-      if (index_z < my_bounds[2][0] || index_z > my_bounds[2][1])
-        continue;
-
-      // Copy the data
-      for (int index_x = my_bounds[0][0]; index_x <= my_bounds[0][1];
-           index_x++) {
-        transposed[(index_x - my_bounds[0][0]) * npts_global[1] *
-                       my_transposed_sizes[2] +
-                   (index_z - my_bounds[2][0]) * npts_global[1] + index_y] =
-            recv_buffer[index_x * number_of_rays[recv_process] + yz_ray];
+    for (int index_x = 0; index_x < my_transposed_sizes[0]; index_x++) {
+      int ray_position = 0;
+      for (int ray = recv_ray_offset;
+           ray < recv_ray_offset + number_of_rays[recv_process]; ray++) {
+        const int index_y = ray_to_yz[ray][0];
+        const int index_z = ray_to_yz[ray][1];
+        if (index_z >= my_bounds[2][0] && index_z <= my_bounds[2][1]) {
+          transposed[index_x * npts_global[1] * my_transposed_sizes[2] +
+                     (index_z - my_bounds[2][0]) * npts_global[1] + index_y] =
+              recv_buffer[index_x * number_of_rays_to_recv + ray_position];
+          ray_position++;
+        }
       }
-      number_of_received_rays++;
+      assert(ray_position == number_of_rays_to_recv);
     }
 
     // Wait for the send request
     grid_mpi_wait(&send_request);
   }
-  grid_mpi_sum_int(&number_of_received_rays, 1, comm);
-  int total_number_of_rays = 0;
-  for (int process = 0; process < number_of_processes; process++)
-    total_number_of_rays += number_of_rays[process];
-
-  // assert(number_of_received_rays == total_number_of_rays);
 
   free(recv_buffer);
+  free(send_buffer);
 }
 
 // EOF
