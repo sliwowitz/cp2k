@@ -87,9 +87,14 @@ double fft_test_transpose_ray(const int npts_global[3],
       const double complex ref_value =
           (index_y * npts_global[2] + index_z) + I * index_x;
       double current_error = cabs(my_value - ref_value);
+      if (current_error > 1e-12)
+        printf("%i ERROR %i %i %i: (%f %f) (%f %f)\n", my_process, index_x,
+               index_y, index_z, creal(my_value), cimag(my_value),
+               creal(ref_value), cimag(ref_value));
       max_error = fmax(max_error, current_error);
     }
   }
+  grid_mpi_max_double(&max_error, 1, comm);
 
   if (max_error > 1e-12) {
     if (my_process == 0) {
@@ -177,7 +182,7 @@ double fft_test_transpose_ray(const int npts_global[3],
     }
   }
   fflush(stdout);
-  grid_mpi_barrier(comm);
+  grid_mpi_max_double(&max_error, 1, comm);
 
   grid_free_fft_grid_layout(fft_grid_ray_layout);
   grid_free_fft_grid_layout(ref_grid_layout);
