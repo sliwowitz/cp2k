@@ -87,10 +87,6 @@ double fft_test_transpose_ray(const int npts_global[3],
       const double complex ref_value =
           (index_y * npts_global[2] + index_z) + I * index_x;
       double current_error = cabs(my_value - ref_value);
-      if (current_error > 1e-12)
-        printf("%i ERROR %i %i %i: (%f %f) (%f %f)\n", my_process, index_x,
-               index_y, index_z, creal(my_value), cimag(my_value),
-               creal(ref_value), cimag(ref_value));
       max_error = fmax(max_error, current_error);
     }
   }
@@ -154,10 +150,6 @@ double fft_test_transpose_ray(const int npts_global[3],
                (index_z + my_bounds_ms_ray[2][0])) +
               I * (index_x + my_bounds_ms_ray[0][0]);
           double current_error = cabs(my_value - ref_value);
-          if (current_error > 1e-12)
-            printf("%i ERROR %i %i %i: (%f %f) (%f %f)\n", my_process, index_x,
-                   index_y, index_z, creal(my_value), cimag(my_value),
-                   creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       } else {
@@ -172,10 +164,6 @@ double fft_test_transpose_ray(const int npts_global[3],
           // The value is assumed to be zero if absent
           const double complex ref_value = 0.0;
           double current_error = cabs(my_value - ref_value);
-          if (current_error > 1e-12)
-            printf("%i ERROR %i %i %i: (%f %f) (%f %f)\n", my_process, index_x,
-                   index_y, index_z, creal(my_value), cimag(my_value),
-                   creal(ref_value), cimag(ref_value));
           max_error = fmax(max_error, current_error);
         }
       }
@@ -219,15 +207,6 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
 
   grid_fft_grid_layout *fft_grid_layout = NULL;
   grid_create_fft_grid_layout(&fft_grid_layout, comm, npts_global, dh_inv);
-
-  if (my_process == 0) {
-    for (int process = 0; process < grid_mpi_comm_size(comm); process++) {
-      const int(*bounds_rs)[2] = fft_grid_layout->proc2local_rs[process];
-      printf("proc2local_rs %i: %i %i %i %i %i %i\n", process, bounds_rs[0][0],
-             bounds_rs[0][1], bounds_rs[1][0], bounds_rs[1][1], bounds_rs[2][0],
-             bounds_rs[2][1]);
-    }
-  }
 
   const int(*my_bounds_rs)[2] = fft_grid_layout->proc2local_rs[my_process];
   int my_sizes_rs[3];
@@ -278,10 +257,6 @@ int fft_test_transpose_blocked(const int npts_global[3]) {
              (ny + my_bounds_ms[1][0])) +
             I * (nz + my_bounds_ms[2][0]);
         double current_error = cabs(my_value - ref_value);
-        if (current_error > 1e-12)
-          printf("%i ERROR %i %i %i: (%f %f) (%f %f)\n", my_process, nx, ny, nz,
-                 creal(my_value), cimag(my_value), creal(ref_value),
-                 cimag(ref_value));
         max_error = fmax(max_error, current_error);
       }
     }
