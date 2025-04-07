@@ -129,7 +129,7 @@ void grid_mpi_dims_create(const int number_of_processes,
                           const int number_of_dimensions, int *dimensions);
 
 void grid_mpi_cart_create(const grid_mpi_comm comm_old, const int ndims,
-                          const int dims[ndims], const int periods[ndims],
+                          const int *dims, const int *periods,
                           const int reorder, grid_mpi_comm *comm_cart);
 
 void grid_mpi_cart_sub(const grid_mpi_comm comm_old, const int *remain_dims,
