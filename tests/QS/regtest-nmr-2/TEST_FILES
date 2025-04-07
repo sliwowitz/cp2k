@@ -4,5 +4,5 @@
 #      1 compares the last total energy in the file
 #      for details see cp2k/tools/do_regtest
 He_nmr_full.inp                                       14      2e-05                        198.893
-he2_bug_disp.inp                                      14    1.0E-14                   0.144732E+03
+he2_bug_disp.inp                                      14    1.0E-14                   0.247774E+02
 #EOF

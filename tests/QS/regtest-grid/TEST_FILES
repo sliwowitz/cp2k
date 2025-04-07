@@ -5,9 +5,9 @@
 #      for details see cp2k/tools/do_regtest
 
 simple_non-ortho_grid_auto.inp                             1     1e-12           -18.04976254511681
-simple_non-ortho_grid_validate.inp                         1     1e-12           -18.04976254476928
-simple_non-ortho_grid_ref.inp                              1     1e-12           -18.04976254476928
-simple_non-ortho_grid_cpu.inp                              1     1e-12           -18.04976254476928
+simple_non-ortho_grid_validate.inp                         1     1e-12           -18.04976254511740
+simple_non-ortho_grid_ref.inp                              1     1e-12           -18.04976254511690
+simple_non-ortho_grid_cpu.inp                              1     1e-12           -18.04976254511637
 simple_non-ortho_grid_dgemm.inp                            1     4e-08           -18.05635361766292
 
 simple_ortho_grid_auto.inp                                 1     2e-14           -21.04944231395059

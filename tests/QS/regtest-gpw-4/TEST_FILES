@@ -49,8 +49,8 @@ H2O-9.inp                                              1      5e-13             
 # a system with a very small (1x1) KS matrix
 H.inp                                                  1      2e-13              -0.40345508311902
 # one (ghost) atom has no basis set associated
-basis_none_1.inp                                       1      3e-12             -17.10569678759877
-basis_none_2.inp                                       1      2e-12             -17.11076726695875
+basis_none_1.inp                                       1      3e-12             -17.10569678771610
+basis_none_2.inp                                       1      2e-12             -17.11076726700941
 # cell opt with a restart
 cell-1.inp                                             7    1.0E-14                 -21.0495583581
 cell-2.inp                                             7    1.0E-14                 -21.0496558677

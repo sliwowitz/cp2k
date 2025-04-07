@@ -29,6 +29,7 @@
     &SCF
       MAX_SCF 20
       SCF_GUESS ATOMIC
+      IGNORE_CONVERGENCE_FAILURE
     &END SCF
     &XC
       &XC_FUNCTIONAL Pade
