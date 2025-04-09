@@ -1418,7 +1418,9 @@ set(CP2K_GRID_SRCS_C
     grid/grid_integrate.c
     grid/grid_multigrid.c
     grid/grid_multigrid_test.c
-    grid/grid_replay.c)
+    grid/grid_replay.c
+    grid/grid_fft_cufftmp.c) #TODO: Hackaton2025
+
 
 set(CP2K_FPGA_SRC_C pw/fpga/fft_fpga.c pw/fpga/opencl_utils.c)
 set(CP2K_PW_SRCS_C pw/gpu/pw_gpu_internal.c)
@@ -1722,6 +1724,7 @@ endif()
 # have this alias available.
 
 add_library(cp2k::cp2k ALIAS cp2k)
+target_include_directories(cp2k PUBLIC /opt/nvidia/hpc_sdk/Linux_x86_64/25.3/math_libs/include)
 
 # ##############################################################################
 # applications
@@ -1776,7 +1779,16 @@ foreach(_app ${__CP2K_APPS})
   endif()
 
   target_link_libraries(${_app} PUBLIC cp2k)
+
 endforeach()
+
+#TODO: Hackaton 2025
+target_include_directories(cp2k-bin PUBLIC
+        /opt/nvidia/hpc_sdk/Linux_x86_64/25.3/math_libs/include)
+target_link_directories(cp2k-bin PUBLIC
+        /opt/nvidia/hpc_sdk/Linux_x86_64/25.3/math_libs/lib64
+        /opt/nvidia/hpc_sdk/Linux_x86_64/25.3/comm_libs/nvshmem/lib)
+target_link_libraries(cp2k-bin PUBLIC cufftMp nvshmem)
 
 # ##############################################################################
 # different miniapps
