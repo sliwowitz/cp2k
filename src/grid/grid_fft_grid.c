@@ -1,4 +1,4 @@
-/*----------------------------------------------------------------------------*/
+/*---------------------------------------FFT-------------------------------------*/
 /*  CP2K: A general program to perform molecular dynamics simulations         */
 /*  Copyright 2000-2025 CP2K developers group <https://cp2k.org>              */
 /*                                                                            */
@@ -170,17 +170,10 @@ void fft_3d_fw(const grid_fft_real_rs_grid *grid_rs,
       }
     }
   } else {
-    // fft_3d_fw_blocked(buffer_1_real, grid_layout->buffer_2,
-    //                   grid_layout->npts_global, grid_layout->proc2local_rs,
-    //                   grid_layout->proc2local_ms, grid_layout->proc2local_gs,
-    //                   grid_layout->fft_plans, grid_layout->comm,
-    //                   grid_layout->sub_comm);
-    fft_3d_fw_cufftmp(buffer_1_real,
-                      grid_layout->buffer_2,
-                      grid_layout->npts_global,
-                      grid_layout->proc2local_rs,
-                      grid_layout->proc2local_gs,
-                      grid_layout->comm,
+    fft_3d_fw_blocked(buffer_1_real, grid_layout->buffer_2,
+                      grid_layout->npts_global, grid_layout->proc2local_rs,
+                      grid_layout->proc2local_ms, grid_layout->proc2local_gs,
+                      grid_layout->fft_plans, grid_layout->comm,
                       grid_layout->sub_comm);
     int local_sizes_gs[3];
     for (int dir = 0; dir < 3; dir++) {
