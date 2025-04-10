@@ -124,6 +124,12 @@ void grid_copy_to_multigrid_single(const grid_multigrid *multigrid,
                                    const int (*proc2local)[3][2]) {
   if (multigrid->nlevels > 1) {
     if (USE_CUFFTMP) {
+      // Copy the data into our own grid
+      redistribute_grids(grid, (double *)multigrid->fft_rs_grids->data, comm,
+                         multigrid->fft_rs_grids->fft_grid_layout->comm,
+                         multigrid->npts_global[0], proc2local,
+                         (const int(*)[3][2])multigrid->fft_rs_grids
+                             ->fft_grid_layout->proc2local_rs);
       cufftmp_grid_copy_to_multigrid_single(multigrid, grid, comm, proc2local);
     } else {
       // Copy the data into our own grid
@@ -229,7 +235,7 @@ void grid_copy_to_multigrid_single_f(const grid_multigrid *multigrid,
   grid_copy_to_multigrid_single(multigrid, grid, grid_mpi_comm_f2c(comm),
                                 proc2local);
 }
-
+'
 void grid_copy_from_multigrid_single_f(const grid_multigrid *multigrid,
                                        double *grid, const grid_mpi_fint comm,
                                        const int (*proc2local)[3][2]) {

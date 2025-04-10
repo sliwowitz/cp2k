@@ -2,6 +2,7 @@
 
 #include "common/grid_mpi.h"
 #include <complex.h>
+#include <cudalibxt.h>
 #include <stdbool.h>
 
 #include "grid_multigrid.h"
@@ -26,7 +27,7 @@ void cufftmp_grid_copy_from_multigrid_single(
 
 void cufft_fwd(
     double *grid_rs,
-    double complex *grid_gs,
+    cudaLibXtDesc *complex_scratch_space,
     const int npts_global[3],
     struct fft_box_t *box_real,
     struct fft_box_t *box_complex,
@@ -35,7 +36,7 @@ void cufft_fwd(
 
 void cufft_bck(
     double *grid_rs,
-    double complex *grid_gs,
+    cudaLibXtDesc *complex_scratch_space,
     const int npts_global[3],
     struct fft_box_t *box_real,
     struct fft_box_t *box_complex,
