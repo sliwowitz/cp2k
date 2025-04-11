@@ -235,7 +235,7 @@ void grid_copy_to_multigrid_single_f(const grid_multigrid *multigrid,
   grid_copy_to_multigrid_single(multigrid, grid, grid_mpi_comm_f2c(comm),
                                 proc2local);
 }
-'
+
 void grid_copy_from_multigrid_single_f(const grid_multigrid *multigrid,
                                        double *grid, const grid_mpi_fint comm,
                                        const int (*proc2local)[3][2]) {

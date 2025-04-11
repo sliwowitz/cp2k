@@ -64,10 +64,10 @@ void cufft_grid_copy_to_multigrid_single(
   make_strides(box_complex.strides, box_complex.lower, box_complex.upper);
 
   // Allocate a multi-GPU descriptor
-  cudaLibXtDesc *complex_scratch_space;
+  cudaLibXtDesc *gpu_fine_grid;
 
   cufft_fwd(grid,
-            complex_scratch_space,
+            gpu_fine_grid,
             npts_global,
             &box_real,
             &box_complex,
@@ -86,7 +86,7 @@ void cufft_grid_copy_to_multigrid_single(
   for (int level = 1; level < multigrid->nlevels; level++) {
     // Copy the data to the coarse grid
     //TODO: Both grids should be allocated via cufftXtMalloc!
-    grid_copy_to_coarse_grid(complex_scratch_space,
+    grid_copy_to_coarse_grid(gpu_fine_grid,
                              &multigrid->fft_gs_grids[level]);
     cufft_bck(&multigrid->fft_gs_grids[level],
               &multigrid->fft_rs_grids[level],
@@ -114,8 +114,15 @@ void cufft_grid_copy_to_multigrid_single(
   }
 }
 
-void cufft_fwd(const double *grid_rs,
-               cudaLibXtDesc *complex_scratch_space,
+void cufft_grid_copy_from_multigrid_single(
+    const grid_multigrid *multigrid,
+    double *grid,
+    const grid_mpi_comm comm,
+    const int (*proc2local)[3][2]) {
+}
+
+void cufft_fwd(const double *cpu_data,
+               cudaLibXtDesc *gpu_data,
                const int npts_global[3],
                struct fft_box_t *box_real,
                struct fft_box_t *box_complex,
@@ -129,12 +136,11 @@ void cufft_fwd(const double *grid_rs,
       box_complex->lower, box_complex->upper, box_complex->strides,
       CUFFT_R2C, &comm, CUFFT_COMM_MPI, &work_size);
 
-  cufftXtMalloc(plan_r2c, &complex_scratch_space, CUFFT_XT_FORMAT_INPLACE);
-  // Copy data from the CPU to the GPU.
-  // The CPU data is distributed according to CUFFT_XT_FORMAT_DISTRIBUTED_INPUT
-  cufftXtMemcpy(plan_r2c, complex_scratch_space, grid_rs, CUFFT_COPY_HOST_TO_DEVICE);
+  cufftXtMalloc(plan_r2c, &gpu_data, CUFFT_XT_FORMAT_DISTRIBUTED_INPUT);
+  // Copy the real data to the device
+  cufftXtMemcpy(plan_r2c, gpu_data, cpu_data, CUFFT_COPY_HOST_TO_DEVICE);
 
-  cufftXtExecDescriptor(plan_r2c, complex_scratch_space, complex_scratch_space, CUFFT_FORWARD);
+  cufftXtExecDescriptor(plan_r2c, gpu_data, gpu_data, CUFFT_FORWARD);
 }
 
 void cufft_bck(double *grid_rs,

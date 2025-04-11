@@ -26,7 +26,7 @@ void cufftmp_grid_copy_from_multigrid_single(
   const int (*proc2local)[3][2]);
 
 void cufft_fwd(
-    double *grid_rs,
+    const double *grid_rs,
     cudaLibXtDesc *complex_scratch_space,
     const int npts_global[3],
     struct fft_box_t *box_real,
