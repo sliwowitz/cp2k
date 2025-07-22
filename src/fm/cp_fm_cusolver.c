@@ -437,6 +437,7 @@ void cp_fm_diag_cusolver_sygvd(const int fortran_comm,
 
   // Wait for computation to finish
   CUDA_CHECK(cudaStreamSynchronize(stream));
+  CAL_CHECK(cal_stream_sync(cal_comm, stream));
 
   // Check info
   int info;
