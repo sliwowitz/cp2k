@@ -114,6 +114,7 @@ MODULE cp_fm_diag
    ! Public subroutines
    PUBLIC :: choose_eigv_solver, &
              cp_fm_block_jacobi, &
+             cp_fm_general_cusolver, &
              cp_fm_power, &
              cp_fm_syevd, &
              cp_fm_syevx, &

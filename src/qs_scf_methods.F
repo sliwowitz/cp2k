@@ -31,7 +31,8 @@ MODULE qs_scf_methods
                                               cp_fm_cholesky_restore
    USE cp_fm_diag,                      ONLY: choose_eigv_solver,&
                                              cp_fm_block_jacobi,&
-                                             cp_fm_general_cusolver
+                                             cp_fm_general_cusolver, &
+                                             FM_DIAG_TYPE_CUSOLVER
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
                                               cp_fm_struct_equivalent,&
                                               cp_fm_struct_release,&
@@ -163,15 +164,20 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE eigensolver(matrix_ks_fm, mo_set, ortho, work, &
                           cholesky_method, do_level_shift, &
-                          level_shift, matrix_u_fm, use_jacobi)
-      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ks_fm
+                          level_shift, matrix_u_fm, use_jacobi, &
+                          matrix_s, diag_type, cusolver_generalized)
+      TYPE(cp_fm_type), INTENT(INOUT)                    :: matrix_ks_fm
       TYPE(mo_set_type), INTENT(IN)                      :: mo_set
-      TYPE(cp_fm_type), INTENT(IN)                       :: ortho, work
-      INTEGER, INTENT(inout)                             :: cholesky_method
+      TYPE(cp_fm_type), INTENT(IN)                       :: ortho
+      TYPE(cp_fm_type), INTENT(INOUT)                    :: work
+      INTEGER, INTENT(in)                                :: cholesky_method
       LOGICAL, INTENT(in)                                :: do_level_shift
       REAL(KIND=dp), INTENT(in)                          :: level_shift
       TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: matrix_u_fm
       LOGICAL, INTENT(in)                                :: use_jacobi
+      TYPE(dbcsr_type), INTENT(IN), OPTIONAL             :: matrix_s
+      INTEGER, INTENT(IN), OPTIONAL                      :: diag_type
+      LOGICAL, INTENT(IN), OPTIONAL                      :: cusolver_generalized
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'eigensolver'
 
@@ -180,6 +186,18 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
 
       CALL timeset(routineN, handle)
+
+      IF (PRESENT(diag_type) .AND. PRESENT(matrix_s) .AND. PRESENT(cusolver_generalized)) THEN
+         IF (diag_type == FM_DIAG_TYPE_CUSOLVER .AND. cusolver_generalized .AND. .NOT. do_level_shift) THEN
+            CALL eigensolver_generalized(matrix_ks_fm=matrix_ks_fm, &
+                                         matrix_s=matrix_s, &
+                                         mo_set=mo_set, &
+                                         work=work)
+            CALL timestop(handle)
+            !TODO: this is just a quick test.cahnge form early return to if..then later
+            RETURN
+         END IF
+      END IF
 
       NULLIFY (mo_coeff)
       NULLIFY (mo_eigenvalues)
@@ -247,7 +265,6 @@ CONTAINS
 
       IF (use_jacobi) THEN
          CALL cp_fm_to_fm(mo_coeff, ortho)
-         cholesky_method = cholesky_off
       END IF
 
       CALL timestop(handle)
