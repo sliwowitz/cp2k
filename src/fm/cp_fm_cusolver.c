@@ -365,6 +365,41 @@ void cp_fm_diag_cusolver(const int fortran_comm, const int matrix_desc[9],
 }
 
 /*******************************************************************************
+ * \brief Cached GPU buffers for the SyGvd generalized eigensolver.
+ *        Reused across SCF steps to avoid costly cudaMalloc/cudaFree per call.
+ ******************************************************************************/
+static double *sygvd_dev_A = NULL;
+static double *sygvd_dev_B = NULL;
+static double *sygvd_dev_Z = NULL;
+static double *sygvd_eigenvalues_dev = NULL;
+static int *sygvd_info_dev = NULL;
+static void *sygvd_work_dev = NULL;
+static void *sygvd_work_host = NULL;
+static size_t sygvd_matrix_local_size = 0;
+static int sygvd_n = 0;
+static size_t sygvd_work_dev_size = 0;
+static size_t sygvd_work_host_size = 0;
+// Note: B matrix cannot be cached on GPU because cusolverMpSygvd overwrites it.
+
+/*******************************************************************************
+ * \brief Free cached GPU buffers when they need to be reallocated or at exit.
+ ******************************************************************************/
+static void sygvd_free_buffers(void) {
+  if (sygvd_dev_A) { cudaFree(sygvd_dev_A); sygvd_dev_A = NULL; }
+  if (sygvd_dev_B) { cudaFree(sygvd_dev_B); sygvd_dev_B = NULL; }
+  if (sygvd_dev_Z) { cudaFree(sygvd_dev_Z); sygvd_dev_Z = NULL; }
+  if (sygvd_eigenvalues_dev) { cudaFree(sygvd_eigenvalues_dev); sygvd_eigenvalues_dev = NULL; }
+  if (sygvd_info_dev) { cudaFree(sygvd_info_dev); sygvd_info_dev = NULL; }
+  if (sygvd_work_dev) { cudaFree(sygvd_work_dev); sygvd_work_dev = NULL; }
+  if (sygvd_work_host) { cudaFreeHost(sygvd_work_host); sygvd_work_host = NULL; }
+  sygvd_matrix_local_size = 0;
+  sygvd_n = 0;
+  sygvd_work_dev_size = 0;
+  sygvd_work_host_size = 0;
+  // B matrix tracking removed: solver overwrites B in-place.
+}
+
+/*******************************************************************************
  * \brief Driver routine to solve A*x = lambda*B*x with cuSOLVERMp sygvd.
  * \author Jiri Vyskocil
  ******************************************************************************/
@@ -443,10 +478,11 @@ void cp_fm_diag_cusolver_sygvd(const int fortran_comm,
   // Ensure consistency in block sizes, sources, and leading dimensions
   assert(mb_a == mb_b && nb_a == nb_b);
   assert(rsrc_a == rsrc_b && csrc_a == csrc_b);
-  (void)ldB; // Suppress unused variable warning
+  assert(ldA == ldB);
 
   const int np_a = cusolverMpNUMROC(n, mb_a, myprow, rsrc_a, nprow);
   const int nq_a = cusolverMpNUMROC(n, nb_a, mypcol, csrc_a, npcol);
+  (void)np_a;
 
   const cublasFillMode_t uplo = CUBLAS_FILL_MODE_LOWER;
   const cusolverEigType_t itype = CUSOLVER_EIG_TYPE_1;
@@ -458,60 +494,72 @@ void cp_fm_diag_cusolver_sygvd(const int fortran_comm,
   cusolverMpMatrixDescriptor_t descrB = NULL;
   cusolverMpMatrixDescriptor_t descrZ = NULL;
 
-  // Create matrix descriptors using ldA as local leading dimension (LLD)
-  // Note: We use ldA for all matrices. The assertion above verifies ldA == ldB.
   CUSOLVER_CHECK(cusolverMpCreateMatrixDesc(&descrA, grid, data_type, n, n,
                                             mb_a, nb_a, rsrc_a, csrc_a, ldA));
   CUSOLVER_CHECK(cusolverMpCreateMatrixDesc(&descrB, grid, data_type, n, n,
-                                            mb_b, nb_b, rsrc_b, csrc_b, ldA));
+                                            mb_b, nb_b, rsrc_b, csrc_b, ldB));
   CUSOLVER_CHECK(cusolverMpCreateMatrixDesc(&descrZ, grid, data_type, n, n,
                                             mb_a, nb_a, rsrc_a, csrc_a, ldA));
 
-  // Allocate device memory for matrices
-  double *dev_A = NULL, *dev_B = NULL;
-  size_t matrix_local_size = ldA * nq_a * sizeof(double);
-  CUDA_CHECK(cudaMalloc((void **)&dev_A, matrix_local_size));
-  CUDA_CHECK(cudaMalloc((void **)&dev_B, matrix_local_size));
+  // Compute local buffer size
+  const size_t matrix_local_size = ldA * nq_a * sizeof(double);
 
-  // Copy matrices from host to device
-  CUDA_CHECK(cudaMemcpyAsync(dev_A, aMatrix, matrix_local_size,
+  // Reallocate GPU buffers only if matrix dimensions changed
+  if (matrix_local_size != sygvd_matrix_local_size || n != sygvd_n) {
+    sygvd_free_buffers();
+    sygvd_matrix_local_size = matrix_local_size;
+    sygvd_n = n;
+    CUDA_CHECK(cudaMalloc((void **)&sygvd_dev_A, matrix_local_size));
+    CUDA_CHECK(cudaMalloc((void **)&sygvd_dev_B, matrix_local_size));
+    CUDA_CHECK(cudaMalloc((void **)&sygvd_dev_Z, matrix_local_size));
+    CUDA_CHECK(cudaMalloc((void **)&sygvd_eigenvalues_dev, n * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void **)&sygvd_info_dev, sizeof(int)));
+  }
+
+  // Copy A matrix (KS) from host to device every call
+  CUDA_CHECK(cudaMemcpyAsync(sygvd_dev_A, aMatrix, matrix_local_size,
                              cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(dev_B, bMatrix, matrix_local_size,
+
+  // Copy B matrix (overlap S) every call.
+  // cusolverMpSygvd overwrites B in-place (Cholesky factorization),
+  // so we must re-upload the original B each time.
+  CUDA_CHECK(cudaMemcpyAsync(sygvd_dev_B, bMatrix, matrix_local_size,
                              cudaMemcpyHostToDevice, stream));
 
-  // Allocate device memory for eigenvalues and eigenvectors
-  double *dev_Z = NULL, *eigenvalues_dev = NULL;
-  CUDA_CHECK(cudaMalloc((void **)&dev_Z, matrix_local_size));
-  CUDA_CHECK(cudaMalloc((void **)&eigenvalues_dev, n * sizeof(double)));
-
-  // Query workspace size
-  size_t work_dev_size = 0, work_host_size = 0;
+  // Query workspace size and reallocate if needed
+  size_t new_work_dev_size = 0, new_work_host_size = 0;
   const int64_t ia = 1, ja = 1, ib = 1, jb = 1, iz = 1, jz = 1;
   const int64_t m = (int64_t)n;
 
   cusolverStatus_t status_bufsize = cusolverMpSygvd_bufferSize(
       cusolvermp_handle, itype, jobz, uplo, m, ia, ja, descrA, ib, jb, descrB,
-      iz, jz, descrZ, data_type, &work_dev_size, &work_host_size);
+      iz, jz, descrZ, data_type, &new_work_dev_size, &new_work_host_size);
   if (status_bufsize != CUSOLVER_STATUS_SUCCESS) {
     fprintf(stderr, "ERROR: cusolverMpSygvd_bufferSize failed with status=%d\n",
             (int)status_bufsize);
     abort();
   }
 
-  void *work_dev = NULL, *work_host = NULL;
-  CUDA_CHECK(cudaMalloc(&work_dev, work_dev_size));
-  CUDA_CHECK(cudaMallocHost(&work_host, work_host_size));
+  if (new_work_dev_size > sygvd_work_dev_size) {
+    if (sygvd_work_dev) { cudaFree(sygvd_work_dev); }
+    CUDA_CHECK(cudaMalloc(&sygvd_work_dev, new_work_dev_size));
+    sygvd_work_dev_size = new_work_dev_size;
+  }
+  if (new_work_host_size > sygvd_work_host_size) {
+    if (sygvd_work_host) { cudaFreeHost(sygvd_work_host); }
+    CUDA_CHECK(cudaMallocHost(&sygvd_work_host, new_work_host_size));
+    sygvd_work_host_size = new_work_host_size;
+  }
 
-  // Allocate and initialize device memory for info
-  int *info_dev = NULL;
-  CUDA_CHECK(cudaMalloc((void **)&info_dev, sizeof(int)));
-  CUDA_CHECK(cudaMemset(info_dev, 0, sizeof(int)));
+  // Reset info
+  CUDA_CHECK(cudaMemset(sygvd_info_dev, 0, sizeof(int)));
 
   // Call cusolverMpSygvd
   cusolverStatus_t status_sygvd = cusolverMpSygvd(
-      cusolvermp_handle, itype, jobz, uplo, m, dev_A, ia, ja, descrA, dev_B, ib,
-      jb, descrB, eigenvalues_dev, dev_Z, iz, jz, descrZ, data_type, work_dev,
-      work_dev_size, work_host, work_host_size, info_dev);
+      cusolvermp_handle, itype, jobz, uplo, m, sygvd_dev_A, ia, ja, descrA,
+      sygvd_dev_B, ib, jb, descrB, sygvd_eigenvalues_dev, sygvd_dev_Z, iz, jz,
+      descrZ, data_type, sygvd_work_dev, sygvd_work_dev_size, sygvd_work_host,
+      sygvd_work_host_size, sygvd_info_dev);
   if (status_sygvd != CUSOLVER_STATUS_SUCCESS) {
     fprintf(stderr, "ERROR: cusolverMpSygvd failed with status=%d\n",
             (int)status_sygvd);
@@ -526,29 +574,23 @@ void cp_fm_diag_cusolver_sygvd(const int fortran_comm,
 
   // Check info
   int info;
-  CUDA_CHECK(cudaMemcpy(&info, info_dev, sizeof(int), cudaMemcpyDeviceToHost));
+  CUDA_CHECK(cudaMemcpy(&info, sygvd_info_dev, sizeof(int), cudaMemcpyDeviceToHost));
   if (info != 0) {
     fprintf(stderr, "ERROR: cusolverMpSygvd failed with info = %d\n", info);
     abort();
   }
 
   // Copy results back to host
-  CUDA_CHECK(cudaMemcpyAsync(eigenvectors, dev_Z, matrix_local_size,
+  CUDA_CHECK(cudaMemcpyAsync(eigenvectors, sygvd_dev_Z, matrix_local_size,
                              cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(eigenvalues, eigenvalues_dev, n * sizeof(double),
-                             cudaMemcpyDeviceToHost, stream));
+  CUDA_CHECK(cudaMemcpyAsync(eigenvalues, sygvd_eigenvalues_dev,
+                             n * sizeof(double), cudaMemcpyDeviceToHost,
+                             stream));
 
   // Wait for copy to finish
   CUDA_CHECK(cudaStreamSynchronize(stream));
 
-  // Clean up resources
-  CUDA_CHECK(cudaFree(dev_A));
-  CUDA_CHECK(cudaFree(dev_B));
-  CUDA_CHECK(cudaFree(dev_Z));
-  CUDA_CHECK(cudaFree(eigenvalues_dev));
-  CUDA_CHECK(cudaFree(info_dev));
-  CUDA_CHECK(cudaFree(work_dev));
-  CUDA_CHECK(cudaFreeHost(work_host));
+  // Destroy per-call handles (NCCL comm/handle caching deferred to later)
   CUSOLVER_CHECK(cusolverMpDestroyMatrixDesc(descrA));
   CUSOLVER_CHECK(cusolverMpDestroyMatrixDesc(descrB));
   CUSOLVER_CHECK(cusolverMpDestroyMatrixDesc(descrZ));
