@@ -252,10 +252,12 @@ CONTAINS
 
          DO ispin = 1, nspin
             IF (diag_type == FM_DIAG_TYPE_CUSOLVER .AND. cusolver_generalized .AND. .NOT. do_level_shift) THEN
+               IF (.NOT. ASSOCIATED(scf_env%s_fm_cusolver)) ALLOCATE (scf_env%s_fm_cusolver)
                CALL eigensolver_generalized(matrix_ks_fm=scf_env%scf_work1(ispin), &
-                                            matrix_s=matrix_s(ispin)%matrix, &
+                                            matrix_s=matrix_s(1)%matrix, &
                                             mo_set=mos(ispin), &
-                                            work=scf_env%scf_work2)
+                                            work=scf_env%scf_work2, &
+                                            s_fm_cached=scf_env%s_fm_cusolver)
             ELSE
                IF (do_level_shift) THEN
                   CALL eigensolver(matrix_ks_fm=scf_env%scf_work1(ispin), &

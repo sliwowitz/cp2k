@@ -260,19 +260,25 @@ CONTAINS
 !> \param matrix_s     Overlap matrix (DBCSR)
 !> \param mo_set       Molecular orbital set
 !> \param work         Work matrix (used as eigenvector buffer)
+!> \param s_fm_cached  Optional cached FM copy of the overlap matrix S.
+!>                     If not allocated, it will be created and filled on first call.
+!>                     Subsequent calls reuse the cached copy, avoiding repeated
+!>                     DBCSR-to-FM conversions since S does not change during SCF.
 ! **************************************************************************************************
-   SUBROUTINE eigensolver_generalized(matrix_ks_fm, matrix_s, mo_set, work)
+   SUBROUTINE eigensolver_generalized(matrix_ks_fm, matrix_s, mo_set, work, s_fm_cached)
       TYPE(cp_fm_type), INTENT(INOUT)                    :: matrix_ks_fm
       TYPE(dbcsr_type), INTENT(IN)                       :: matrix_s
       TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(cp_fm_type), INTENT(INOUT)                    :: work
+      TYPE(cp_fm_type), INTENT(INOUT), OPTIONAL          :: s_fm_cached
 
       CHARACTER(len=*), PARAMETER :: routineN = 'eigensolver_generalized'
 
       INTEGER                                            :: handle, nmo
+      LOGICAL                                            :: use_cache
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type)                                   :: s_fm
+      TYPE(cp_fm_type)                                   :: s_fm_local
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
 
       CALL timeset(routineN, handle)
@@ -283,17 +289,25 @@ CONTAINS
       CALL get_mo_set(mo_set=mo_set, nmo=nmo, eigenvalues=mo_eigenvalues, mo_coeff=mo_coeff)
       CALL cp_fm_get_info(matrix_ks_fm, matrix_struct=fm_struct)
 
-      ! Convert S matrix from DBCSR to FM (required for cuSOLVERMp)
-      CALL cp_fm_create(s_fm, fm_struct)
-      CALL copy_dbcsr_to_fm(matrix_s, s_fm)
+      use_cache = PRESENT(s_fm_cached)
 
-      ! Solve generalized eigenvalue problem - eigenvectors output to work buffer
-      CALL cp_fm_general_cusolver(matrix_ks_fm, s_fm, work, mo_eigenvalues)
+      IF (use_cache) THEN
+         ! Use cached S matrix; convert from DBCSR on first call only
+         IF (.NOT. ASSOCIATED(s_fm_cached%matrix_struct)) THEN
+            CALL cp_fm_create(s_fm_cached, fm_struct)
+            CALL copy_dbcsr_to_fm(matrix_s, s_fm_cached)
+         END IF
+         CALL cp_fm_general_cusolver(matrix_ks_fm, s_fm_cached, work, mo_eigenvalues)
+      ELSE
+         ! No cache available: convert S every call (fallback)
+         CALL cp_fm_create(s_fm_local, fm_struct)
+         CALL copy_dbcsr_to_fm(matrix_s, s_fm_local)
+         CALL cp_fm_general_cusolver(matrix_ks_fm, s_fm_local, work, mo_eigenvalues)
+         CALL cp_fm_release(s_fm_local)
+      END IF
 
       ! Copy only the occupied MOs to mo_coeff
       CALL cp_fm_to_fm(work, mo_coeff, nmo)
-
-      CALL cp_fm_release(s_fm)
 
       CALL timestop(handle)
 
