@@ -85,6 +85,7 @@ CONTAINS
       nmo = SIZE(eigenvalues)
       eigenvalues(1:nmo) = eigenvalues_buffer(1:nmo)
 
+      DEALLOCATE (eigenvalues_buffer)
 #else
       MARK_USED(matrix)
       MARK_USED(eigenvectors)
