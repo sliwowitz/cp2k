@@ -207,6 +207,126 @@ static char *cusolverGetErrorString(cusolverStatus_t status) {
   } while (0)
 
 /*******************************************************************************
+ * \brief Cached cusolverMp infrastructure (communicator, stream, handle, grid).
+ *        Reused across SCF steps to avoid expensive NCCL/CAL initialization.
+ ******************************************************************************/
+static cudaStream_t cached_stream = NULL;
+static cusolverMpHandle_t cached_handle = NULL;
+static cusolverMpGrid_t cached_grid = NULL;
+static int cached_fortran_comm = -1;
+static int cached_nprow = 0;
+static int cached_npcol = 0;
+#if defined(__CUSOLVERMP_NCCL)
+static ncclComm_t cached_nccl_comm = NULL;
+#else
+static cal_comm_t cached_cal_comm = NULL;
+static MPI_Comm cached_mpi_comm;
+#endif
+
+/*******************************************************************************
+ * \brief Free cached cusolverMp infrastructure.
+ ******************************************************************************/
+static void cusolver_free_infrastructure(void) {
+  if (cached_grid) {
+    cusolverMpDestroyGrid(cached_grid);
+    cached_grid = NULL;
+  }
+  if (cached_handle) {
+    cusolverMpDestroy(cached_handle);
+    cached_handle = NULL;
+  }
+  if (cached_stream) {
+    cudaStreamDestroy(cached_stream);
+    cached_stream = NULL;
+  }
+#if defined(__CUSOLVERMP_NCCL)
+  if (cached_nccl_comm) {
+    ncclCommDestroy(cached_nccl_comm);
+    cached_nccl_comm = NULL;
+  }
+#else
+  if (cached_cal_comm) {
+    cal_comm_destroy(cached_cal_comm);
+    cached_cal_comm = NULL;
+  }
+#endif
+  cached_fortran_comm = -1;
+  cached_nprow = 0;
+  cached_npcol = 0;
+}
+
+/*******************************************************************************
+ * \brief Ensure cusolverMp infrastructure is initialized and cached.
+ *        Creates NCCL/CAL communicator, CUDA stream, cusolverMp handle, and
+ *        device grid on first call. Reuses on subsequent calls if fortran_comm
+ *        and grid dimensions are unchanged.
+ ******************************************************************************/
+static void ensure_cusolver_infrastructure(const int fortran_comm,
+                                           const int nprow, const int npcol,
+                                           cusolverMpHandle_t *handle_out,
+                                           cusolverMpGrid_t *grid_out,
+                                           cudaStream_t *stream_out) {
+  if (cached_fortran_comm != fortran_comm || cached_handle == NULL) {
+    // Communicator changed or first call — rebuild everything.
+    cusolver_free_infrastructure();
+
+    const int local_device = offload_get_chosen_device();
+    MPI_Comm comm = MPI_Comm_f2c(fortran_comm);
+    int rank, nranks;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &nranks);
+
+#if defined(__CUSOLVERMP_NCCL)
+    ncclUniqueId nccl_id;
+    if (rank == 0) {
+      NCCL_CHECK(ncclGetUniqueId(&nccl_id));
+    }
+    MPI_Bcast(&nccl_id, sizeof(nccl_id), MPI_BYTE, 0, comm);
+    NCCL_CHECK(ncclCommInitRank(&cached_nccl_comm, nranks, nccl_id, rank));
+#else
+    cached_mpi_comm = comm;
+    cal_comm_create_params_t params;
+    params.allgather = &allgather;
+    params.req_test = &req_test;
+    params.req_free = &req_free;
+    params.data = &cached_mpi_comm;
+    params.rank = rank;
+    params.nranks = nranks;
+    params.local_device = local_device;
+    CAL_CHECK(cal_comm_create(params, &cached_cal_comm));
+#endif
+
+    CUDA_CHECK(cudaStreamCreate(&cached_stream));
+    CUSOLVER_CHECK(cusolverMpCreate(&cached_handle, local_device, cached_stream));
+
+    cached_fortran_comm = fortran_comm;
+  }
+
+  // Recreate grid if dimensions changed (or after comm rebuild).
+  if (cached_nprow != nprow || cached_npcol != npcol || cached_grid == NULL) {
+    if (cached_grid) {
+      CUSOLVER_CHECK(cusolverMpDestroyGrid(cached_grid));
+      cached_grid = NULL;
+    }
+#if defined(__CUSOLVERMP_NCCL)
+    CUSOLVER_CHECK(cusolverMpCreateDeviceGrid(
+        cached_handle, &cached_grid, cached_nccl_comm, nprow, npcol,
+        CUSOLVERMP_GRID_MAPPING_ROW_MAJOR));
+#else
+    CUSOLVER_CHECK(cusolverMpCreateDeviceGrid(
+        cached_handle, &cached_grid, cached_cal_comm, nprow, npcol,
+        CUSOLVERMP_GRID_MAPPING_ROW_MAJOR));
+#endif
+    cached_nprow = nprow;
+    cached_npcol = npcol;
+  }
+
+  *handle_out = cached_handle;
+  *grid_out = cached_grid;
+  *stream_out = cached_stream;
+}
+
+/*******************************************************************************
  * \brief Driver routine to diagonalize a matrix with the cuSOLVERMp library.
  * \author Ole Schuett
  ******************************************************************************/
@@ -216,54 +336,14 @@ void cp_fm_diag_cusolver(const int fortran_comm, const int matrix_desc[9],
                          double *eigenvectors, double *eigenvalues) {
 
   offload_activate_chosen_device();
-  const int local_device = offload_get_chosen_device();
 
-  MPI_Comm comm = MPI_Comm_f2c(fortran_comm);
-  int rank, nranks;
-  MPI_Comm_rank(comm, &rank);
-  MPI_Comm_size(comm, &nranks);
-
-#if defined(__CUSOLVERMP_NCCL)
-  // Create NCCL communicator.
-  ncclUniqueId nccl_id;
-  if (rank == 0) {
-    NCCL_CHECK(ncclGetUniqueId(&nccl_id));
-  }
-  MPI_Bcast(&nccl_id, sizeof(nccl_id), MPI_BYTE, 0, comm);
-
-  ncclComm_t nccl_comm;
-  NCCL_CHECK(ncclCommInitRank(&nccl_comm, nranks, nccl_id, rank));
-#else
-  // Create CAL communicator.
-  cal_comm_t cal_comm = NULL;
-  cal_comm_create_params_t params;
-  params.allgather = &allgather;
-  params.req_test = &req_test;
-  params.req_free = &req_free;
-  params.data = &comm;
-  params.rank = rank;
-  params.nranks = nranks;
-  params.local_device = local_device;
-  CAL_CHECK(cal_comm_create(params, &cal_comm));
-#endif
-
-  // Create various handles.
-  cudaStream_t stream = NULL;
-  CUDA_CHECK(cudaStreamCreate(&stream));
-
+  // Get cached cusolverMp infrastructure (communicator, stream, handle, grid).
   cusolverMpHandle_t cusolvermp_handle = NULL;
-  CUSOLVER_CHECK(cusolverMpCreate(&cusolvermp_handle, local_device, stream));
-
   cusolverMpGrid_t grid = NULL;
-#if defined(__CUSOLVERMP_NCCL)
-  CUSOLVER_CHECK(cusolverMpCreateDeviceGrid(cusolvermp_handle, &grid, nccl_comm,
-                                            nprow, npcol,
-                                            CUSOLVERMP_GRID_MAPPING_ROW_MAJOR));
-#else
-  CUSOLVER_CHECK(cusolverMpCreateDeviceGrid(cusolvermp_handle, &grid, cal_comm,
-                                            nprow, npcol,
-                                            CUSOLVERMP_GRID_MAPPING_ROW_MAJOR));
-#endif
+  cudaStream_t stream = NULL;
+  ensure_cusolver_infrastructure(fortran_comm, nprow, npcol,
+                                 &cusolvermp_handle, &grid, &stream);
+
   const int mb = matrix_desc[4];
   const int nb = matrix_desc[5];
   const int rsrc = matrix_desc[6];
@@ -324,7 +404,7 @@ void cp_fm_diag_cusolver(const int fortran_comm, const int matrix_desc[9],
   // Wait for solver to finish.
   CUDA_CHECK(cudaStreamSynchronize(stream));
 #if !defined(__CUSOLVERMP_NCCL)
-  CAL_CHECK(cal_stream_sync(cal_comm, stream));
+  CAL_CHECK(cal_stream_sync(cached_cal_comm, stream));
 #endif
 
   // Check info.
@@ -349,19 +429,11 @@ void cp_fm_diag_cusolver(const int fortran_comm, const int matrix_desc[9],
   CUDA_CHECK(cudaFree(work_dev));
   CUDA_CHECK(cudaFreeHost(work_host));
 
-  // Destroy handles.
+  // Destroy per-call matrix descriptor; grid and infrastructure are cached.
   CUSOLVER_CHECK(cusolverMpDestroyMatrixDesc(cusolvermp_matrix_desc));
-  CUSOLVER_CHECK(cusolverMpDestroyGrid(grid));
-  CUSOLVER_CHECK(cusolverMpDestroy(cusolvermp_handle));
-  CUDA_CHECK(cudaStreamDestroy(stream));
-#if defined(__CUSOLVERMP_NCCL)
-  NCCL_CHECK(ncclCommDestroy(nccl_comm));
-#else
-  CAL_CHECK(cal_comm_destroy(cal_comm));
-#endif
 
   // Sync MPI ranks to include load imbalance in total timings.
-  MPI_Barrier(comm);
+  MPI_Barrier(MPI_Comm_f2c(fortran_comm));
 }
 
 /*******************************************************************************
@@ -412,55 +484,13 @@ void cp_fm_diag_cusolver_sygvd(const int fortran_comm,
                                double *eigenvectors, double *eigenvalues) {
 
   offload_activate_chosen_device();
-  const int local_device = offload_get_chosen_device();
 
-  MPI_Comm comm = MPI_Comm_f2c(fortran_comm);
-  int rank, nranks;
-  MPI_Comm_rank(comm, &rank);
-  MPI_Comm_size(comm, &nranks);
-
-#if defined(__CUSOLVERMP_NCCL)
-  // Create NCCL communicator.
-  ncclUniqueId nccl_id;
-  if (rank == 0) {
-    NCCL_CHECK(ncclGetUniqueId(&nccl_id));
-  }
-  MPI_Bcast(&nccl_id, sizeof(nccl_id), MPI_BYTE, 0, comm);
-
-  ncclComm_t nccl_comm;
-  NCCL_CHECK(ncclCommInitRank(&nccl_comm, nranks, nccl_id, rank));
-#else
-  // Create CAL communicator
-  cal_comm_t cal_comm = NULL;
-  cal_comm_create_params_t params;
-  params.allgather = &allgather;
-  params.req_test = &req_test;
-  params.req_free = &req_free;
-  params.data = &comm;
-  params.rank = rank;
-  params.nranks = nranks;
-  params.local_device = local_device;
-  CAL_CHECK(cal_comm_create(params, &cal_comm));
-#endif
-
-  // Create CUDA stream and cuSOLVER handle
-  cudaStream_t stream = NULL;
-  CUDA_CHECK(cudaStreamCreate(&stream));
-
+  // Get cached cusolverMp infrastructure (communicator, stream, handle, grid).
   cusolverMpHandle_t cusolvermp_handle = NULL;
-  CUSOLVER_CHECK(cusolverMpCreate(&cusolvermp_handle, local_device, stream));
-
-  // Define grid for device computation
   cusolverMpGrid_t grid = NULL;
-#if defined(__CUSOLVERMP_NCCL)
-  CUSOLVER_CHECK(cusolverMpCreateDeviceGrid(cusolvermp_handle, &grid, nccl_comm,
-                                            nprow, npcol,
-                                            CUSOLVERMP_GRID_MAPPING_ROW_MAJOR));
-#else
-  CUSOLVER_CHECK(cusolverMpCreateDeviceGrid(cusolvermp_handle, &grid, cal_comm,
-                                            nprow, npcol,
-                                            CUSOLVERMP_GRID_MAPPING_ROW_MAJOR));
-#endif
+  cudaStream_t stream = NULL;
+  ensure_cusolver_infrastructure(fortran_comm, nprow, npcol,
+                                 &cusolvermp_handle, &grid, &stream);
 
   // Matrix descriptors for A, B, and Z
   const int mb_a = a_matrix_desc[4];
@@ -569,7 +599,7 @@ void cp_fm_diag_cusolver_sygvd(const int fortran_comm,
   // Wait for computation to finish
   CUDA_CHECK(cudaStreamSynchronize(stream));
 #if !defined(__CUSOLVERMP_NCCL)
-  CAL_CHECK(cal_stream_sync(cal_comm, stream));
+  CAL_CHECK(cal_stream_sync(cached_cal_comm, stream));
 #endif
 
   // Check info
@@ -590,20 +620,12 @@ void cp_fm_diag_cusolver_sygvd(const int fortran_comm,
   // Wait for copy to finish
   CUDA_CHECK(cudaStreamSynchronize(stream));
 
-  // Destroy per-call handles (NCCL comm/handle caching deferred to later)
+  // Destroy per-call matrix descriptors; buffers and infrastructure are cached.
   CUSOLVER_CHECK(cusolverMpDestroyMatrixDesc(descrA));
   CUSOLVER_CHECK(cusolverMpDestroyMatrixDesc(descrB));
   CUSOLVER_CHECK(cusolverMpDestroyMatrixDesc(descrZ));
-  CUSOLVER_CHECK(cusolverMpDestroyGrid(grid));
-  CUSOLVER_CHECK(cusolverMpDestroy(cusolvermp_handle));
-  CUDA_CHECK(cudaStreamDestroy(stream));
-#if defined(__CUSOLVERMP_NCCL)
-  NCCL_CHECK(ncclCommDestroy(nccl_comm));
-#else
-  CAL_CHECK(cal_comm_destroy(cal_comm));
-#endif
 
-  MPI_Barrier(comm); // Synchronize MPI ranks
+  MPI_Barrier(MPI_Comm_f2c(fortran_comm)); // Synchronize MPI ranks
 }
 #endif
 
