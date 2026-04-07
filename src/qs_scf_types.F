@@ -117,6 +117,8 @@ MODULE qs_scf_types
       TYPE(davidson_type), POINTER, DIMENSION(:) :: block_davidson_env => NULL()
       TYPE(fb_env_obj) :: filter_matrix_env = fb_env_obj()
       TYPE(floating_basis_type) :: floating_basis = floating_basis_type()
+      !> cached FM copy of overlap matrix S for cuSOLVERMp generalized eigensolver
+      TYPE(cp_fm_type), POINTER :: s_fm_cusolver => NULL()
       !> reference molecular orbitals for the maximum overlap method
       TYPE(cp_fm_type), DIMENSION(:), POINTER          :: mom_ref_mo_coeff => NULL()
       !> MOM-related work matrices
@@ -295,6 +297,10 @@ CONTAINS
       IF (ASSOCIATED(scf_env%s_minus_one)) THEN
          CALL cp_fm_release(scf_env%s_minus_one)
          DEALLOCATE (scf_env%s_minus_one)
+      END IF
+      IF (ASSOCIATED(scf_env%s_fm_cusolver)) THEN
+         CALL cp_fm_release(scf_env%s_fm_cusolver)
+         DEALLOCATE (scf_env%s_fm_cusolver)
       END IF
       IF (ASSOCIATED(scf_env%p_mix_new)) THEN
          ! we should not end up here, and give back using the pools
